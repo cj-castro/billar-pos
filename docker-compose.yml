@@ -1,0 +1,66 @@
+services:
+
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-billiardbar}
+      POSTGRES_USER: ${POSTGRES_USER:-billiard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-billiard_secret}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-billiard} -d ${POSTGRES_DB:-billiardbar}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - billiardbar_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-billiard}:${POSTGRES_PASSWORD:-billiard_secret}@postgres:5432/${POSTGRES_DB:-billiardbar}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-in-production}
+      BILLING_MODE: ${BILLING_MODE:-PER_MINUTE}
+      POOL_RATE_CENTS: ${POOL_RATE_CENTS:-150}
+      HAPPY_HOUR_START: ${HAPPY_HOUR_START:-17:00}
+      HAPPY_HOUR_END: ${HAPPY_HOUR_END:-20:00}
+      HAPPY_HOUR_DISCOUNT_PCT: ${HAPPY_HOUR_DISCOUNT_PCT:-20}
+      CURRENCY: ${CURRENCY:-USD}
+      TZ: ${TZ:-America/Chicago}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FLASK_ENV: ${FLASK_ENV:-production}
+      FLASK_APP: wsgi.py
+    networks:
+      - billiardbar_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api/v1
+        VITE_SOCKET_URL: /
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - billiardbar_net
+
+volumes:
+  pg_data:
+    driver: local
+
+networks:
+  billiardbar_net:
+    driver: bridge
