@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Inserts DbConfigDlg between WelcomeDlg and VerifyReadyDlg.
+
+  Strategy: use Order="0" to fire our NewDialog BEFORE the built-in
+  WixUI_Minimal publish (Order="1") that goes to VerifyReadyDlg.
+  Once our NewDialog fires and the dialog changes, the higher-order
+  built-in publish never executes.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <UI Id="WixUI_DbConfig">
+
+      <!-- Include our custom dialog -->
+      <DialogRef Id="DbConfigDlg" />
+
+      <!-- WelcomeDlg → DbConfigDlg (Order=0 fires before built-in Order=1 → VerifyReadyDlg) -->
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="DbConfigDlg" Condition="1" Order="0" />
+
+      <!-- VerifyReadyDlg Back → DbConfigDlg (override built-in back target) -->
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="DbConfigDlg" Condition="NOT Installed" Order="3" />
+
+    </UI>
+  </Fragment>
+</Wix>

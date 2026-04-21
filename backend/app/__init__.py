@@ -309,4 +309,20 @@ def create_app(config_class=Config):
     def health():
         return {'status': 'ok'}
 
+    # Desktop mode: serve built React SPA from frontend/dist/
+    import os as _os
+    if _os.environ.get('SERVE_STATIC'):
+        from flask import send_from_directory as _sfd
+        _dist = _os.path.normpath(
+            _os.path.join(_os.path.dirname(__file__), '..', '..', 'frontend', 'dist')
+        )
+
+        @app.route('/', defaults={'path': ''})
+        @app.route('/<path:path>')
+        def serve_frontend(path):
+            full = _os.path.join(_dist, path)
+            if path and _os.path.exists(full):
+                return _sfd(_dist, path)
+            return _sfd(_dist, 'index.html')
+
     return app

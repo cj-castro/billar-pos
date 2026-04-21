@@ -1,0 +1,12 @@
+{
+  "name": "billiardbar-pos-desktop",
+  "version": "1.0.0",
+  "description": "BilliardBar POS Desktop Application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^25.9.8"
+  }
+}

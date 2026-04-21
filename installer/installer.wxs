@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package Name="BilliardBar POS"
+           Manufacturer="BilliardBar"
+           Version="1.0.0"
+           UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
+           Language="1033">
+
+    <SummaryInformation Description="BilliardBar POS Desktop Application" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of BilliardBar POS is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- ── DB config properties collected by the dialog ── -->
+    <Property Id="DB_HOST"     Value="localhost" />
+    <Property Id="DB_PORT"     Value="5432" />
+    <Property Id="DB_NAME"     Value="billiardbar" />
+    <Property Id="DB_USER"     Value="postgres" />
+    <Property Id="DB_PASSWORD" Hidden="yes" />
+
+    <!-- ── Build the PowerShell command string before the deferred CA runs ── -->
+    <SetProperty Id="WriteEnvFile"
+                 Sequence="execute"
+                 Before="WriteEnvFile"
+                 Value="[SystemFolder]WindowsPowerShell\v1.0\powershell.exe -NonInteractive -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]write-env.ps1&quot; -DBHost [DB_HOST] -DBPort [DB_PORT] -DBName [DB_NAME] -DBUser [DB_USER] -DBPass [DB_PASSWORD]" />
+
+    <!-- ── Deferred CA: runs the PowerShell script that writes .env ── -->
+    <CustomAction Id="WriteEnvFile"
+                  BinaryRef="Wix4UtilCA_X86"
+                  DllEntry="WixQuietExec"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="check" />
+
+    <!-- ── Build the remove command ── -->
+    <SetProperty Id="RemoveEnvFile"
+                 Sequence="execute"
+                 Before="RemoveEnvFile"
+                 Value="[SystemFolder]WindowsPowerShell\v1.0\powershell.exe -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command &quot;$f = Join-Path $env:APPDATA 'BilliardBarPOS\.env'; if (Test-Path $f) { Remove-Item $f -Force }&quot;" />
+
+    <CustomAction Id="RemoveEnvFile"
+                  BinaryRef="Wix4UtilCA_X86"
+                  DllEntry="WixQuietExec"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+
+    <!-- ── Sequence the CAs ── -->
+    <InstallExecuteSequence>
+      <Custom Action="WriteEnvFile" After="InstallFiles" Condition="NOT Installed" />
+      <Custom Action="RemoveEnvFile" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+
+    <!-- ── Files ── -->
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="BilliardBar POS">
+
+        <!-- Electron launcher files -->
+        <Component Id="ElectronMain" Guid="B1C2D3E4-F5A6-7890-BCDE-F12345678901">
+          <File Source="..\electron\main.js" KeyPath="yes" />
+          <File Source="..\electron\package.json" />
+        </Component>
+
+        <!-- PowerShell helper script (must be in INSTALLFOLDER for the CA) -->
+        <Component Id="WriteEnvScript" Guid="F6A7B8C9-D0E1-2345-F6A7-B8C9D0E12345">
+          <File Source="write-env.ps1" KeyPath="yes" />
+        </Component>
+
+        <!-- backend/ -->
+        <Directory Id="BackendDir" Name="backend">
+          <Component Id="BackendFiles" Guid="C2D3E4F5-A6B7-8901-CDEF-123456789012">
+            <File Source="..\backend\desktop.py" KeyPath="yes" />
+            <File Source="..\backend\wsgi.py" />
+            <File Source="..\backend\seed.py" />
+            <File Source="..\backend\requirements.txt" />
+          </Component>
+        </Directory>
+
+      </Directory>
+    </StandardDirectory>
+
+    <!-- ── Start Menu shortcut ── -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppProgramsFolder" Name="BilliardBar POS">
+        <Component Id="StartMenuShortcut" Guid="D3E4F5A6-B7C8-9012-DEF0-234567890123">
+          <Shortcut Id="StartMenuSC"
+                    Name="BilliardBar POS"
+                    Description="BilliardBar Point of Sale"
+                    Target="[INSTALLFOLDER]BilliardBar POS.exe"
+                    WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder Id="CleanupStartMenu" Directory="AppProgramsFolder" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\BilliardBar\POS"
+                         Name="installed" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- ── Desktop shortcut ── -->
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="E4F5A6B7-C8D9-0123-EF01-345678901234">
+        <Shortcut Id="DesktopSC"
+                  Name="BilliardBar POS"
+                  Description="BilliardBar Point of Sale"
+                  Target="[INSTALLFOLDER]BilliardBar POS.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\BilliardBar\POS"
+                       Name="desktop" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- ── Feature ── -->
+    <Feature Id="ProductFeature" Title="BilliardBar POS" Level="1">
+      <ComponentRef Id="ElectronMain" />
+      <ComponentRef Id="WriteEnvScript" />
+      <ComponentRef Id="BackendFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+
+    <!-- ── UI: WixUI_Minimal + our custom DbConfigDlg injected ── -->
+    <ui:WixUI Id="WixUI_Minimal" />
+    <UIRef Id="WixUI_DbConfig" />
+
+  </Package>
+</Wix>
