@@ -23,8 +23,10 @@ frontend/dist/
 # Electron
 electron/node_modules/
 
-# Installer output (MSI distributed as release, not committed)
+# Installer build artifacts (distributed as release, not committed)
 installer/out/
+installer/harvested.wxs
+electron/dist/
 
 # OS
 .DS_Store

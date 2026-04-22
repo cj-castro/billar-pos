@@ -28,7 +28,7 @@
 
     <!-- ── Deferred CA: runs the PowerShell script that writes .env ── -->
     <CustomAction Id="WriteEnvFile"
-                  BinaryRef="Wix4UtilCA_X86"
+                  BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixQuietExec"
                   Execute="deferred"
                   Impersonate="yes"
@@ -41,7 +41,7 @@
                  Value="[SystemFolder]WindowsPowerShell\v1.0\powershell.exe -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command &quot;$f = Join-Path $env:APPDATA 'BilliardBarPOS\.env'; if (Test-Path $f) { Remove-Item $f -Force }&quot;" />
 
     <CustomAction Id="RemoveEnvFile"
-                  BinaryRef="Wix4UtilCA_X86"
+                  BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixQuietExec"
                   Execute="deferred"
                   Impersonate="yes"
@@ -53,30 +53,14 @@
       <Custom Action="RemoveEnvFile" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
     </InstallExecuteSequence>
 
-    <!-- ── Files ── -->
+    <!-- ── Install folder: Electron app (harvested) + write-env helper ── -->
     <StandardDirectory Id="ProgramFilesFolder">
       <Directory Id="INSTALLFOLDER" Name="BilliardBar POS">
 
-        <!-- Electron launcher files -->
-        <Component Id="ElectronMain" Guid="B1C2D3E4-F5A6-7890-BCDE-F12345678901">
-          <File Source="..\electron\main.js" KeyPath="yes" />
-          <File Source="..\electron\package.json" />
-        </Component>
-
-        <!-- PowerShell helper script (must be in INSTALLFOLDER for the CA) -->
+        <!-- PowerShell helper that writes %APPDATA%\BilliardBarPOS\.env on install -->
         <Component Id="WriteEnvScript" Guid="F6A7B8C9-D0E1-2345-F6A7-B8C9D0E12345">
           <File Source="write-env.ps1" KeyPath="yes" />
         </Component>
-
-        <!-- backend/ -->
-        <Directory Id="BackendDir" Name="backend">
-          <Component Id="BackendFiles" Guid="C2D3E4F5-A6B7-8901-CDEF-123456789012">
-            <File Source="..\backend\desktop.py" KeyPath="yes" />
-            <File Source="..\backend\wsgi.py" />
-            <File Source="..\backend\seed.py" />
-            <File Source="..\backend\requirements.txt" />
-          </Component>
-        </Directory>
 
       </Directory>
     </StandardDirectory>
@@ -112,9 +96,8 @@
 
     <!-- ── Feature ── -->
     <Feature Id="ProductFeature" Title="BilliardBar POS" Level="1">
-      <ComponentRef Id="ElectronMain" />
       <ComponentRef Id="WriteEnvScript" />
-      <ComponentRef Id="BackendFiles" />
+      <ComponentGroupRef Id="ElectronApp" />   <!-- harvested from electron/dist/win-unpacked -->
       <ComponentRef Id="StartMenuShortcut" />
       <ComponentRef Id="DesktopShortcut" />
     </Feature>

@@ -4,9 +4,36 @@
   "description": "BilliardBar POS Desktop Application",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder --win dir"
   },
   "dependencies": {
     "electron": "^25.9.8"
+  },
+  "devDependencies": {
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.billiardbar.pos",
+    "productName": "BilliardBar POS",
+    "copyright": "Copyright © 2025 BilliardBar",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist/billiardbar-backend",
+        "to": "backend",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": "dir"
+    },
+    "asar": false
   }
 }

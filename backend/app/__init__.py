@@ -310,12 +310,16 @@ def create_app(config_class=Config):
         return {'status': 'ok'}
 
     # Desktop mode: serve built React SPA from frontend/dist/
-    import os as _os
+    import os as _os, sys as _sys
     if _os.environ.get('SERVE_STATIC'):
         from flask import send_from_directory as _sfd
-        _dist = _os.path.normpath(
-            _os.path.join(_os.path.dirname(__file__), '..', '..', 'frontend', 'dist')
-        )
+        if getattr(_sys, 'frozen', False):
+            # PyInstaller bundle: frontend/dist was added to datas, extracted to _MEIPASS
+            _dist = _os.path.join(_sys._MEIPASS, 'frontend', 'dist')
+        else:
+            _dist = _os.path.normpath(
+                _os.path.join(_os.path.dirname(__file__), '..', '..', 'frontend', 'dist')
+            )
 
         @app.route('/', defaults={'path': ''})
         @app.route('/<path:path>')

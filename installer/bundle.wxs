@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WiX v4 Bootstrapper Bundle
+  Chains: VC++ 2022 Redistributable (x64) → BilliardBar POS MSI
+
+  Build: wix build bundle.wxs -ext WixToolset.Bal.wixext -ext WixToolset.Util.wixext
+                               -out out\BilliardBarPOS-Setup.exe
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Bundle Name="BilliardBar POS"
+          Version="1.0.0"
+          Manufacturer="BilliardBar"
+          AboutUrl="https://github.com/billiardbar/pos"
+          UpgradeCode="A2B3C4D5-E6F7-8901-BCDE-F23456789012">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkSidebarLicense"
+                                               SuppressOptionsUI="yes"
+                                               SuppressRepair="yes" />
+    </BootstrapperApplication>
+
+    <!-- Detect VC++ 2022 Redistributable x64 via registry -->
+    <util:RegistrySearch Id="FindVcRedist"
+                         Variable="VcRedistInstalled"
+                         Root="HKLM"
+                         Key="SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+                         Value="Installed"
+                         Result="value"
+                         Format="raw" />
+
+    <Chain>
+      <!-- Visual C++ 2022 Redistributable (x64) — skipped if already present -->
+      <ExePackage Id="VcRedist2022"
+                  Name="Visual C++ 2022 Redistributable (x64)"
+                  SourceFile="vc_redist.x64.exe"
+                  DetectCondition="VcRedistInstalled = 1"
+                  InstallCommand="/install /quiet /norestart"
+                  RepairCommand="/repair /quiet /norestart"
+                  UninstallCommand="/uninstall /quiet /norestart"
+                  Vital="yes"
+                  PerMachine="yes" />
+
+      <!-- Main BilliardBar POS installer -->
+      <MsiPackage Id="BilliardBarPOS"
+                  SourceFile="BilliardBarPOS-Setup.msi"
+                  Vital="yes"
+                  DisplayInternalUI="yes" />
+    </Chain>
+
+  </Bundle>
+</Wix>

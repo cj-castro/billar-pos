@@ -37,8 +37,6 @@ function loadEnvConfig() {
 loadEnvConfig()
 
 function startFlask() {
-  const backendDir = path.join(__dirname, '..', 'backend')
-
   const flaskEnv = {
     ...process.env,
     DATABASE_URL: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/billiardbar',
@@ -50,11 +48,24 @@ function startFlask() {
     LOG_LEVEL: process.env.LOG_LEVEL || 'INFO',
   }
 
-  // Try 'python' first (Windows default), fall back to 'python3'
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
+  let flaskExe, flaskArgs, flaskCwd
 
-  flaskProcess = spawn(pythonCmd, ['desktop.py'], {
-    cwd: backendDir,
+  if (app.isPackaged) {
+    // Packaged mode: run the PyInstaller standalone binary (in resources/backend/)
+    const backendDir = path.join(process.resourcesPath, 'backend')
+    flaskExe = path.join(backendDir, 'billiardbar-backend.exe')
+    flaskArgs = []
+    flaskCwd = backendDir
+  } else {
+    // Development mode: spawn Python directly from source tree
+    const backendDir = path.join(__dirname, '..', 'backend')
+    flaskExe = process.platform === 'win32' ? 'python' : 'python3'
+    flaskArgs = ['desktop.py']
+    flaskCwd = backendDir
+  }
+
+  flaskProcess = spawn(flaskExe, flaskArgs, {
+    cwd: flaskCwd,
     env: flaskEnv,
   })
 
