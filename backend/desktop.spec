@@ -13,6 +13,12 @@ a = Analysis(
         ('../frontend/dist', 'frontend/dist'),        # Bundled React SPA
     ],
     hiddenimports=[
+        # jaraco — required by setuptools/pkg_resources at runtime inside PyInstaller
+        'jaraco.text',
+        'jaraco.functools',
+        'jaraco.classes',
+        'jaraco.classes.properties',
+        'jaraco.context',
         # Flask ecosystem
         'flask',
         'flask.templating',
