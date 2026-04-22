@@ -5,12 +5,11 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win dir"
+    "build": "electron-builder --win nsis"
   },
-  "dependencies": {
-    "electron": "^25.9.8"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "electron": "^25.9.8",
     "electron-builder": "^24.13.3"
   },
   "build": {
@@ -22,6 +21,8 @@
     },
     "files": [
       "main.js",
+      "preload.js",
+      "setup.html",
       "package.json"
     ],
     "extraResources": [
@@ -32,7 +33,23 @@
       }
     ],
     "win": {
-      "target": "dir"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "BilliardBarPOS-Setup.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BilliardBar POS",
+      "menuCategory": "BilliardBar",
+      "deleteAppDataOnUninstall": false
     },
     "asar": false
   }

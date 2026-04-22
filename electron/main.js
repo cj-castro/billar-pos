@@ -1,8 +1,10 @@
-const { app, BrowserWindow, dialog } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const http = require('http')
 const fs = require('fs')
+const os = require('os')
+const crypto = require('crypto')
 
 const FLASK_PORT = 5000
 const FLASK_URL = `http://127.0.0.1:${FLASK_PORT}`
@@ -12,31 +14,72 @@ const HEALTH_INTERVAL_MS = 500
 
 let flaskProcess = null
 let mainWindow = null
+let setupWindow = null
 
-// Load .env written by installer (or fall back to defaults)
-function loadEnvConfig() {
-  const appDataEnv = path.join(
-    process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming'),
-    'BilliardBarPOS',
-    '.env'
+// ---------------------------------------------------------------------------
+// AppData .env helpers
+// ---------------------------------------------------------------------------
+
+function getEnvDir() {
+  return path.join(
+    process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
+    'BilliardBarPOS'
   )
-  if (fs.existsSync(appDataEnv)) {
-    const lines = fs.readFileSync(appDataEnv, 'utf8').split('\n')
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed.startsWith('#')) continue
-      const eq = trimmed.indexOf('=')
-      if (eq === -1) continue
-      const key = trimmed.slice(0, eq).trim()
-      const val = trimmed.slice(eq + 1).trim()
-      if (key && !(key in process.env)) process.env[key] = val
-    }
+}
+
+function getEnvPath() {
+  return path.join(getEnvDir(), '.env')
+}
+
+function loadEnvConfig() {
+  const envPath = getEnvPath()
+  if (!fs.existsSync(envPath)) return
+  const lines = fs.readFileSync(envPath, 'utf8').split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const eq = trimmed.indexOf('=')
+    if (eq === -1) continue
+    const key = trimmed.slice(0, eq).trim()
+    const val = trimmed.slice(eq + 1).trim()
+    if (key && !(key in process.env)) process.env[key] = val
   }
 }
 
-loadEnvConfig()
+function isConfigured() {
+  const envPath = getEnvPath()
+  if (!fs.existsSync(envPath)) return false
+  const content = fs.readFileSync(envPath, 'utf8')
+  // Configured if DATABASE_URL is present and non-empty
+  return /^DATABASE_URL=.+/m.test(content)
+}
+
+function writeEnvFile({ host, port, dbName, user, password }) {
+  const dir = getEnvDir()
+  fs.mkdirSync(dir, { recursive: true })
+
+  // Percent-encode special chars in password for the connection URL
+  const encodedPass = encodeURIComponent(password)
+  const dbUrl = `postgresql://${user}:${encodedPass}@${host}:${port}/${dbName}`
+
+  const content = [
+    `DATABASE_URL=${dbUrl}`,
+    `SECRET_KEY=${crypto.randomBytes(32).toString('hex')}`,
+    `JWT_REFRESH_SECRET=${crypto.randomBytes(32).toString('hex')}`,
+    `LOG_LEVEL=INFO`,
+  ].join('\n') + '\n'
+
+  fs.writeFileSync(getEnvPath(), content, 'utf8')
+}
+
+// ---------------------------------------------------------------------------
+// Flask process
+// ---------------------------------------------------------------------------
 
 function startFlask() {
+  // Reload .env so freshly written config is picked up
+  loadEnvConfig()
+
   const flaskEnv = {
     ...process.env,
     DATABASE_URL: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/billiardbar',
@@ -51,13 +94,11 @@ function startFlask() {
   let flaskExe, flaskArgs, flaskCwd
 
   if (app.isPackaged) {
-    // Packaged mode: run the PyInstaller standalone binary (in resources/backend/)
     const backendDir = path.join(process.resourcesPath, 'backend')
     flaskExe = path.join(backendDir, 'billiardbar-backend.exe')
     flaskArgs = []
     flaskCwd = backendDir
   } else {
-    // Development mode: spawn Python directly from source tree
     const backendDir = path.join(__dirname, '..', 'backend')
     flaskExe = process.platform === 'win32' ? 'python' : 'python3'
     flaskArgs = ['desktop.py']
@@ -74,11 +115,7 @@ function startFlask() {
 
   flaskProcess.on('error', (err) => {
     console.error('[Electron] Failed to start Flask process:', err.message)
-    dialog.showErrorBox(
-      'Backend Error',
-      `Could not start the backend server.\n\nMake sure Python is installed and dependencies are set up.\n\nError: ${err.message}`
-    )
-    app.quit()
+    showFatalError(`Could not start the backend server.\n\nError: ${err.message}`)
   })
 
   flaskProcess.on('exit', (code) => {
@@ -87,6 +124,17 @@ function startFlask() {
     }
   })
 }
+
+function stopFlask() {
+  if (flaskProcess) {
+    flaskProcess.kill()
+    flaskProcess = null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Health check with retry — on permanent failure offer Reconfigure / Quit
+// ---------------------------------------------------------------------------
 
 function waitForFlask(callback, retriesLeft = MAX_HEALTH_RETRIES) {
   const req = http.get(HEALTH_URL, (res) => {
@@ -97,22 +145,46 @@ function waitForFlask(callback, retriesLeft = MAX_HEALTH_RETRIES) {
       retry(callback, retriesLeft)
     }
   })
-
   req.on('error', () => retry(callback, retriesLeft))
   req.setTimeout(400, () => { req.destroy(); retry(callback, retriesLeft) })
 }
 
 function retry(callback, retriesLeft) {
   if (retriesLeft <= 0) {
-    dialog.showErrorBox(
-      'Backend Timeout',
-      'The backend server did not start within 30 seconds.\n\nCheck that PostgreSQL is running and the database exists.\n\nRun setup-desktop.bat if this is your first time.'
-    )
-    app.quit()
+    const choice = dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'BilliardBar POS — Backend Timeout',
+      message: 'The backend server did not start within 30 seconds.',
+      detail: 'This usually means the database credentials are wrong or PostgreSQL is not running.\n\nCheck that PostgreSQL is running and try reconfiguring the connection.',
+      buttons: ['Reconfigure Database', 'Quit'],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (choice === 0) {
+      stopFlask()
+      showSetupWindow()
+    } else {
+      app.quit()
+    }
     return
   }
   setTimeout(() => waitForFlask(callback, retriesLeft - 1), HEALTH_INTERVAL_MS)
 }
+
+function showFatalError(detail) {
+  dialog.showMessageBoxSync({
+    type: 'error',
+    title: 'BilliardBar POS — Error',
+    message: 'A fatal error occurred.',
+    detail,
+    buttons: ['Quit'],
+  })
+  app.quit()
+}
+
+// ---------------------------------------------------------------------------
+// Windows
+// ---------------------------------------------------------------------------
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -134,19 +206,84 @@ function createWindow() {
   })
 }
 
+function showSetupWindow() {
+  if (setupWindow) {
+    setupWindow.focus()
+    return
+  }
+
+  setupWindow = new BrowserWindow({
+    width: 520,
+    height: 620,
+    resizable: false,
+    title: 'BilliardBar POS — Setup',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  // In packaged mode, app files live in resources/app/ (asar:false → unpacked dir)
+  const setupFile = path.join(__dirname, 'setup.html')
+
+  setupWindow.loadFile(setupFile)
+
+  setupWindow.on('closed', () => {
+    setupWindow = null
+  })
+}
+
+// ---------------------------------------------------------------------------
+// IPC handlers
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('save-config', async (_event, config) => {
+  try {
+    writeEnvFile(config)
+    // Close setup window, launch Flask
+    if (setupWindow) { setupWindow.close(); setupWindow = null }
+    startFlask()
+    waitForFlask(createWindow)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('reconfigure', async () => {
+  stopFlask()
+  if (mainWindow) { mainWindow.close(); mainWindow = null }
+  try { fs.unlinkSync(getEnvPath()) } catch (_) {}
+  showSetupWindow()
+  return { success: true }
+})
+
+// ---------------------------------------------------------------------------
+// App lifecycle
+// ---------------------------------------------------------------------------
+
 app.whenReady().then(() => {
-  startFlask()
-  waitForFlask(createWindow)
+  if (isConfigured()) {
+    loadEnvConfig()
+    startFlask()
+    waitForFlask(createWindow)
+  } else {
+    showSetupWindow()
+  }
 })
 
 app.on('window-all-closed', () => {
-  if (flaskProcess) {
-    flaskProcess.kill()
-    flaskProcess = null
-  }
+  stopFlask()
   app.quit()
 })
 
 app.on('activate', () => {
-  if (mainWindow === null) createWindow()
+  if (mainWindow === null && !setupWindow) {
+    if (isConfigured()) {
+      createWindow()
+    } else {
+      showSetupWindow()
+    }
+  }
 })
