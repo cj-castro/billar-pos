@@ -1,3 +1,7 @@
+import os
+import json
+from urllib.request import urlopen, Request
+from urllib.error import URLError
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
@@ -8,8 +12,11 @@ from app.models.ticket import (
     PoolTimerSession
 )
 from app.models.menu import MenuItem
+from app.models.waiting_list import WaitingListEntry
 from app.services import audit_svc, billing, inventory_svc, promotion_svc
 from app.config import Config
+
+PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://host.docker.internal:9191')
 
 tickets_bp = Blueprint('tickets', __name__)
 
@@ -55,14 +62,13 @@ def open_ticket():
     if not open_session:
         return jsonify({'error': 'BAR_CLOSED', 'message': 'Bar is not open. Manager must open the cash session first.'}), 403
 
-    resource = Resource.query.get_or_404(resource_id)
-
-    # For pool tables: lock row and check availability
-    if resource.type == 'POOL_TABLE':
-        resource = Resource.query.with_for_update().get(resource_id)
-        if resource.status == 'IN_USE':
-            return jsonify({'error': 'POOL_TABLE_OCCUPIED',
-                            'message': f'{resource.code} is currently in use'}), 409
+    # Lock row and check availability for ALL resource types
+    resource = Resource.query.with_for_update().get(resource_id)
+    if resource is None:
+        return jsonify({'error': 'NOT_FOUND'}), 404
+    if resource.status == 'IN_USE':
+        return jsonify({'error': 'RESOURCE_OCCUPIED',
+                        'message': f'{resource.code} ya está en uso'}), 409
 
     ticket = Ticket(resource_id=resource_id, opened_by=user_id,
                     customer_name=data.get('customer_name', '').strip() or None)
@@ -87,6 +93,22 @@ def open_ticket():
         )
         db.session.add(timer)
         audit_svc.log(user_id, 'TIMER_START', 'pool_timer', ticket.id)
+
+    # If ticket is linked to a waiting list entry, mark it assigned (always removes from list)
+    wl_entry_id = data.get('waiting_list_entry_id')
+    if wl_entry_id:
+        wl_entry = WaitingListEntry.query.filter(
+            WaitingListEntry.id == wl_entry_id,
+            WaitingListEntry.status.in_(['WAITING', 'SEATED'])
+        ).first()
+        if wl_entry:
+            wl_entry.status = 'ASSIGNED'
+            wl_entry.assigned_at = datetime.now(timezone.utc)
+            wl_entry.assigned_resource_id = resource_id
+            wl_entry.assigned_ticket_id = ticket.id
+            audit_svc.log(user_id, 'WAITLIST_ASSIGN', 'waiting_list', wl_entry.id,
+                          after={'resource_id': resource_id, 'ticket_id': ticket.id})
+            socketio.emit('waiting_list:update', {}, room='floor')
 
     audit_svc.log(user_id, 'TICKET_OPEN', 'ticket', ticket.id, after={'resource_id': resource_id})
     db.session.commit()
@@ -174,6 +196,7 @@ def add_item(ticket_id):
     line_item = TicketLineItem(
         ticket_id=ticket_id,
         menu_item_id=menu_item.id,
+        item_name=menu_item.name,
         quantity=data.get('quantity', 1),
         unit_price_cents=menu_item.price_cents,
         routing_dest=menu_item.category.routing,
@@ -315,6 +338,9 @@ def transfer_ticket(ticket_id):
     # Free old resource for all types
     if old_resource:
         old_resource.status = 'AVAILABLE'
+        # Auto-remove temp tables when ticket transfers away
+        if old_resource.is_temp:
+            old_resource.is_active = False
 
     # Start timer if moving to pool table
     if new_resource.type == 'POOL_TABLE':
@@ -359,6 +385,9 @@ def close_ticket(ticket_id):
     payment_type = data.get('payment_type')        # CASH or CARD (primary)
     tendered_cents = data.get('tendered_cents')
     tip_cents = data.get('tip_cents', 0) or 0
+    tip_source = data.get('tip_source')             # CASH, CARD, SPLIT
+    tip_cash_cents = data.get('tip_cash_cents')      # explicit split amounts
+    tip_card_cents = data.get('tip_card_cents')
     payment_type_2 = data.get('payment_type_2')    # optional second payment
     tendered_cents_2 = data.get('tendered_cents_2')
 
@@ -380,11 +409,17 @@ def close_ticket(ticket_id):
         resource = Resource.query.get(ticket.resource_id)
         if resource:
             resource.status = 'AVAILABLE'
+            # Auto-remove temp tables when their ticket is closed
+            if resource.is_temp:
+                resource.is_active = False
 
     ticket.recalculate_totals()
     ticket.payment_type = payment_type
     ticket.tendered_cents = tendered_cents
     ticket.tip_cents = tip_cents
+    ticket.tip_source = tip_source or ('SPLIT' if payment_type_2 else payment_type)
+    ticket.tip_cash_cents = tip_cash_cents
+    ticket.tip_card_cents = tip_card_cents
     ticket.payment_type_2 = payment_type_2 or None
     ticket.tendered_cents_2 = tendered_cents_2 or None
     ticket.status = 'CLOSED'
@@ -509,7 +544,6 @@ def cancel_ticket(ticket_id):
         resource = Resource.query.get(ticket.resource_id)
         if resource:
             resource.status = 'AVAILABLE'
-            resource.timer_start = None
 
     ticket.status = 'CANCELLED'
     ticket.closed_at = datetime.now(timezone.utc)
@@ -532,7 +566,7 @@ def reopen_ticket(ticket_id):
         return jsonify({'error': 'FORBIDDEN'}), 403
 
     user_id = get_jwt_identity()
-    ticket = Ticket.query.get_or_404(ticket_id)
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
     if ticket.status == 'OPEN':
         return jsonify({'error': 'ALREADY_OPEN'}), 409
 
@@ -624,3 +658,137 @@ def clear_payment_request(ticket_id):
     db.session.commit()
     _emit_floor_update()
     return jsonify({'ok': True})
+
+
+@tickets_bp.route('/open-all', methods=['GET'])
+@jwt_required()
+def list_all_open_tickets():
+    """Manager: list every OPEN ticket so ghost/stuck tabs can be identified and force-closed."""
+    claims = get_jwt()
+    if claims.get('role') not in ('MANAGER', 'ADMIN'):
+        return jsonify({'error': 'FORBIDDEN'}), 403
+    tickets = Ticket.query.filter_by(status='OPEN').order_by(Ticket.opened_at).all()
+    result = []
+    for t in tickets:
+        resource = Resource.query.get(t.resource_id) if t.resource_id else None
+        result.append({
+            'id': t.id,
+            'resource_code': resource.code if resource else None,
+            'resource_status': resource.status if resource else None,
+            'customer_name': t.customer_name,
+            'opened_at': t.opened_at.isoformat() if t.opened_at else None,
+            'item_count': sum(1 for i in t.line_items if i.status != 'VOIDED'),
+            'total_cents': t.total_cents or 0,
+        })
+    return jsonify(result)
+
+
+@tickets_bp.route('/<ticket_id>/force-close', methods=['POST'])
+@jwt_required()
+def force_close_ticket(ticket_id):
+    """Manager/Admin: force-close a ghost/stuck ticket with a reason. Frees resource, stops timers."""
+    claims = get_jwt()
+    if claims.get('role') not in ('MANAGER', 'ADMIN'):
+        return jsonify({'error': 'FORBIDDEN'}), 403
+
+    user_id = get_jwt_identity()
+    data = request.get_json() or {}
+    reason = (data.get('reason') or '').strip()
+    if not reason:
+        return jsonify({'error': 'reason required'}), 422
+
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    if ticket.status != 'OPEN':
+        return jsonify({'error': 'TICKET_NOT_OPEN'}), 409
+
+    # Stop any running timer
+    _stop_active_timer(ticket, user_id)
+    db.session.flush()
+
+    # Free the resource
+    if ticket.resource_id:
+        resource = Resource.query.get(ticket.resource_id)
+        if resource:
+            resource.status = 'AVAILABLE'
+            if resource.is_temp:
+                resource.is_active = False
+
+    ticket.recalculate_totals()
+    ticket.status = 'CLOSED'
+    ticket.closed_by = user_id
+    ticket.closed_at = datetime.now(timezone.utc)
+    ticket.payment_type = 'CASH'   # neutral placeholder
+    ticket.version += 1
+
+    audit_svc.log(user_id, 'TICKET_FORCE_CLOSE', 'ticket', ticket.id,
+                  before={'status': 'OPEN'},
+                  after={'status': 'CLOSED', 'reason': reason})
+    db.session.commit()
+    _emit_floor_update()
+    return jsonify({'ok': True, 'ticket_id': ticket.id})
+
+
+@tickets_bp.route('/clean-ghosts', methods=['POST'])
+@jwt_required()
+def clean_ghost_tickets():
+    """Manager: auto-close all OPEN tickets whose resource is already AVAILABLE (true ghosts)."""
+    claims = get_jwt()
+    if claims.get('role') not in ('MANAGER', 'ADMIN'):
+        return jsonify({'error': 'FORBIDDEN'}), 403
+
+    user_id = get_jwt_identity()
+    data = request.get_json() or {}
+    reason = (data.get('reason') or 'Auto-limpieza de cuentas fantasma').strip()
+
+    ghosts = (Ticket.query
+              .join(Resource, Resource.id == Ticket.resource_id)
+              .filter(Ticket.status == 'OPEN', Resource.status == 'AVAILABLE')
+              .with_for_update()
+              .all())
+
+    closed_ids = []
+    for ticket in ghosts:
+        _stop_active_timer(ticket, user_id)
+        db.session.flush()
+        ticket.recalculate_totals()
+        ticket.status = 'CLOSED'
+        ticket.closed_by = user_id
+        ticket.closed_at = datetime.now(timezone.utc)
+        ticket.payment_type = 'CASH'
+        ticket.version += 1
+        audit_svc.log(user_id, 'TICKET_FORCE_CLOSE', 'ticket', ticket.id,
+                      before={'status': 'OPEN'},
+                      after={'status': 'CLOSED', 'reason': reason, 'auto_ghost_clean': True})
+        closed_ids.append(ticket.id)
+
+    db.session.commit()
+    _emit_floor_update()
+    return jsonify({'ok': True, 'cleaned': len(closed_ids), 'ticket_ids': closed_ids})
+
+
+@tickets_bp.route('/<ticket_id>/print', methods=['POST'])
+@jwt_required()
+def print_ticket(ticket_id):
+    """Send ticket receipt to the Windows USB thermal printer via the print agent."""
+    ticket = Ticket.query.get_or_404(ticket_id)
+    unpaid = request.args.get('unpaid', 'false').lower() == 'true'
+
+    payload = ticket.to_dict()
+    payload['unpaid'] = unpaid
+
+    try:
+        body = json.dumps(payload).encode('utf-8')
+        req = Request(
+            f'{PRINT_AGENT_URL}/print',
+            data=body,
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        with urlopen(req, timeout=8) as resp:
+            if resp.status == 200:
+                return jsonify({'ok': True})
+            return jsonify({'ok': False, 'error': resp.read().decode()}), 502
+    except URLError as e:
+        return jsonify({'ok': False, 'error': 'Print agent not running. Start it on the Windows host.'}), 503
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500

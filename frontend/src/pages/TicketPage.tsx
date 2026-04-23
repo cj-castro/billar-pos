@@ -12,6 +12,11 @@ import client from '../api/client'
 import toast from 'react-hot-toast'
 import { printReceipt } from '../utils/printReceipt'
 
+function printTicket(ticketData: any, unpaid = false) {
+  // Use browser native print — no print agent required
+  printReceipt({ ...ticketData, unpaid }, undefined, unpaid)
+}
+
 function cents(n: number) { return `$${(n / 100).toFixed(2)}` }
 
 // Group duplicate modifiers and return [{name, count, price_cents}]
@@ -52,6 +57,13 @@ export default function TicketPage() {
   const [closedTicket, setClosedTicket] = useState<any>(null)
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
+  const [tipSource, setTipSource] = useState<'CASH' | 'CARD' | 'SPLIT'>('CASH')
+  const [splitTipCash, setSplitTipCash] = useState('')
+  const [splitTipCard, setSplitTipCard] = useState('')
+  const [showJoinWaitlist, setShowJoinWaitlist] = useState(false)
+  const [wlName, setWlName] = useState('')
+  const [wlSize, setWlSize] = useState(1)
+  const [wlJoining, setWlJoining] = useState(false)
 
   // Close modals with Escape
   useEscKey(() => {
@@ -76,10 +88,10 @@ export default function TicketPage() {
     try {
       const reason = prompt('Reason for void:') || 'Void'
       await client.delete(`/tickets/${id}/items/${itemId}`, { data: { manager_id: managerId, reason } })
-      toast.success('Item voided')
+      toast.success('Artículo anulado')
       refetch()
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to void')
+      toast.error(err.response?.data?.message || 'No se pudo anular')
     }
     setShowPinForVoid(null)
   }
@@ -88,10 +100,10 @@ export default function TicketPage() {
     if (pendingDiscountPct === null) return
     try {
       await client.patch(`/tickets/${id}/discount`, { pct: pendingDiscountPct, reason: 'Manual discount by manager' })
-      toast.success(pendingDiscountPct === 0 ? 'Discount removed' : `${pendingDiscountPct}% discount applied`)
+      toast.success(pendingDiscountPct === 0 ? 'Descuento eliminado' : `Descuento de ${pendingDiscountPct}% aplicado`)
       refetch()
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to apply discount')
+      toast.error(err.response?.data?.error || 'No se pudo aplicar el descuento')
     }
     setShowPinForDiscount(false)
     setPendingDiscountPct(null)
@@ -100,20 +112,20 @@ export default function TicketPage() {
   const handleSaveName = async () => {
     try {
       await client.patch(`/tickets/${id}/customer-name`, { customer_name: nameInput })
-      toast.success('Name updated')
+      toast.success('Nombre actualizado')
       refetch()
       setEditingName(false)
     } catch {
-      toast.error('Failed to save name')
+      toast.error('No se pudo guardar el nombre')
     }
   }
 
   const handleSendOrder = async () => {    try {
       await client.post(`/tickets/${id}/send-order`)
-      toast.success('Order sent')
+      toast.success('Orden enviada')
       refetch()
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Nothing to send')
+      toast.error(err.response?.data?.message || 'Nada para enviar')
     }
   }
 
@@ -140,10 +152,16 @@ export default function TicketPage() {
         // (tenderedCents already set above from the 'tendered' field)
       }
 
+      const effectiveTipSource = liveTip > 0 ? tipSource : undefined
+      const splitTipCashCents = tipSource === 'SPLIT' && splitTipCash ? Math.round(parseFloat(splitTipCash) * 100) : undefined
+      const splitTipCardCents = splitTipCashCents !== undefined ? Math.max(0, liveTip - splitTipCashCents) : undefined
+
       const res = await client.post(`/tickets/${id}/close`, {
         payment_type: paymentType,
         tendered_cents: tenderedCents,
         tip_cents: liveTip,
+        tip_source: effectiveTipSource,
+        ...(splitTipCashCents !== undefined ? { tip_cash_cents: splitTipCashCents, tip_card_cents: splitTipCardCents } : {}),
         ...(splitPayment && paymentType2Val ? { payment_type_2: paymentType2Val, tendered_cents_2: tenderedCents2 } : {}),
       })
       setShowPayment(false)
@@ -151,7 +169,7 @@ export default function TicketPage() {
       qc.invalidateQueries({ queryKey: ['resources'] })
       qc.invalidateQueries({ queryKey: ['tickets-pending-payment'] })
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to close')
+      toast.error(err.response?.data?.message || 'No se pudo cerrar')
     } finally {
       setClosingLoading(false)
     }
@@ -159,6 +177,24 @@ export default function TicketPage() {
 
   const openItems = ticket.line_items?.filter((i: any) => i.status !== 'VOIDED') ?? []
   const resource = ticket.resource_code
+  const isPoolTable = (ticket.timer_sessions ?? []).length > 0 || ticket.resource_code?.startsWith('PT')
+
+  const handleJoinWaitlist = async () => {
+    setWlJoining(true)
+    try {
+      await client.post('/waiting-list', {
+        party_name: wlName.trim() || ticket.customer_name || ticket.resource_code,
+        party_size: wlSize,
+        floor_ticket_id: ticket.id,
+        floor_resource_id: ticket.resource_id,
+      })
+      toast.success('⏳ Agregado a lista de espera')
+      setShowJoinWaitlist(false)
+      qc.invalidateQueries({ queryKey: ['waiting-list'] })
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Error')
+    } finally { setWlJoining(false) }
+  }
 
   // Compute live totals — pool time may still be running (charge_cents null)
   const livePoolCents: number = (ticket.timer_sessions ?? []).reduce((sum: number, s: any) => {
@@ -173,7 +209,7 @@ export default function TicketPage() {
   const liveTotal: number = Math.max(0, liveSubtotal - liveDiscount + livePoolCents)
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-screen bg-slate-950 page-root">
       <NavBar />
       <div className="max-w-2xl mx-auto p-4">
         {/* Header */}
@@ -188,7 +224,7 @@ export default function TicketPage() {
                 onClick={() => { setNameInput(ticket.customer_name || ''); setEditingName(true) }}
                 className="mt-1 text-sm text-yellow-300 hover:text-yellow-100 flex items-center gap-1 mx-auto"
               >
-                👤 {ticket.customer_name || <span className="text-slate-500">+ Add name</span>}
+                👤 {ticket.customer_name || <span className="text-slate-500">+ Agregar nombre</span>}
                 <span className="text-slate-500 text-xs">✏️</span>
               </button>
             )}
@@ -200,7 +236,7 @@ export default function TicketPage() {
                   onChange={e => setNameInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') setEditingName(false) }}
                   className="bg-slate-700 border border-yellow-500 rounded px-2 py-0.5 text-sm w-32 text-center"
-                  placeholder="Party name…"
+                  placeholder="Nombre del grupo…"
                 />
                 <button onClick={handleSaveName} className="text-green-400 text-sm font-bold">✓</button>
                 <button onClick={() => setEditingName(false)} className="text-slate-400 text-sm">✕</button>
@@ -208,6 +244,16 @@ export default function TicketPage() {
             )}
             {ticket.status === 'CLOSED' && ticket.customer_name && (
               <div className="mt-1 text-yellow-300 text-sm">👤 {ticket.customer_name}</div>
+            )}
+            {/* Waiting list badge */}
+            {ticket.waiting_list_entry && (
+              <div className="mt-1 flex items-center justify-center gap-1 bg-yellow-900/50 border border-yellow-700 rounded-full px-3 py-0.5">
+                <span className="text-yellow-400 text-xs">⏳ Lista #{ticket.waiting_list_entry.position}</span>
+                <span className="text-yellow-300 text-xs font-semibold">{ticket.waiting_list_entry.party_name}</span>
+                {ticket.waiting_list_entry.party_size > 1 && (
+                  <span className="text-yellow-600 text-xs">· {ticket.waiting_list_entry.party_size}p</span>
+                )}
+              </div>
             )}
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -218,10 +264,10 @@ export default function TicketPage() {
               </div>
             )}
             <button
-              onClick={() => printReceipt(ticket, livePoolCents)}
+              onClick={() => printTicket(ticket)}
               className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 px-3 py-1.5 rounded-lg text-sm font-semibold"
             >
-              🖨️ Print
+              🖨️ Imprimir
             </button>
           </div>
         </div>
@@ -313,8 +359,8 @@ export default function TicketPage() {
                       )}
                     </div>
                     <div className="text-xs text-slate-400">
-                      {s.billing_mode === 'PER_MINUTE' ? 'Per minute' :
-                       s.billing_mode === 'ROUND_15' ? 'Rounded 15 min' : 'Per hour block'}
+                      {s.billing_mode === 'PER_MINUTE' ? 'Por minuto' :
+                       s.billing_mode === 'ROUND_15' ? 'Redondeado 15 min' : 'Por bloque de hora'}
                       &nbsp;·&nbsp;{cents(s.rate_cents)}/hr
                     </div>
                     <div className="text-sm text-slate-200 font-mono">
@@ -326,7 +372,7 @@ export default function TicketPage() {
                       {cents(liveCost)}
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5">
-                      {isRunning ? 'est.' : 'charged'}
+                      {isRunning ? 'est.' : 'cobrado'}
                     </div>
                   </div>
                 </div>
@@ -372,31 +418,42 @@ export default function TicketPage() {
             <div className="bg-slate-800 rounded-xl p-3 border border-slate-700">
               <div className="text-xs text-slate-400 mb-2 font-semibold">{t('ticket.discount_label')}</div>
               <div className="flex flex-wrap gap-2">
-                {[0, 5, 10, 15, 20, 25, 50].map(pct => (
+                {[0, 5, 10, 15, 20, 25, 50, 100].map(pct => (
                   <button
                     key={pct}
                     onClick={() => { setPendingDiscountPct(pct); setShowPinForDiscount(true) }}
                     className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
                       (ticket.manual_discount_pct || 0) === pct
-                        ? 'bg-green-600 text-white'
+                        ? pct === 100 ? 'bg-purple-600 text-white ring-2 ring-purple-400' : 'bg-green-600 text-white'
                         : pct === 0
                           ? 'bg-slate-700 text-slate-400 hover:bg-slate-600'
-                          : 'bg-slate-700 hover:bg-green-700 text-slate-200'
+                          : pct === 100
+                            ? 'bg-slate-700 hover:bg-purple-700 text-purple-300 border border-purple-700'
+                            : 'bg-slate-700 hover:bg-green-700 text-slate-200'
                     }`}
                   >
-                    {pct === 0 ? 'None' : `${pct}%`}
+                    {pct === 0 ? 'Sin descuento' : pct === 100 ? '🆓 100%' : `${pct}%`}
                   </button>
                 ))}
               </div>
             </div>
             <button onClick={() => setShowTransfer(true)} className="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-slate-900 rounded-xl font-bold text-lg">🔀 {t('ticket.transfer')}</button>
+            {/* Join waiting list — only for floor tables (not pool) and not already queued */}
+            {!isPoolTable && !ticket.waiting_list_entry && (
+              <button
+                onClick={() => { setWlName(ticket.customer_name || ''); setWlSize(1); setShowJoinWaitlist(true) }}
+                className="w-full py-3 rounded-xl font-bold text-base border border-yellow-700/50 bg-slate-700 hover:bg-yellow-900 text-yellow-300 transition-colors"
+              >
+                ⏳ Unirse a lista de espera (pool)
+              </button>
+            )}
             <button
               onClick={async () => {
                 try {
                   await client.post(`/tickets/${ticket.id}/request-payment`)
                   const result = await refetch()
                   const fresh = result.data ?? ticket
-                  printReceipt(fresh, undefined, true)
+                  printTicket(fresh, true)
                 } catch (err: any) {
                   toast.error(err.response?.data?.message || 'Error al pedir cuenta')
                 }
@@ -455,7 +512,7 @@ export default function TicketPage() {
               <div className="text-yellow-300 font-semibold">💰 {t('ticket.closed.changeDue')}: {cents(ticket.change_due)}</div>
             )}
             <button
-              onClick={() => printReceipt(ticket, livePoolCents)}
+              onClick={() => printTicket(ticket)}
               className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-base flex items-center justify-center gap-2"
             >
               🖨️ {t('ticket.closed.printReceipt')}
@@ -473,23 +530,30 @@ export default function TicketPage() {
       )}
       {showPinForVoid && (
         <ManagerPinDialog
-          action="Void Line Item"
+          action="Anular Artículo"
           onConfirm={(managerId) => handleVoid(showPinForVoid, managerId)}
           onCancel={() => setShowPinForVoid(null)}
         />
       )}
       {showPinForDiscount && pendingDiscountPct !== null && (
         <ManagerPinDialog
-          action={pendingDiscountPct === 0 ? 'Remove Discount' : `Apply ${pendingDiscountPct}% Discount`}
+          action={pendingDiscountPct === 0 ? 'Eliminar Descuento' : `Aplicar ${pendingDiscountPct}% de Descuento`}
           onConfirm={handleApplyDiscount}
           onCancel={() => { setShowPinForDiscount(false); setPendingDiscountPct(null) }}
         />
       )}
 
       {showPayment && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-600">
-            <h2 className="font-bold text-lg mb-4">{t('payment.title')}</h2>
+        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+          <div className="bg-slate-800 rounded-t-2xl sm:rounded-2xl w-full max-w-sm border border-slate-600 flex flex-col max-h-[92dvh] sm:max-h-[90vh]">
+            {/* Sticky header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-700 shrink-0">
+              <h2 className="font-bold text-lg">{t('payment.title')}</h2>
+              <button onClick={() => setShowPayment(false)} className="text-slate-400 hover:text-white text-xl px-1">✕</button>
+            </div>
+
+            {/* Scrollable body */}
+            <div className="overflow-y-auto flex-1 px-5 py-4">
 
             {/* Live breakdown — updates as tip is selected */}
             {(() => {
@@ -539,7 +603,7 @@ export default function TicketPage() {
 
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     {(['CASH', 'CARD'] as const).map((pt) => (
-                      <button key={pt} onClick={() => { setPaymentType(pt); setSplitPayment(false); setTendered2('') }}
+                      <button key={pt} onClick={() => { setPaymentType(pt); setSplitPayment(false); setTendered2(''); setTipSource(pt) }}
                         className={`py-3 rounded-xl font-bold border-2 ${paymentType === pt && !splitPayment ? 'bg-sky-600 border-sky-400' : 'bg-slate-700 border-slate-600'}`}>
                         {pt === 'CASH' ? t('payment.cash') : t('payment.card')}
                       </button>
@@ -552,6 +616,9 @@ export default function TicketPage() {
                       if (!splitPayment) {
                         setPaymentType('CASH')
                         setTendered2('')
+                        setTipSource('SPLIT')  // sensible default when paying split
+                      } else {
+                        setTipSource('CASH')   // reset when going back to single
                       }
                     }}
                     className={`w-full py-2 rounded-lg text-sm font-semibold border-2 transition-colors mb-4 ${splitPayment ? 'bg-purple-700 border-purple-400 text-white' : 'bg-slate-700 border-slate-600 text-slate-300'}`}
@@ -627,10 +694,82 @@ export default function TicketPage() {
                           }
                         }}
                         className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono text-sm"
-                        placeholder="Tip amount ($)" />
+                        placeholder="Cantidad de propina ($)" />
                     )}
                     {liveTip === 0 && (
                       <div className="text-xs text-slate-500 mt-1">{t('payment.noTip')}</div>
+                    )}
+                    {/* Tip source — always show when tip > 0 */}
+                    {liveTip > 0 && (
+                      <div className="mt-3 pt-3 border-t border-slate-600">
+                        <div className="text-xs text-slate-400 mb-2">¿La propina es en…?</div>
+                        <div className="flex gap-2">
+                          {(['CASH','CARD','SPLIT'] as const).map(src => (
+                            <button key={src} onClick={() => { setTipSource(src); setSplitTipCash(''); setSplitTipCard('') }}
+                              className={`flex-1 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${tipSource === src ? 'bg-amber-700 border-amber-500 text-white' : 'bg-slate-700 border-slate-600 text-slate-300'}`}>
+                              {src === 'CASH' ? '💵 Efectivo' : src === 'CARD' ? '💳 Tarjeta' : '½ Ambos'}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Split tip amount inputs */}
+                        {tipSource === 'SPLIT' && (
+                          <div className="mt-3 space-y-2">
+                            <div className="text-xs text-slate-400 mb-1">Especifica cuánto de cada tipo:</div>
+                            <div className="flex gap-2 items-center">
+                              <label className="text-xs text-slate-400 w-20 shrink-0">💵 Efectivo</label>
+                              <input
+                                type="number"
+                                min="0"
+                                max={(liveTip / 100).toFixed(2)}
+                                step="0.01"
+                                value={splitTipCash}
+                                onChange={e => {
+                                  setSplitTipCash(e.target.value)
+                                  const cashCents = Math.round(parseFloat(e.target.value || '0') * 100)
+                                  const cardCents = Math.max(0, liveTip - cashCents)
+                                  setSplitTipCard((cardCents / 100).toFixed(2))
+                                }}
+                                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 font-mono text-sm"
+                                placeholder="0.00"
+                              />
+                            </div>
+                            <div className="flex gap-2 items-center">
+                              <label className="text-xs text-slate-400 w-20 shrink-0">💳 Tarjeta</label>
+                              <input
+                                type="number"
+                                min="0"
+                                max={(liveTip / 100).toFixed(2)}
+                                step="0.01"
+                                value={splitTipCard}
+                                onChange={e => {
+                                  setSplitTipCard(e.target.value)
+                                  const cardCents = Math.round(parseFloat(e.target.value || '0') * 100)
+                                  const cashCents = Math.max(0, liveTip - cardCents)
+                                  setSplitTipCash((cashCents / 100).toFixed(2))
+                                }}
+                                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 font-mono text-sm"
+                                placeholder="0.00"
+                              />
+                            </div>
+                            {/* Running totals check */}
+                            {splitTipCash && (
+                              (() => {
+                                const cashCents = Math.round(parseFloat(splitTipCash) * 100)
+                                const cardCents = Math.round(parseFloat(splitTipCard || '0') * 100)
+                                const diff = cashCents + cardCents - liveTip
+                                return diff !== 0 ? (
+                                  <div className="text-xs text-amber-400">
+                                    ⚠ Suma: {((cashCents + cardCents) / 100).toFixed(2)} · Total propina: {(liveTip / 100).toFixed(2)} (dif: {(diff / 100).toFixed(2)})
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-green-400">✓ {(cashCents/100).toFixed(2)} efectivo + {(cardCents/100).toFixed(2)} tarjeta</div>
+                                )
+                              })()
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -668,13 +807,27 @@ export default function TicketPage() {
                     </div>
                   )}
 
-                  <div className="flex gap-3">
-                    <button onClick={() => setShowPayment(false)} className="flex-1 py-2 border border-slate-600 rounded-lg">{t('payment.cancel')}</button>
-                    <button onClick={handleClose} disabled={closingLoading} className="flex-1 py-2 bg-green-600 hover:bg-green-500 rounded-lg font-bold disabled:opacity-50">
-                      {closingLoading ? '...' : `${t('payment.confirm')} ${cents(grandTotal)}`}
-                    </button>
-                  </div>
+                  <div className="h-1" /> {/* bottom scroll breathing room */}
                 </>
+              )
+            })()}
+            </div>{/* end scrollable body */}
+
+            {/* Sticky footer — always visible */}
+            {(() => {
+              const liveTip2 = tipMode === 'pct' && tipPct !== null
+                ? Math.round(liveTotal * tipPct / 100)
+                : tipFixed ? Math.round(parseFloat(tipFixed || '0') * 100) : 0
+              const grandTotal2 = liveTotal + liveTip2
+              return (
+                <div className="px-5 py-4 border-t border-slate-700 shrink-0 flex gap-3 bg-slate-800 rounded-b-2xl">
+                  <button onClick={() => setShowPayment(false)} className="flex-1 py-3 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700 font-semibold">
+                    {t('payment.cancel')}
+                  </button>
+                  <button onClick={handleClose} disabled={closingLoading} className="flex-1 py-3 bg-green-600 hover:bg-green-500 rounded-xl font-bold text-lg disabled:opacity-50">
+                    {closingLoading ? '…' : `✅ ${cents(grandTotal2)}`}
+                  </button>
+                </div>
               )
             })()}
           </div>
@@ -718,10 +871,18 @@ export default function TicketPage() {
                   <span>{cents(closedTicket.change_due)}</span>
                 </div>
               )}
+
+              {/* ID return reminder */}
+              <div className="flex items-center gap-2 bg-red-900/50 border border-red-500 rounded-xl px-4 py-3 mt-2">
+                <span className="text-2xl">🪪</span>
+                <span className="text-red-300 font-bold text-sm leading-tight">
+                  ¡RECUERDA DEVOLVER LA IDENTIFICACIÓN AL CLIENTE!
+                </span>
+              </div>
             </div>
             <div className="px-5 pb-5 space-y-3">
               <button
-                onClick={() => printReceipt(closedTicket)}
+                onClick={() => printTicket(closedTicket)}
                 className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-base flex items-center justify-center gap-2"
               >
                 🖨️ {t('ticket.closed.printReceipt')}
@@ -732,6 +893,45 @@ export default function TicketPage() {
               >
                 {t('ticket.closed.backToFloor')}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Join Waiting List Modal */}
+      {showJoinWaitlist && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
+            <div className="p-5 border-b border-slate-700">
+              <h2 className="text-lg font-bold">⏳ Lista de Espera — Pool</h2>
+              <p className="text-slate-400 text-sm mt-1">Agrega esta mesa a la cola para mesa de billar.</p>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Nombre</label>
+                <input value={wlName} onChange={e => setWlName(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-lg"
+                  placeholder={ticket.customer_name || ticket.resource_code} autoFocus />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Personas</label>
+                <div className="flex gap-2">
+                  {[1,2,3,4,5,6].map(n => (
+                    <button key={n} onClick={() => setWlSize(n)}
+                      className={`flex-1 py-2 rounded-lg border text-sm font-bold ${wlSize === n ? 'bg-sky-700 border-sky-500 text-white' : 'bg-slate-700 border-slate-600 text-slate-300'}`}>{n}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-sky-900/30 border border-sky-700/50 rounded-xl p-3 text-xs text-sky-300">
+                🪑 Quedarán en <span className="font-bold">{ticket.resource_code}</span> mientras esperan una mesa de pool.
+              </div>
+            </div>
+            <div className="flex gap-3 p-5 border-t border-slate-700">
+              <button onClick={() => setShowJoinWaitlist(false)}
+                className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700">Cancelar</button>
+              <button onClick={handleJoinWaitlist} disabled={wlJoining}
+                className="flex-1 py-2.5 bg-yellow-600 hover:bg-yellow-500 text-black font-bold rounded-xl disabled:opacity-50">
+                {wlJoining ? 'Agregando…' : 'Agregar ⏳'}</button>
             </div>
           </div>
         </div>

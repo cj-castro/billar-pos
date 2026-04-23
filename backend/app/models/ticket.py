@@ -16,6 +16,9 @@ class Ticket(db.Model):
     payment_type = db.Column(db.String(10))  # CASH, CARD
     tendered_cents = db.Column(db.Integer)
     tip_cents = db.Column(db.Integer, default=0)
+    tip_source = db.Column(db.String(10))           # CASH, CARD, SPLIT
+    tip_cash_cents = db.Column(db.Integer)          # explicit cash portion (when SPLIT)
+    tip_card_cents = db.Column(db.Integer)          # explicit card portion (when SPLIT)
     payment_type_2 = db.Column(db.String(10))   # optional second payment method
     tendered_cents_2 = db.Column(db.Integer)
     manual_discount_pct = db.Column(db.Integer, default=0)   # 0–100 manual % discount
@@ -72,6 +75,9 @@ class Ticket(db.Model):
             'payment_type': self.payment_type,
             'tendered_cents': self.tendered_cents,
             'tip_cents': self.tip_cents or 0,
+            'tip_source': self.tip_source,
+            'tip_cash_cents': self.tip_cash_cents,
+            'tip_card_cents': self.tip_card_cents,
             'payment_type_2': self.payment_type_2,
             'tendered_cents_2': self.tendered_cents_2,
             'manual_discount_pct': self.manual_discount_pct or 0,
@@ -91,6 +97,20 @@ class Ticket(db.Model):
             d['line_items'] = [i.to_dict() for i in self.line_items.all()]
         if include_timer:
             d['timer_sessions'] = [s.to_dict() for s in self.timer_sessions.all()]
+        # Include linked waiting list entry if any (floor ticket OR assigned pool ticket)
+        from app.models.waiting_list import WaitingListEntry
+        from sqlalchemy import or_
+        wl = WaitingListEntry.query.filter(
+            or_(
+                WaitingListEntry.assigned_ticket_id == self.id,
+                WaitingListEntry.floor_ticket_id == self.id,
+            ),
+            WaitingListEntry.status.in_(['WAITING', 'SEATED'])
+        ).first()
+        d['waiting_list_entry'] = {
+            'id': wl.id, 'party_name': wl.party_name, 'party_size': wl.party_size,
+            'position': wl.position,
+        } if wl else None
         return d
 
 
@@ -99,7 +119,8 @@ class TicketLineItem(db.Model):
 
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     ticket_id = db.Column(db.String(36), db.ForeignKey('tickets.id'), nullable=False)
-    menu_item_id = db.Column(db.String(36), db.ForeignKey('menu_items.id'), nullable=False)
+    menu_item_id = db.Column(db.String(36), db.ForeignKey('menu_items.id'), nullable=True)
+    item_name = db.Column(db.String(100))
     quantity = db.Column(db.Integer, nullable=False, default=1)
     unit_price_cents = db.Column(db.Integer, nullable=False)
     status = db.Column(db.String(15), default='STAGED')
@@ -121,7 +142,7 @@ class TicketLineItem(db.Model):
             'id': self.id,
             'ticket_id': self.ticket_id,
             'menu_item_id': self.menu_item_id,
-            'menu_item_name': self.menu_item.name if self.menu_item else None,
+            'menu_item_name': self.menu_item.name if self.menu_item else self.item_name,
             'quantity': self.quantity,
             'unit_price_cents': self.unit_price_cents,
             'status': self.status,

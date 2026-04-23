@@ -34,11 +34,20 @@ services:
       HAPPY_HOUR_START: ${HAPPY_HOUR_START:-17:00}
       HAPPY_HOUR_END: ${HAPPY_HOUR_END:-20:00}
       HAPPY_HOUR_DISCOUNT_PCT: ${HAPPY_HOUR_DISCOUNT_PCT:-20}
-      CURRENCY: ${CURRENCY:-USD}
-      TZ: ${TZ:-America/Chicago}
+      CURRENCY: ${CURRENCY:-MXN}
+      TZ: ${TZ:-America/Mexico_City}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       FLASK_ENV: ${FLASK_ENV:-production}
       FLASK_APP: wsgi.py
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      ADMIN_PIN: ${ADMIN_PIN:-1234}
+      MANAGER_PASSWORD: ${MANAGER_PASSWORD:-manager123}
+      MANAGER_PIN: ${MANAGER_PIN:-5678}
+      WAITER1_PASSWORD: ${WAITER1_PASSWORD:-waiter123}
+      WAITER2_PASSWORD: ${WAITER2_PASSWORD:-waiter123}
+      KITCHEN_PASSWORD: ${KITCHEN_PASSWORD:-kitchen123}
+      BARSTAFF_PASSWORD: ${BARSTAFF_PASSWORD:-bar123}
+      PRINT_AGENT_URL: ${PRINT_AGENT_URL:-http://host.docker.internal:9191}
     networks:
       - billiardbar_net
 

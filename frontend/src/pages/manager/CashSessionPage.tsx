@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import NavBar from '../../components/NavBar'
+import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 import { printCashReconciliation, printTipDistribution, type ReconSummary } from '../../utils/printCashReconciliation'
@@ -29,6 +30,10 @@ export default function CashSessionPage() {
   const [expDesc, setExpDesc] = useState('')
   const [savingExp, setSavingExp] = useState(false)
 
+  // Ghost ticket resolution
+  const [ghostReason, setGhostReason] = useState('')
+  const [forcingClose, setForcingClose] = useState<string | null>(null)
+
   // Tip distribution edit
   const [editingTips, setEditingTips] = useState(false)
   const [tipFloor, setTipFloor] = useState('')
@@ -41,6 +46,29 @@ export default function CashSessionPage() {
     queryFn: () => client.get('/cash/status').then(r => r.data),
     refetchInterval: 15000,
   })
+
+  const openCount = (status as any)?.open_tickets_count ?? 0
+  const ghostCount = (status as any)?.ghost_tickets_count ?? 0
+  const realCount = openCount - ghostCount
+
+  const { data: openTickets = [], refetch: refetchOpenTickets } = useQuery({
+    queryKey: ['open-tickets-all'],
+    queryFn: () => client.get('/tickets/open-all').then(r => r.data),
+    enabled: openCount > 0,
+  })
+
+  const [cleaningGhosts, setCleaningGhosts] = useState(false)
+  const handleCleanGhosts = async () => {
+    setCleaningGhosts(true)
+    try {
+      const res = await client.post('/tickets/clean-ghosts', { reason: 'Limpieza automática desde cierre de bar' })
+      toast.success(`✅ ${res.data.cleaned} cuenta${res.data.cleaned !== 1 ? 's' : ''} fantasma${res.data.cleaned !== 1 ? 's' : ''} cerrada${res.data.cleaned !== 1 ? 's' : ''}`)
+      refetchAll()
+      refetchOpenTickets()
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Error al limpiar')
+    } finally { setCleaningGhosts(false) }
+  }
 
   const { data: summary, refetch: refetchSummary } = useQuery({
     queryKey: ['cash-summary'],
@@ -77,29 +105,45 @@ export default function CashSessionPage() {
     qc.invalidateQueries({ queryKey: ['cash-status'] })
   }
 
+  const handleForceClose = async (ticketId: string) => {
+    if (!ghostReason.trim()) return toast.error('Ingresa un motivo para el cierre forzado')
+    setForcingClose(ticketId)
+    try {
+      await client.post(`/tickets/${ticketId}/force-close`, { reason: ghostReason })
+      toast.success('Cuenta fantasma cerrada ✓')
+      setGhostReason('')
+      refetchAll()
+      refetchOpenTickets()
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Error al cerrar')
+    } finally { setForcingClose(null) }
+  }
+
   const handleOpen = async () => {
-    if (!openingFund) return toast.error('Enter opening fund amount')
+    if (!openingFund) return toast.error('Ingresa el fondo de apertura')
     setSaving(true)
     try {
       await client.post('/cash/open', { opening_fund_cents: Math.round(parseFloat(openingFund) * 100) })
-      toast.success('Bar opened! Cash session started.')
+      toast.success('¡Bar abierto! Sesión de caja iniciada.')
       setOpeningFund('')
       refetchAll()
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to open session')
+      toast.error(err.response?.data?.error || 'No se pudo abrir la sesión')
     } finally { setSaving(false) }
   }
 
   const handleClose = async () => {
-    if (!closingCash) return toast.error('Enter closing cash count')
-    if (!confirm('Close the bar and finalize the cash session?')) return
+    if (!closingCash) return toast.error('Ingresa el conteo de efectivo al cierre')
+    const openCount = (status as any)?.open_tickets_count ?? 0
+    if (openCount > 0) return toast.error(`No se puede cerrar: hay ${openCount} cuenta${openCount !== 1 ? 's' : ''} abierta${openCount !== 1 ? 's' : ''} pendiente${openCount !== 1 ? 's' : ''}. Ciérralas primero.`)
+    if (!confirm('¿Cerrar el bar y finalizar la sesión de caja?')) return
     setSaving(true)
     try {
       const res = await client.post('/cash/close', {
         closing_cash_counted_cents: Math.round(parseFloat(closingCash) * 100),
         notes: closeNotes || undefined,
       })
-      toast.success('Bar closed. Session finalized.')
+      toast.success('Bar cerrado. Sesión finalizada.')
       setClosingCash('')
       setCloseNotes('')
       refetchAll()
@@ -113,12 +157,12 @@ export default function CashSessionPage() {
         }
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to close session')
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'No se pudo cerrar la sesión')
     } finally { setSaving(false) }
   }
 
   const handleAddExpense = async () => {
-    if (!expAmount || !expPayee || !expDesc) return toast.error('All expense fields required')
+    if (!expAmount || !expPayee || !expDesc) return toast.error('Todos los campos del gasto son requeridos')
     setSavingExp(true)
     try {
       await client.post('/cash/current/expenses', {
@@ -127,16 +171,16 @@ export default function CashSessionPage() {
         payee: expPayee,
         description: expDesc,
       })
-      toast.success('Expense added')
+      toast.success('Gasto registrado')
       setExpAmount(''); setExpPayee(''); setExpDesc('')
       refetchExpenses(); refetchSummary()
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed')
+      toast.error(err.response?.data?.message || 'Error')
     } finally { setSavingExp(false) }
   }
 
   const handleDeleteExpense = async (id: string) => {
-    if (!confirm('Delete this expense?')) return
+    if (!confirm('¿Eliminar este gasto?')) return
     await client.delete(`/cash/expenses/${id}`)
     refetchExpenses(); refetchSummary()
   }
@@ -145,15 +189,15 @@ export default function CashSessionPage() {
     const floor = parseInt(tipFloor) || 0
     const bar = parseInt(tipBar) || 0
     const kitchen = parseInt(tipKitchen) || 0
-    if (floor + bar + kitchen !== 100) return toast.error('Percentages must add up to 100%')
+    if (floor + bar + kitchen !== 100) return toast.error('Los porcentajes deben sumar 100%')
     setSavingTips(true)
     try {
       await client.put('/cash/tip-distribution', { floor_pct: floor, bar_pct: bar, kitchen_pct: kitchen })
-      toast.success('Tip distribution saved')
+      toast.success('Distribución de propinas guardada')
       setEditingTips(false)
       refetchTipCfg(); refetchSummary()
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to save')
+      toast.error(err.response?.data?.error || 'No se pudo guardar')
     } finally { setSavingTips(false) }
   }
 
@@ -164,7 +208,7 @@ export default function CashSessionPage() {
       toast.success('Ticket re-opened')
       qc.invalidateQueries({ queryKey: ['cash-tickets'] })
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to re-open')
+      toast.error(err.response?.data?.error || 'No se pudo reabrir')
     }
   }
 
@@ -200,20 +244,21 @@ export default function CashSessionPage() {
   ] as const
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-slate-950 text-white page-root">
       <NavBar />
+      <ManagerBackButton />
       <div className="max-w-3xl mx-auto p-4">
         <div className="sticky top-0 z-10 bg-slate-950 flex items-center justify-between py-3 mb-4 border-b border-slate-800">
           <h1 className="text-xl font-bold">💰 Cash Session</h1>
           <div className={`px-3 py-1 rounded-full text-sm font-bold ${status?.open ? 'bg-green-700 text-green-200' : 'bg-red-800 text-red-200'}`}>
-            {status?.open ? '🟢 Bar Open' : '🔴 Bar Closed'}
+            {status?.open ? '🟢 Bar Abierto' : '🔴 Bar Cerrado'}
           </div>
         </div>
 
         {/* ── BAR CLOSED: Open Session ── */}
         {!status?.open && (
           <div className="bg-slate-800 rounded-2xl p-6 mb-6 border border-slate-700">
-            <h2 className="text-lg font-bold mb-1">Open Bar / Start Cash Session</h2>
+            <h2 className="text-lg font-bold mb-1">Abrir Bar / Iniciar Sesión de Caja</h2>
             <p className="text-slate-400 text-sm mb-4">Count the starting fund in the register before opening.</p>
             <label className="text-xs text-slate-400 block mb-1">Opening Fund (starting cash in register)</label>
             <div className="flex gap-3">
@@ -222,7 +267,7 @@ export default function CashSessionPage() {
                 placeholder="0.00" />
               <button onClick={handleOpen} disabled={saving}
                 className="bg-green-600 hover:bg-green-500 px-6 py-3 rounded-xl font-bold disabled:opacity-50">
-                {saving ? 'Opening…' : 'Open Bar'}
+                {saving ? 'Abriendo…' : 'Abrir Bar'}
               </button>
             </div>
           </div>
@@ -293,9 +338,55 @@ export default function CashSessionPage() {
 
                 {/* ── Close Bar ── */}
                 <div className="bg-slate-800 rounded-2xl p-5 border border-red-900 mb-8">
-                  <h2 className="font-bold text-red-300 mb-1">🔒 Close Bar / End Cash Session</h2>
-                  <p className="text-slate-400 text-sm mb-4">Count the cash in the register at closing time.</p>
-                  <label className="text-xs text-slate-400 block mb-1">Actual Cash Counted in Register</label>
+                  <h2 className="font-bold text-red-300 mb-3">🔒 Cerrar Bar / Finalizar Caja</h2>
+
+                  {/* Pre-close breakdown */}
+                  {s && (
+                    <div className="bg-slate-900 rounded-xl p-4 mb-4 space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">💰 Fondo inicial</span>
+                        <span className="font-mono">{cents(s.opening_fund_cents)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">🧾 Ventas en efectivo</span>
+                        <span className="font-mono text-green-300">+{cents(s.cash_sales_cents)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">💳 Ventas con tarjeta</span>
+                        <span className="font-mono text-sky-300">{cents(s.card_sales_cents)}</span>
+                      </div>
+                      {s.total_expenses_cents > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">📤 Gastos en efectivo</span>
+                          <span className="font-mono text-red-400">-{cents(s.cash_expenses_cents)}</span>
+                        </div>
+                      )}
+                      {s.total_tips_cents > 0 && (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">💵 Propinas efectivo</span>
+                            <span className="font-mono text-amber-300">+{cents(s.cash_tips_cents)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">💳 Propinas tarjeta</span>
+                            <span className="font-mono text-amber-200">+{cents(s.card_tips_cents)}</span>
+                          </div>
+                        </>
+                      )}
+                      <div className="border-t border-slate-700 pt-2 mt-2 space-y-1">
+                        <div className="flex justify-between font-bold">
+                          <span className="text-sky-300">💵 Efectivo esperado en caja</span>
+                          <span className="font-mono text-sky-300">{cents(s.expected_cash_cents)}</span>
+                        </div>
+                        <div className="flex justify-between font-bold">
+                          <span className="text-emerald-300">💳 Tarjeta a verificar en terminal</span>
+                          <span className="font-mono text-emerald-300">{cents(s.card_sales_cents)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <label className="text-xs text-slate-400 block mb-1">Efectivo contado en caja</label>
                   <input type="number" value={closingCash} onChange={e => setClosingCash(e.target.value)}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-lg font-mono mb-3"
                     placeholder="0.00" />
@@ -304,19 +395,83 @@ export default function CashSessionPage() {
                       Math.round(parseFloat(closingCash) * 100) >= s.expected_cash_cents
                         ? 'bg-green-900/40 text-green-300' : 'bg-red-900/40 text-red-300'
                     }`}>
-                      Over/Short: {diff(Math.round(parseFloat(closingCash) * 100) - s.expected_cash_cents)}
+                      Diferencia: {diff(Math.round(parseFloat(closingCash) * 100) - s.expected_cash_cents)}
+                      {Math.round(parseFloat(closingCash) * 100) === s.expected_cash_cents && ' ✅ Cuadra perfecto'}
                     </div>
                   )}
-                  <label className="text-xs text-slate-400 block mb-1">Notes (optional)</label>
+                  <label className="text-xs text-slate-400 block mb-1">Notas (opcional)</label>
                   <textarea value={closeNotes} onChange={e => setCloseNotes(e.target.value)}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm mb-3" rows={2}
-                    placeholder="Any notes for closing..." />
-                  <button onClick={handleClose} disabled={saving || !closingCash}
+                    placeholder="Notas de cierre..." />
+                  {/* ── Ghost tickets blocker ── */}
+                  {openCount > 0 && (
+                    <div className="mb-4 border border-amber-700 rounded-xl overflow-hidden">
+                      <div className="bg-amber-900/40 px-4 py-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-amber-300 font-bold text-sm">
+                            ⚠️ {openCount} cuenta{openCount !== 1 ? 's' : ''} bloqueando el cierre
+                          </span>
+                          <button onClick={() => { refetchAll(); refetchOpenTickets() }} className="text-xs text-amber-400 hover:text-amber-200 underline">↻ Actualizar</button>
+                        </div>
+                        <div className="flex gap-3 text-xs text-slate-300">
+                          <span>🪑 <span className="text-white font-semibold">{realCount}</span> en mesa activa</span>
+                          <span>👻 <span className="text-red-300 font-semibold">{ghostCount}</span> fantasma{ghostCount !== 1 ? 's' : ''} (mesa libre)</span>
+                        </div>
+                        {ghostCount > 0 && (
+                          <button onClick={handleCleanGhosts} disabled={cleaningGhosts}
+                            className="w-full py-1.5 bg-red-800 hover:bg-red-700 disabled:opacity-50 rounded-lg text-xs font-bold text-white">
+                            {cleaningGhosts ? 'Limpiando…' : `🧹 Limpiar ${ghostCount} cuenta${ghostCount !== 1 ? 's' : ''} fantasma${ghostCount !== 1 ? 's' : ''} automáticamente`}
+                          </button>
+                        )}
+                      </div>
+                      <div className="divide-y divide-slate-700">
+                        {(openTickets as any[]).map((ot: any) => (
+                          <div key={ot.id} className="px-4 py-3 bg-slate-800/60">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-white text-sm">{ot.resource_code || '(sin mesa)'}</span>
+                                  {ot.customer_name && <span className="text-slate-300 text-xs">{ot.customer_name}</span>}
+                                  {ot.resource_status === 'AVAILABLE' && (
+                                    <span className="text-[10px] bg-red-900 text-red-300 px-1.5 py-0.5 rounded font-bold">MESA LIBRE · FANTASMA</span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-slate-400 mt-0.5">
+                                  {ot.item_count} artículo{ot.item_count !== 1 ? 's' : ''} · Total: <span className="text-green-300 font-mono">${((ot.total_cents || 0) / 100).toFixed(2)}</span>
+                                  {ot.opened_at && <span className="ml-2 text-slate-500">· {Math.round((Date.now() - new Date(ot.opened_at).getTime()) / 60000)} min abierta</span>}
+                                </div>
+                                <a href={`/ticket/${ot.id}`} target="_blank" rel="noreferrer"
+                                  className="text-xs text-sky-400 hover:underline mt-0.5 inline-block">Ver cuenta →</a>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 mt-2">
+                              <input
+                                type="text"
+                                value={forcingClose === ot.id ? ghostReason : ''}
+                                onChange={e => { setForcingClose(ot.id); setGhostReason(e.target.value) }}
+                                onFocus={() => setForcingClose(ot.id)}
+                                placeholder="Motivo del cierre forzado…"
+                                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 text-xs"
+                              />
+                              <button
+                                onClick={() => handleForceClose(ot.id)}
+                                disabled={forcingClose !== ot.id || !ghostReason.trim()}
+                                className="shrink-0 px-3 py-1.5 bg-red-700 hover:bg-red-600 disabled:opacity-40 rounded-lg text-xs font-bold text-white">
+                                Forzar cierre
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <button onClick={handleClose} disabled={saving || !closingCash || openCount > 0}
                     className="w-full py-3 bg-red-700 hover:bg-red-600 rounded-xl font-bold text-lg disabled:opacity-50">
-                    {saving ? 'Closing…' : '🔒 Close Bar'}
+                    {saving ? 'Cerrando…' : openCount > 0 ? `🔒 Cierra las ${openCount} cuentas primero` : '🔒 Cerrar Bar'}
                   </button>
                   <p className="text-xs text-slate-500 mt-2 text-center">
-                    Reconciliation + tip distribution will auto-print on close
+                    Reconciliación + distribución de propinas se imprimirán al cerrar
                   </p>
                 </div>
               </>
@@ -337,8 +492,8 @@ export default function CashSessionPage() {
                       <div key={t.id} className="bg-slate-800 rounded-xl flex items-center justify-between px-4 py-3 border border-slate-700">
                         <div>
                           <div className="font-semibold text-sm flex items-center gap-2">
-                            {t.customer_name || '(no name)'}
-                            {t.was_reopened && <span className="bg-orange-800 text-orange-200 text-xs px-1.5 py-0.5 rounded">RE-OPENED</span>}
+                            {t.customer_name || '(sin nombre)'}
+                            {t.was_reopened && <span className="bg-orange-800 text-orange-200 text-xs px-1.5 py-0.5 rounded">REABIERTO</span>}
                           </div>
                           <div className="text-xs text-slate-400 mt-0.5">
                             {t.resource_code || '—'} · {t.payment_type}
@@ -403,7 +558,7 @@ export default function CashSessionPage() {
                   </div>
                   <button onClick={handleAddExpense} disabled={savingExp}
                     className="w-full py-2 bg-red-700 hover:bg-red-600 rounded-xl font-bold disabled:opacity-50">
-                    {savingExp ? 'Adding…' : 'Record Expense'}
+                    {savingExp ? 'Registrando…' : 'Registrar Gasto'}
                   </button>
                 </div>
 
@@ -489,11 +644,11 @@ export default function CashSessionPage() {
                       <div className="flex gap-3 mt-2">
                         <button onClick={() => setEditingTips(false)}
                           className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold">
-                          Cancel
+                          Cancelar
                         </button>
                         <button onClick={handleSaveTipConfig} disabled={savingTips || tipTotal !== 100}
                           className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 rounded-xl text-sm font-bold disabled:opacity-50">
-                          {savingTips ? 'Saving…' : 'Save Config'}
+                          {savingTips ? 'Guardando…' : 'Guardar Config'}
                         </button>
                       </div>
                     </div>

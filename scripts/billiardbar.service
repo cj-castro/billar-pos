@@ -1,0 +1,16 @@
+[Unit]
+Description=Billiard Bar POS (Docker Compose)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/billiards
+ExecStart=/opt/billiards/scripts/start.sh
+ExecStop=/opt/billiards/scripts/stop.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

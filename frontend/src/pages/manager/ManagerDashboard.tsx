@@ -9,7 +9,8 @@ export default function ManagerDashboard() {
     { to: '/manager/reports', icon: '📊', label: t('manager.reports'), desc: 'Sales, pool time, payments' },
     { to: '/manager/cash', icon: '💰', label: t('manager.cashSession'), desc: 'Open/close bar, tips, expenses' },
     { to: '/manager/inventory', icon: '📦', label: t('manager.inventory'), desc: 'Stock levels & adjustments' },
-    { to: '/manager/menu', icon: '🍽️', label: t('manager.menu'), desc: 'Items, prices, modifiers' },
+    { to: '/manager/menu', icon: '🍽️', label: t('manager.menu'), desc: 'Artículos, precios, modificadores' },
+    { to: '/manager/modifiers', icon: '🧩', label: 'Modificadores', desc: 'Grupos de sabores, salsas, extras' },
     { to: '/manager/users', icon: '👥', label: t('manager.users'), desc: 'Manage staff accounts' },
     { to: '/manager/pool-config', icon: '🕒', label: t('manager.poolBilling'), desc: 'Rates, modes & free minutes' },
     { to: '/manager/tables', icon: '🗂', label: t('manager.tableSetup'), desc: 'Add/remove pool, floor & bar seats' },
@@ -18,7 +19,7 @@ export default function ManagerDashboard() {
   ]
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-screen bg-slate-950 page-root">
       <NavBar />
       <div className="max-w-3xl mx-auto p-6">
         <h1 className="text-2xl font-bold mb-6">{t('manager.title')}</h1>

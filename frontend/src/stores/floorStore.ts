@@ -7,6 +7,7 @@ export interface ResourceState {
   type: string
   status: string
   is_active: boolean
+  is_temp?: boolean
   active_ticket_id: string | null
   customer_name?: string | null
   timer_start?: string

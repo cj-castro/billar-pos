@@ -16,9 +16,10 @@ def _emit_waiting_update():
 
 
 def _reorder_positions():
-    """Renumber positions 1..N for all WAITING entries."""
-    entries = WaitingListEntry.query.filter_by(status='WAITING')\
-        .order_by(WaitingListEntry.created_at).all()
+    """Renumber positions 1..N for all active (WAITING/SEATED) entries."""
+    entries = WaitingListEntry.query.filter(
+        WaitingListEntry.status.in_(['WAITING', 'SEATED'])
+    ).order_by(WaitingListEntry.created_at).all()
     for i, e in enumerate(entries, start=1):
         e.position = i
 
@@ -26,8 +27,9 @@ def _reorder_positions():
 @waiting_list_bp.route('', methods=['GET'])
 @jwt_required()
 def list_waiting():
-    entries = WaitingListEntry.query.filter_by(status='WAITING')\
-        .order_by(WaitingListEntry.position, WaitingListEntry.created_at).all()
+    entries = WaitingListEntry.query.filter(
+        WaitingListEntry.status.in_(['WAITING', 'SEATED'])
+    ).order_by(WaitingListEntry.position, WaitingListEntry.created_at).all()
     return jsonify([e.to_dict() for e in entries])
 
 
@@ -49,21 +51,31 @@ def add_to_waiting():
     if not party_name:
         return jsonify({'error': 'party_name required'}), 400
 
+    # Optional: immediately seat at a floor table (from ticket page "join waiting list")
+    floor_ticket_id = data.get('floor_ticket_id')
+    floor_resource_id = data.get('floor_resource_id')
+
     # Next position
-    last = WaitingListEntry.query.filter_by(status='WAITING')\
-        .order_by(WaitingListEntry.position.desc()).first()
+    last = WaitingListEntry.query.filter(
+        WaitingListEntry.status.in_(['WAITING', 'SEATED'])
+    ).order_by(WaitingListEntry.position.desc()).first()
     next_pos = (last.position or 0) + 1 if last else 1
+
+    initial_status = 'SEATED' if floor_ticket_id else 'WAITING'
 
     entry = WaitingListEntry(
         party_name=party_name,
         party_size=int(data.get('party_size', 1)),
         notes=data.get('notes', ''),
         position=next_pos,
+        status=initial_status,
         created_by=user_id,
+        floor_ticket_id=floor_ticket_id or None,
+        floor_resource_id=floor_resource_id or None,
     )
     db.session.add(entry)
     audit_svc.log(user_id, 'WAITLIST_ADD', 'waiting_list', None,
-                  after={'party_name': party_name, 'position': next_pos})
+                  after={'party_name': party_name, 'position': next_pos, 'status': initial_status})
     db.session.commit()
     _emit_waiting_update()
     return jsonify(entry.to_dict()), 201
@@ -72,19 +84,22 @@ def add_to_waiting():
 @waiting_list_bp.route('/<entry_id>/assign', methods=['POST'])
 @jwt_required()
 def assign_entry(entry_id):
-    """Assign the waiting party to a pool table and open a ticket."""
+    """Assign the waiting party to a resource and open a ticket.
+    - Floor table (REGULAR_TABLE / BAR_SEAT): status → SEATED, stays in list (still waiting for pool)
+    - Pool table: status → ASSIGNED, removed from active list
+    """
     user_id = get_jwt_identity()
     data = request.get_json()
     resource_id = data.get('resource_id')
 
     entry = WaitingListEntry.query.get_or_404(entry_id)
-    if entry.status != 'WAITING':
-        return jsonify({'error': 'Entry is not WAITING'}), 409
+    if entry.status not in ('WAITING', 'SEATED'):
+        return jsonify({'error': 'Entry is not active'}), 409
 
     resource = Resource.query.with_for_update().get_or_404(resource_id)
     if resource.status == 'IN_USE':
-        return jsonify({'error': 'POOL_TABLE_OCCUPIED',
-                        'message': f'{resource.code} is currently in use'}), 409
+        return jsonify({'error': 'RESOURCE_OCCUPIED',
+                        'message': f'{resource.code} ya está en uso'}), 409
 
     # Open ticket with party name
     ticket = Ticket(
@@ -97,8 +112,8 @@ def assign_entry(entry_id):
 
     resource.status = 'IN_USE'
 
-    # Start pool timer if it's a pool table
     if resource.type == 'POOL_TABLE':
+        # Pool table: start timer, fully remove from waiting list
         cfg = PoolTableConfig.query.get(resource_id)
         billing_mode = cfg.billing_mode if cfg else Config.BILLING_MODE
         rate_cents = cfg.rate_cents if cfg else Config.POOL_RATE_CENTS
@@ -113,15 +128,20 @@ def assign_entry(entry_id):
         db.session.add(timer)
         audit_svc.log(user_id, 'TIMER_START', 'pool_timer', ticket.id)
 
-    # Mark entry as assigned
-    entry.status = 'ASSIGNED'
-    entry.assigned_at = datetime.now(timezone.utc)
-    entry.assigned_resource_id = resource_id
-    entry.assigned_ticket_id = ticket.id
+        entry.status = 'ASSIGNED'
+        entry.assigned_at = datetime.now(timezone.utc)
+        entry.assigned_resource_id = resource_id
+        entry.assigned_ticket_id = ticket.id
+    else:
+        # Floor table: mark as SEATED — customer is seated but still waiting for a pool table
+        entry.status = 'SEATED'
+        entry.floor_resource_id = resource_id
+        entry.floor_ticket_id = ticket.id
 
     _reorder_positions()
     audit_svc.log(user_id, 'WAITLIST_ASSIGN', 'waiting_list', entry.id,
-                  after={'resource_id': resource_id, 'ticket_id': ticket.id})
+                  after={'resource_id': resource_id, 'ticket_id': ticket.id,
+                         'resource_type': resource.type})
     audit_svc.log(user_id, 'TICKET_OPEN', 'ticket', ticket.id,
                   after={'resource_id': resource_id, 'customer_name': entry.party_name})
     db.session.commit()
@@ -141,8 +161,8 @@ def update_status(entry_id):
         return jsonify({'error': 'status must be CANCELLED or NO_SHOW'}), 400
 
     entry = WaitingListEntry.query.get_or_404(entry_id)
-    if entry.status != 'WAITING':
-        return jsonify({'error': 'Entry not in WAITING state'}), 409
+    if entry.status not in ('WAITING', 'SEATED'):
+        return jsonify({'error': 'Entry not active'}), 409
 
     entry.status = new_status
     _reorder_positions()
@@ -165,8 +185,9 @@ def move_position(entry_id):
     direction = data.get('direction')  # 'up' | 'down'
 
     entry = WaitingListEntry.query.get_or_404(entry_id)
-    entries = WaitingListEntry.query.filter_by(status='WAITING')\
-        .order_by(WaitingListEntry.position).all()
+    entries = WaitingListEntry.query.filter(
+        WaitingListEntry.status.in_(['WAITING', 'SEATED'])
+    ).order_by(WaitingListEntry.position).all()
 
     idx = next((i for i, e in enumerate(entries) if e.id == entry_id), None)
     if idx is None:
@@ -180,3 +201,73 @@ def move_position(entry_id):
     db.session.commit()
     _emit_waiting_update()
     return jsonify({'ok': True})
+
+
+@waiting_list_bp.route('/<entry_id>/transfer-to-pool', methods=['POST'])
+@jwt_required()
+def transfer_to_pool(entry_id):
+    """Transfer a SEATED party's floor ticket to a pool table, freeing the floor table."""
+    from app.models.ticket import Ticket, PoolTimerSession
+    from app.models.resource import PoolTableConfig
+    user_id = get_jwt_identity()
+    data = request.get_json()
+    pool_resource_id = data.get('pool_resource_id')
+
+    entry = WaitingListEntry.query.get_or_404(entry_id)
+    if entry.status != 'SEATED' or not entry.floor_ticket_id:
+        return jsonify({'error': 'Entry is not SEATED or has no floor ticket'}), 409
+
+    pool_resource = Resource.query.with_for_update().get_or_404(pool_resource_id)
+    if pool_resource.type != 'POOL_TABLE':
+        return jsonify({'error': 'Target must be a POOL_TABLE'}), 400
+    if pool_resource.status == 'IN_USE':
+        return jsonify({'error': 'POOL_TABLE_OCCUPIED',
+                        'message': f'{pool_resource.code} ya está en uso'}), 409
+
+    ticket = Ticket.query.with_for_update().get_or_404(entry.floor_ticket_id)
+    if ticket.status != 'OPEN':
+        return jsonify({'error': 'Floor ticket is not open'}), 409
+
+    # Free floor resource (and auto-remove if temp)
+    floor_resource = Resource.query.get(ticket.resource_id)
+    if floor_resource:
+        floor_resource.status = 'AVAILABLE'
+        if floor_resource.is_temp:
+            floor_resource.is_active = False
+
+    # Start pool timer
+    cfg = PoolTableConfig.query.get(pool_resource_id)
+    from app.config import Config
+    timer = PoolTimerSession(
+        ticket_id=ticket.id,
+        resource_id=pool_resource_id,
+        billing_mode=cfg.billing_mode if cfg else Config.BILLING_MODE,
+        rate_cents=cfg.rate_cents if cfg else Config.POOL_RATE_CENTS,
+        promo_free_seconds=(cfg.promo_free_minutes * 60) if cfg else 0,
+    )
+    db.session.add(timer)
+
+    # Move ticket to pool table
+    pool_resource.status = 'IN_USE'
+    old_code = floor_resource.code if floor_resource else '?'
+    ticket.resource_id = pool_resource_id
+    ticket.recalculate_totals()
+    ticket.version += 1
+
+    # Mark waiting list entry as fully assigned (removed from list)
+    entry.status = 'ASSIGNED'
+    entry.assigned_at = datetime.now(timezone.utc)
+    entry.assigned_resource_id = pool_resource_id
+    entry.assigned_ticket_id = ticket.id
+
+    _reorder_positions()
+    audit_svc.log(user_id, 'TIMER_START', 'pool_timer', ticket.id)
+    audit_svc.log(user_id, 'TRANSFER', 'ticket', ticket.id,
+                  before={'resource': old_code},
+                  after={'resource': pool_resource.code})
+    audit_svc.log(user_id, 'WAITLIST_ASSIGN', 'waiting_list', entry.id,
+                  after={'pool_resource_id': pool_resource_id, 'from_floor': old_code})
+    db.session.commit()
+    _emit_waiting_update()
+    socketio.emit('floor:update', {}, room='floor')
+    return jsonify({'entry': entry.to_dict(), 'ticket': ticket.to_dict()}), 200

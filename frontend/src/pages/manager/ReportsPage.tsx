@@ -1,20 +1,25 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  LineChart, Line, PieChart, Pie, Cell,
+} from 'recharts'
 import NavBar from '../../components/NavBar'
+import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 
 function cents(n: number | null) { return n != null ? `$${(n / 100).toFixed(2)}` : '-' }
 
 const ROLE_LABELS: Record<string, string> = {
-  WAITER: '🏃 Waiter', BAR_STAFF: '🍹 Bar', KITCHEN_STAFF: '🍳 Kitchen',
-  MANAGER: '👔 Manager', ADMIN: '🔑 Admin',
+  WAITER: '🏃 Mesero', BAR_STAFF: '🍹 Bar', KITCHEN_STAFF: '🍳 Cocina',
+  MANAGER: '👔 Gerente', ADMIN: '🔑 Admin',
 }
 
 export default function ReportsPage() {
   const today = new Date().toISOString().slice(0, 10)
   const [from, setFrom] = useState(today)
   const [to, setTo] = useState(today)
-  const [tab, setTab] = useState<'sales' | 'pool' | 'payments' | 'modifiers' | 'staff' | 'voids' | 'peak-hours'>('sales')
+  const [tab, setTab] = useState<'sales' | 'pool' | 'payments' | 'modifiers' | 'staff' | 'voids' | 'peak-hours' | 'inv-deletions' | 'menu-deletions' | 'charts' | 'cigarettes'>('sales')
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL')
 
   const params = { from: `${from}T00:00:00`, to: `${to}T23:59:59` }
@@ -26,6 +31,10 @@ export default function ReportsPage() {
   const { data: staff } = useQuery({ queryKey: ['report-staff', from, to], queryFn: () => client.get('/reports/staff', { params }).then(r => r.data), enabled: tab === 'staff' })
   const { data: voids } = useQuery({ queryKey: ['report-voids', from, to], queryFn: () => client.get('/reports/voids', { params }).then(r => r.data), enabled: tab === 'voids' })
   const { data: peakHours } = useQuery({ queryKey: ['report-peak-hours', from, to], queryFn: () => client.get('/reports/peak-hours', { params }).then(r => r.data), enabled: tab === 'peak-hours' })
+  const { data: menuDeletions } = useQuery({ queryKey: ['report-menu-deletions', from, to], queryFn: () => client.get('/reports/menu-deletions', { params }).then(r => r.data), enabled: tab === 'menu-deletions' })
+  const { data: invDeletions } = useQuery({ queryKey: ['report-inv-deletions', from, to], queryFn: () => client.get('/reports/inventory-deletions', { params }).then(r => r.data), enabled: tab === 'inv-deletions' })
+  const { data: cigData } = useQuery({ queryKey: ['report-cigarettes', from, to], queryFn: () => client.get('/reports/cigarettes', { params }).then(r => r.data), enabled: tab === 'cigarettes' })
+  const { data: chartsData } = useQuery({ queryKey: ['report-charts', from, to], queryFn: () => client.get('/reports/charts-data', { params }).then(r => r.data), enabled: tab === 'charts' })
 
   // Derive unique categories from sales data
   const categories = useMemo(() => {
@@ -52,28 +61,33 @@ export default function ReportsPage() {
   }
 
   const TABS = [
-    { id: 'sales', label: '🛒 Sales' },
-    { id: 'staff', label: '👤 Staff' },
-    { id: 'pool', label: '🎱 Pool' },
-    { id: 'payments', label: '💳 Payments' },
-    { id: 'modifiers', label: '🧂 Modifiers' },
-    { id: 'voids', label: '🚫 Voids' },
-    { id: 'peak-hours', label: '⏰ Peak Hours' },
+    { id: 'charts',        label: '📈 Gráficas' },
+    { id: 'sales',         label: '🛒 Ventas' },
+    { id: 'staff',         label: '👤 Personal' },
+    { id: 'pool',          label: '🎱 Billar' },
+    { id: 'payments',      label: '💳 Pagos' },
+    { id: 'modifiers',     label: '🧂 Modificadores' },
+    { id: 'voids',         label: '🚫 Anulaciones' },
+    { id: 'peak-hours',    label: '⏰ Horas Pico' },
+    { id: 'cigarettes',    label: '🚬 Cigarros' },
+    { id: 'menu-deletions', label: '🍽️ Menú Eliminados' },
+    { id: 'inv-deletions', label: '🗑 Inv. Eliminados' },
   ] as const
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-screen bg-slate-950 page-root">
       <NavBar />
+      <ManagerBackButton />
       <div className="max-w-5xl mx-auto p-4">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-bold">📊 Reports</h1>
-          <button onClick={handleExport} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm">Export CSV</button>
+          <h1 className="text-xl font-bold">📊 Reportes</h1>
+          <button onClick={handleExport} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm">Exportar CSV</button>
         </div>
 
         {/* Date filters */}
         <div className="flex gap-4 mb-4">
-          <div><label className="text-xs text-slate-400 block">From</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2" /></div>
-          <div><label className="text-xs text-slate-400 block">To</label><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2" /></div>
+          <div><label className="text-xs text-slate-400 block">Desde</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2" /></div>
+          <div><label className="text-xs text-slate-400 block">Hasta</label><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2" /></div>
         </div>
 
         {/* Tabs */}
@@ -91,7 +105,7 @@ export default function ReportsPage() {
             <button
               onClick={() => setCategoryFilter('ALL')}
               className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${categoryFilter === 'ALL' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
-              All
+              Todos
             </button>
             {categories.map(cat => (
               <button key={cat}
@@ -109,11 +123,11 @@ export default function ReportsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-700">
-                  <th className="p-3 text-left">Item</th>
-                  <th className="p-3 text-left">Category</th>
-                  <th className="p-3 text-right">Units</th>
-                  <th className="p-3 text-right">Gross</th>
-                  <th className="p-3 text-right">Discounts</th>
+                  <th className="p-3 text-left">Artículo</th>
+                  <th className="p-3 text-left">Categoría</th>
+                  <th className="p-3 text-right">Unidades</th>
+                  <th className="p-3 text-right">Bruto</th>
+                  <th className="p-3 text-right">Descuentos</th>
                 </tr>
               </thead>
               <tbody>
@@ -127,7 +141,7 @@ export default function ReportsPage() {
                   </tr>
                 ))}
                 {filteredSales.length === 0 && (
-                  <tr><td colSpan={5} className="p-6 text-center text-slate-500">No sales in this period{categoryFilter !== 'ALL' ? ` for "${categoryFilter}"` : ''}</td></tr>
+                  <tr><td colSpan={5} className="p-6 text-center text-slate-500">Sin ventas en este período{categoryFilter !== 'ALL' ? ` para "${categoryFilter}"` : ''}</td></tr>
                 )}
               </tbody>
               {filteredSales.length > 0 && (
@@ -150,7 +164,7 @@ export default function ReportsPage() {
         {tab === 'staff' && staff && (
           <div className="space-y-3">
             {(staff as any[]).length === 0 ? (
-              <div className="text-center text-slate-500 py-12">No staff activity in this period</div>
+              <div className="text-center text-slate-500 py-12">Sin actividad de personal en este período</div>
             ) : (staff as any[]).map((r: any, i: number) => (
               <div key={i} className="bg-slate-800 rounded-xl p-4 border border-slate-700">
                 <div className="flex items-center justify-between mb-3">
@@ -160,26 +174,26 @@ export default function ReportsPage() {
                   </div>
                   <div className="text-right">
                     <div className="text-xl font-bold text-green-400">{cents(r.total_sales_cents)}</div>
-                    <div className="text-xs text-slate-400">{r.tickets_closed} tickets closed</div>
+                    <div className="text-xs text-slate-400">{r.tickets_closed} tickets cerrados</div>
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-xs">
                   <div className="bg-slate-700 rounded-lg p-2 text-center">
-                    <div className="text-slate-400">Tickets Opened</div>
+                    <div className="text-slate-400">Tickets Abiertos</div>
                     <div className="font-bold text-white mt-0.5">{r.tickets_opened}</div>
                   </div>
                   <div className="bg-slate-700 rounded-lg p-2 text-center">
-                    <div className="text-slate-400">💵 Cash</div>
+                    <div className="text-slate-400">💵 Efectivo</div>
                     <div className="font-bold font-mono mt-0.5">{cents(r.cash_sales_cents)}</div>
                   </div>
                   <div className="bg-slate-700 rounded-lg p-2 text-center">
-                    <div className="text-slate-400">💳 Card</div>
+                    <div className="text-slate-400">💳 Tarjeta</div>
                     <div className="font-bold font-mono mt-0.5">{cents(r.card_sales_cents)}</div>
                   </div>
                 </div>
                 {(r.total_tips_cents || 0) > 0 && (
                   <div className="mt-2 text-xs text-amber-400 text-right">
-                    Tips collected: {cents(r.total_tips_cents)}
+                    Propinas recaudadas: {cents(r.total_tips_cents)}
                   </div>
                 )}
               </div>
@@ -191,7 +205,7 @@ export default function ReportsPage() {
         {tab === 'pool' && pool && (
           <div className="bg-slate-800 rounded-xl overflow-hidden">
             <table className="w-full text-sm">
-              <thead><tr className="bg-slate-700"><th className="p-3 text-left">Table</th><th className="p-3 text-right">Sessions</th><th className="p-3 text-right">Total Minutes</th><th className="p-3 text-right">Revenue</th></tr></thead>
+              <thead><tr className="bg-slate-700"><th className="p-3 text-left">Mesa</th><th className="p-3 text-right">Sesiones</th><th className="p-3 text-right">Minutos Totales</th><th className="p-3 text-right">Ingresos</th></tr></thead>
               <tbody>{(pool as any[]).map((r, i) => <tr key={i} className="border-t border-slate-700"><td className="p-3">{r.table_code}</td><td className="p-3 text-right">{r.sessions}</td><td className="p-3 text-right">{r.total_seconds ? Math.round(r.total_seconds / 60) : 0}m</td><td className="p-3 text-right font-mono text-yellow-300">{cents(r.revenue_cents)}</td></tr>)}</tbody>
             </table>
           </div>
@@ -204,10 +218,10 @@ export default function ReportsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-700">
-                    <th className="p-3 text-left">Method</th>
+                    <th className="p-3 text-left">Método</th>
                     <th className="p-3 text-right">Tickets</th>
-                    <th className="p-3 text-right">Sales</th>
-                    <th className="p-3 text-right">Tips</th>
+                    <th className="p-3 text-right">Ventas</th>
+                    <th className="p-3 text-right">Propinas</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -276,15 +290,15 @@ export default function ReportsPage() {
         {tab === 'voids' && (
           <div className="bg-slate-800 rounded-xl overflow-hidden">
             {(!voids || (voids as any[]).length === 0) ? (
-              <div className="p-8 text-center text-slate-500">No voided items in this period</div>
+              <div className="p-8 text-center text-slate-500">Sin artículos anulados en este período</div>
             ) : (
               <>
                 <div className="px-4 py-3 bg-slate-700 flex items-center justify-between">
                   <span className="text-sm font-semibold text-slate-200">
-                    {(voids as any[]).length} voided item{(voids as any[]).length !== 1 ? 's' : ''}
+                    {(voids as any[]).length} artículo{(voids as any[]).length !== 1 ? 's' : ''} anulado{(voids as any[]).length !== 1 ? 's' : ''}
                   </span>
                   <span className="text-xs text-slate-400">
-                    Total lost: <span className="text-red-400 font-mono font-bold">
+                    Total perdido: <span className="text-red-400 font-mono font-bold">
                       {cents((voids as any[]).reduce((s: number, r: any) => s + (r.unit_price_cents * r.quantity), 0))}
                     </span>
                   </span>
@@ -293,11 +307,11 @@ export default function ReportsPage() {
                   <thead>
                     <tr className="bg-slate-700 border-t border-slate-600">
                       <th className="p-3 text-left">Ticket</th>
-                      <th className="p-3 text-left">Table</th>
-                      <th className="p-3 text-left">Item</th>
-                      <th className="p-3 text-left">Category</th>
-                      <th className="p-3 text-right">Qty</th>
-                      <th className="p-3 text-right">Value</th>
+                      <th className="p-3 text-left">Mesa</th>
+                      <th className="p-3 text-left">Artículo</th>
+                      <th className="p-3 text-left">Categoría</th>
+                      <th className="p-3 text-right">Cant</th>
+                      <th className="p-3 text-right">Valor</th>
                       <th className="p-3 text-left">Reason</th>
                       <th className="p-3 text-left">Voided By</th>
                       <th className="p-3 text-left">Time</th>
@@ -360,7 +374,7 @@ export default function ReportsPage() {
                       const isTop = Number(r.revenue_cents) === maxRevenue
                       return (
                         <tr key={i} className={`border-t border-slate-700 ${isTop ? 'bg-yellow-900/20' : ''}`}>
-                          <td className="p-3 font-semibold">{fmt(Number(r.hour))}{isTop && <span className="ml-2 text-xs text-yellow-400">⭐ PEAK</span>}</td>
+                          <td className="p-3 font-semibold">{fmt(Number(r.hour))}{isTop && <span className="ml-2 text-xs text-yellow-400">⭐ PICO</span>}</td>
                           <td className="p-3 text-right">{r.ticket_count}</td>
                           <td className="p-3 text-right font-mono text-yellow-300">{cents(r.revenue_cents)}</td>
                           <td className="p-3 text-right font-mono text-slate-400">{cents(r.avg_ticket_cents)}</td>
@@ -378,6 +392,298 @@ export default function ReportsPage() {
             })()}
           </div>
         )}
+
+        {/* ── Gráficas ───────────────────────────────────────────────────── */}
+        {tab === 'charts' && (() => {
+          const PIE_COLORS = ['#38bdf8','#818cf8','#34d399','#fb923c','#f472b6','#a78bfa','#facc15','#4ade80']
+          const daily   = (chartsData as any)?.daily_revenue  ?? []
+          const topProds = (chartsData as any)?.top_products   ?? []
+          const byCat    = (chartsData as any)?.by_category    ?? []
+          const noData   = daily.length === 0 && topProds.length === 0
+
+          if (noData) return (
+            <div className="p-8 text-center text-slate-500">Sin datos en este período</div>
+          )
+
+          return (
+            <div className="space-y-6">
+
+              {/* Daily revenue line chart */}
+              {daily.length > 0 && (
+                <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4">
+                  <h2 className="text-sm font-semibold text-slate-300 mb-4">💰 Ingresos diarios</h2>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <LineChart data={daily} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                      <YAxis tickFormatter={(v) => `$${v}`} tick={{ fill: '#94a3b8', fontSize: 11 }} width={60} />
+                      <Tooltip
+                        contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                        labelStyle={{ color: '#cbd5e1' }}
+                        formatter={(v: any) => `$${Number(v).toFixed(2)}`}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
+                      <Line type="monotone" dataKey="items_net" name="Consumo" stroke="#38bdf8" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="pool"      name="Billar"  stroke="#818cf8" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="total"     name="Total"   stroke="#34d399" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* Top products bar chart */}
+              {topProds.length > 0 && (
+                <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4">
+                  <h2 className="text-sm font-semibold text-slate-300 mb-4">🏆 Productos más vendidos (unidades)</h2>
+                  <ResponsiveContainer width="100%" height={Math.max(260, topProds.length * 30)}>
+                    <BarChart data={topProds} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+                      <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                      <YAxis type="category" dataKey="item_name" width={130} tick={{ fill: '#cbd5e1', fontSize: 11 }} />
+                      <Tooltip
+                        contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                        labelStyle={{ color: '#cbd5e1' }}
+                      />
+                      <Bar dataKey="units_sold" name="Unidades vendidas" fill="#38bdf8" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* Two-column: revenue by product (bar) + by category (pie) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                {topProds.length > 0 && (
+                  <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4">
+                    <h2 className="text-sm font-semibold text-slate-300 mb-4">💵 Ingresos por producto (Top 15)</h2>
+                    <ResponsiveContainer width="100%" height={Math.max(260, topProds.length * 30)}>
+                      <BarChart data={topProds} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+                        <XAxis type="number" tickFormatter={(v) => `$${v}`} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                        <YAxis type="category" dataKey="item_name" width={130} tick={{ fill: '#cbd5e1', fontSize: 11 }} />
+                        <Tooltip
+                          contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                          labelStyle={{ color: '#cbd5e1' }}
+                          formatter={(v: any) => `$${Number(v).toFixed(2)}`}
+                        />
+                        <Bar dataKey="gross" name="Ingresos" fill="#818cf8" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {byCat.length > 0 && (
+                  <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4">
+                    <h2 className="text-sm font-semibold text-slate-300 mb-4">🍕 Ingresos por categoría</h2>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <PieChart>
+                        <Pie data={byCat} dataKey="gross" nameKey="category" cx="50%" cy="50%" outerRadius={90}
+                          label={({ name, percent }) => `${name} ${percent != null ? (percent * 100).toFixed(0) : 0}%`}
+                          labelLine={{ stroke: '#475569' }}
+                        >
+                          {byCat.map((_: any, idx: number) => (
+                            <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                          formatter={(v: any) => `$${Number(v).toFixed(2)}`}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                      {byCat.map((r: any, idx: number) => (
+                        <div key={idx} className="flex items-center gap-1 text-xs text-slate-400">
+                          <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: PIE_COLORS[idx % PIE_COLORS.length] }} />
+                          {r.category} — ${Number(r.gross).toFixed(2)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
+
+        {tab === 'menu-deletions' && (
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+            {(!menuDeletions || (menuDeletions as any[]).length === 0) ? (
+              <div className="p-8 text-center text-slate-500">Sin eliminaciones de menú en este período</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-slate-700/50">
+                  <tr className="text-xs text-slate-400">
+                    <th className="text-left p-3">Fecha</th>
+                    <th className="text-left p-3">Artículo</th>
+                    <th className="text-left p-3">Categoría</th>
+                    <th className="text-right p-3">Precio</th>
+                    <th className="text-left p-3">Eliminado por</th>
+                    <th className="text-left p-3">Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(menuDeletions as any[]).map((r: any, i: number) => (
+                    <tr key={i} className="border-t border-slate-700 hover:bg-slate-700/30">
+                      <td className="p-3 text-slate-400 text-xs">{r.deleted_at ? new Date(r.deleted_at).toLocaleString('es-MX') : '—'}</td>
+                      <td className="p-3 font-medium">{r.item_name}</td>
+                      <td className="p-3 text-slate-400">{r.category}</td>
+                      <td className="p-3 text-right font-mono text-yellow-300">{cents(r.price_cents)}</td>
+                      <td className="p-3 text-slate-300">{r.deleted_by}</td>
+                      <td className="p-3 text-slate-400 text-xs italic">{r.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-slate-700/30">
+                  <tr>
+                    <td colSpan={6} className="p-3 text-xs text-slate-400">
+                      {(menuDeletions as any[]).length} artículo{(menuDeletions as any[]).length !== 1 ? 's' : ''} eliminado{(menuDeletions as any[]).length !== 1 ? 's' : ''} del menú en este período
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        )}
+
+        {tab === 'inv-deletions' && (
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+            {(!invDeletions || (invDeletions as any[]).length === 0) ? (
+              <div className="p-8 text-center text-slate-500">Sin eliminaciones de inventario en este período</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-slate-700/50">
+                  <tr className="text-xs text-slate-400">
+                    <th className="text-left p-3">Fecha</th>
+                    <th className="text-left p-3">Artículo</th>
+                    <th className="text-left p-3">Categoría</th>
+                    <th className="text-right p-3">Últ. Stock</th>
+                    <th className="text-left p-3">Unidad</th>
+                    <th className="text-left p-3">Eliminado por</th>
+                    <th className="text-left p-3">Detalle</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(invDeletions as any[]).map((r: any, i: number) => (
+                    <tr key={i} className="border-t border-slate-700 hover:bg-slate-700/30">
+                      <td className="p-3 text-xs text-slate-400 whitespace-nowrap">
+                        {new Date(r.deleted_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
+                      </td>
+                      <td className="p-3 font-medium text-red-300">{r.item_name}</td>
+                      <td className="p-3 text-slate-400 capitalize">{r.item_category}</td>
+                      <td className="p-3 text-right font-mono">{r.last_quantity}</td>
+                      <td className="p-3 text-slate-400">{r.item_unit}</td>
+                      <td className="p-3 text-slate-300">{r.deleted_by}</td>
+                      <td className="p-3 text-xs text-slate-500 max-w-[200px] truncate">{r.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-slate-700/30">
+                  <tr>
+                    <td colSpan={7} className="p-3 text-xs text-slate-400">
+                      {(invDeletions as any[]).length} artículo{(invDeletions as any[]).length !== 1 ? 's' : ''} eliminado{(invDeletions as any[]).length !== 1 ? 's' : ''} en este período
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        )}
+
+        {tab === 'cigarettes' && (
+          <div className="space-y-6">
+            {/* Summary cards */}
+            {cigData && (
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-slate-800 rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-yellow-300">{cents((cigData as any).totals?.gross_cents ?? 0)}</div>
+                  <div className="text-xs text-slate-400 mt-1">Ingresos Cigarros</div>
+                </div>
+                <div className="bg-slate-800 rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-sky-300">{(cigData as any).totals?.units_sold ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-1">Cigarros Vendidos</div>
+                </div>
+                <div className="bg-slate-800 rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-emerald-300">{(cigData as any).totals?.boxes_opened ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-1">Cajas Abiertas</div>
+                </div>
+              </div>
+            )}
+
+            {/* Sales by item */}
+            <div className="bg-slate-800 rounded-xl overflow-hidden">
+              <div className="p-3 bg-slate-700/50 font-semibold text-sm">🚬 Ventas por Producto</div>
+              {!cigData || (cigData as any).sales?.length === 0 ? (
+                <p className="p-6 text-center text-slate-500">Sin ventas de cigarros en este período</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="text-xs text-slate-400 uppercase bg-slate-700/30">
+                    <tr>
+                      <th className="p-3 text-left">Producto</th>
+                      <th className="p-3 text-right">Precio Unitario</th>
+                      <th className="p-3 text-right">Unidades</th>
+                      <th className="p-3 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {((cigData as any).sales as any[]).map((r: any, i: number) => (
+                      <tr key={i} className="border-t border-slate-700">
+                        <td className="p-3">{r.item_name}</td>
+                        <td className="p-3 text-right text-slate-400">{cents(r.unit_price_cents)}</td>
+                        <td className="p-3 text-right">{r.units_sold}</td>
+                        <td className="p-3 text-right font-mono text-yellow-300">{cents(r.gross_cents)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-slate-700/30">
+                    <tr>
+                      <td colSpan={2} className="p-3 text-xs text-slate-400 font-semibold">Total</td>
+                      <td className="p-3 text-right font-bold">{(cigData as any).totals?.units_sold ?? 0}</td>
+                      <td className="p-3 text-right font-bold text-yellow-300">{cents((cigData as any).totals?.gross_cents ?? 0)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </div>
+
+            {/* Box tracking */}
+            <div className="bg-slate-800 rounded-xl overflow-hidden">
+              <div className="p-3 bg-slate-700/50 font-semibold text-sm">📦 Cajas Abiertas</div>
+              {!cigData || (cigData as any).boxes?.length === 0 ? (
+                <p className="p-6 text-center text-slate-500">Sin cajas abiertas en este período</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="text-xs text-slate-400 uppercase bg-slate-700/30">
+                    <tr>
+                      <th className="p-3 text-left">Marca</th>
+                      <th className="p-3 text-right">Cajas</th>
+                      <th className="p-3 text-right">Cigarros Agregados</th>
+                      <th className="p-3 text-right">Cigarros Vendidos</th>
+                      <th className="p-3 text-right">En Inventario</th>
+                      <th className="p-3 text-right">Cajas Terminadas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {((cigData as any).boxes as any[]).map((r: any, i: number) => (
+                      <tr key={i} className="border-t border-slate-700">
+                        <td className="p-3">{r.brand}</td>
+                        <td className="p-3 text-right">{r.boxes_opened}</td>
+                        <td className="p-3 text-right text-sky-300">{r.total_cigs_added}</td>
+                        <td className="p-3 text-right text-yellow-300">{r.total_cigs_sold ?? 0}</td>
+                        <td className="p-3 text-right text-emerald-300">{r.cigs_remaining ?? 0}</td>
+                        <td className="p-3 text-right text-slate-400">{r.boxes_finished}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+
+
 
       </div>
     </div>

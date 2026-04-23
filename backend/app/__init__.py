@@ -31,6 +31,7 @@ def create_app(config_class=Config):
     from .api.users import users_bp
     from .api.waiting_list import waiting_list_bp
     from .api.cash_session import cash_bp
+    from .api.safe import safe_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/v1/auth')
     app.register_blueprint(resources_bp, url_prefix='/api/v1/resources')
@@ -42,6 +43,7 @@ def create_app(config_class=Config):
     app.register_blueprint(users_bp, url_prefix='/api/v1/users')
     app.register_blueprint(waiting_list_bp, url_prefix='/api/v1/waiting-list')
     app.register_blueprint(cash_bp, url_prefix='/api/v1/cash')
+    app.register_blueprint(safe_bp, url_prefix='/api/v1/safe')
 
     # Register socket events
     from .sockets import events  # noqa: F401

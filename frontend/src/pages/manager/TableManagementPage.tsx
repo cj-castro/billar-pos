@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import NavBar from '../../components/NavBar'
+import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 import { useEscKey } from '../../hooks/useEscKey'
@@ -160,8 +161,9 @@ export default function TableManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-slate-950 text-white page-root">
       <NavBar />
+      <ManagerBackButton />
       <div className="max-w-4xl mx-auto p-4">
         <h1 className="text-2xl font-bold mb-6">🗂 Table & Seat Management</h1>
 

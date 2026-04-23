@@ -10,7 +10,7 @@ class WaitingListEntry(db.Model):
     party_name = db.Column(db.String(200), nullable=False)
     party_size = db.Column(db.Integer, default=1)
     notes = db.Column(db.Text)
-    # WAITING → ASSIGNED | CANCELLED | NO_SHOW
+    # WAITING → SEATED (floor table, still waiting pool) → ASSIGNED (got pool) | CANCELLED | NO_SHOW
     status = db.Column(db.String(20), nullable=False, default='WAITING')
     position = db.Column(db.Integer)          # 1-based queue order
 
@@ -19,15 +19,20 @@ class WaitingListEntry(db.Model):
 
     assigned_resource_id = db.Column(db.String(36), db.ForeignKey('resources.id'))
     assigned_ticket_id = db.Column(db.String(36), db.ForeignKey('tickets.id'))
+    # Floor table while waiting for pool
+    floor_resource_id = db.Column(db.String(36), db.ForeignKey('resources.id'), nullable=True)
+    floor_ticket_id = db.Column(db.String(36), db.ForeignKey('tickets.id'), nullable=True)
     created_by = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
 
     assigned_resource = db.relationship('Resource', foreign_keys=[assigned_resource_id])
     assigned_ticket = db.relationship('Ticket', foreign_keys=[assigned_ticket_id])
+    floor_resource = db.relationship('Resource', foreign_keys=[floor_resource_id])
+    floor_ticket = db.relationship('Ticket', foreign_keys=[floor_ticket_id])
     creator = db.relationship('User', foreign_keys=[created_by])
 
     def to_dict(self):
         wait_seconds = None
-        if self.status == 'WAITING':
+        if self.status in ('WAITING', 'SEATED'):
             wait_seconds = int((datetime.now(timezone.utc) - self.created_at).total_seconds())
         return {
             'id': self.id,
@@ -41,6 +46,9 @@ class WaitingListEntry(db.Model):
             'assigned_resource_id': self.assigned_resource_id,
             'assigned_resource_code': self.assigned_resource.code if self.assigned_resource else None,
             'assigned_ticket_id': self.assigned_ticket_id,
+            'floor_resource_id': self.floor_resource_id,
+            'floor_resource_code': self.floor_resource.code if self.floor_resource else None,
+            'floor_ticket_id': self.floor_ticket_id,
             'created_by_name': self.creator.name if self.creator else None,
             'wait_seconds': wait_seconds,
         }

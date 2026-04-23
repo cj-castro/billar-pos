@@ -7,9 +7,10 @@ interface Props {
   resource: ResourceState
   onOpenNew: (resourceId: string) => void
   barOpen?: boolean
+  isWaitingPool?: boolean
 }
 
-export default function ResourceCard({ resource, onOpenNew, barOpen = true }: Props) {
+export default function ResourceCard({ resource, onOpenNew, barOpen = true, isWaitingPool = false }: Props) {
   const navigate = useNavigate()
   const elapsed = useTimer(resource.status === 'IN_USE' ? resource.timer_start : undefined)
 
@@ -45,7 +46,7 @@ export default function ResourceCard({ resource, onOpenNew, barOpen = true }: Pr
 
       {inUse ? (
         <div className="text-center">
-          <span className="text-red-400 text-xs font-semibold block">IN USE</span>
+          <span className="text-red-400 text-xs font-semibold block">EN USO</span>
           {resource.customer_name && (
             <span className="text-white text-sm font-bold block truncate max-w-[110px] mx-auto" title={resource.customer_name}>
               👤 {resource.customer_name}
@@ -54,8 +55,13 @@ export default function ResourceCard({ resource, onOpenNew, barOpen = true }: Pr
           {isPool && elapsed && (
             <span className="text-yellow-300 font-mono text-lg">{elapsed}</span>
           )}
+          {isWaitingPool && (
+            <span className="mt-1 inline-flex items-center gap-1 bg-yellow-900/70 border border-yellow-600 text-yellow-300 text-xs font-semibold px-2 py-0.5 rounded-full">
+              ⏳ Esp. Pool
+            </span>
+          )}
           {resource.active_ticket_id && (
-            <span className="text-slate-400 text-xs block mt-1">Tap to view ticket</span>
+            <span className="text-slate-400 text-xs block mt-1">Toca para ver ticket</span>
           )}
         </div>
       ) : locked ? (
@@ -65,8 +71,8 @@ export default function ResourceCard({ resource, onOpenNew, barOpen = true }: Pr
         </div>
       ) : (
         <div className="text-center">
-          <span className="text-green-400 text-xs font-semibold">AVAILABLE</span>
-          <span className="text-slate-500 text-xs block mt-1">Tap to open</span>
+          <span className="text-green-400 text-xs font-semibold">DISPONIBLE</span>
+          <span className="text-slate-500 text-xs block mt-1">Toca para abrir</span>
         </div>
       )}
     </div>

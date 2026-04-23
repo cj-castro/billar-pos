@@ -68,7 +68,7 @@ export default function LoginPage() {
             {loading ? t('common.loading') : t('login.submit')}
           </button>
         </form>
-        <p className="text-center text-xs text-slate-500 mt-6">Default: admin / admin123</p>
+        
       </div>
     </div>
   )

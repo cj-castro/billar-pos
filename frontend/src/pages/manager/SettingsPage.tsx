@@ -1,4 +1,5 @@
 import NavBar from '../../components/NavBar'
+import ManagerBackButton from '../../components/ManagerBackButton'
 import { useTranslation } from 'react-i18next'
 import { useLanguage } from '../../hooks/useLanguage'
 import toast from 'react-hot-toast'
@@ -13,8 +14,9 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-slate-950 text-white page-root">
       <NavBar />
+      <ManagerBackButton />
       <div className="max-w-lg mx-auto p-6">
         <h1 className="text-2xl font-bold mb-6">⚙️ {t('settings.title')}</h1>
 

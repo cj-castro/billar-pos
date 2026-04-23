@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import NavBar from '../../components/NavBar'
+import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 import { useEscKey } from '../../hooks/useEscKey'
@@ -11,8 +12,8 @@ const ROLE_COLORS: Record<string, string> = {
   BAR_STAFF: 'text-purple-400', MANAGER: 'text-green-400', ADMIN: 'text-red-400',
 }
 const ROLE_LABELS: Record<string, string> = {
-  WAITER: '🏃 Waiter', KITCHEN_STAFF: '🍳 Kitchen', BAR_STAFF: '🍹 Bar',
-  MANAGER: '👔 Manager', ADMIN: '🔑 Admin',
+  WAITER: '🏃 Mesero', KITCHEN_STAFF: '🍳 Cocina', BAR_STAFF: '🍹 Bar',
+  MANAGER: '👔 Gerente', ADMIN: '🔑 Admin',
 }
 
 const emptyForm = { username: '', name: '', role: 'WAITER', password: '', pin: '' }
@@ -33,7 +34,7 @@ export default function UsersPage() {
   })
 
   const handleCreate = async () => {
-    if (!form.username.trim() || !form.password.trim()) { toast.error('Username and password required'); return }
+    if (!form.username.trim() || !form.password.trim()) { toast.error('Se requieren usuario y contraseña'); return }
     setSaving(true)
     try {
       await client.post('/users', {
@@ -43,12 +44,12 @@ export default function UsersPage() {
         password: form.password,
         ...(form.pin ? { pin: form.pin } : {}),
       })
-      toast.success('User created')
+      toast.success('Usuario creado')
       qc.invalidateQueries({ queryKey: ['users'] })
       setShowCreate(false)
       setForm({ ...emptyForm })
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to create user')
+      toast.error(err.response?.data?.message || 'No se pudo crear el usuario')
     } finally {
       setSaving(false)
     }
@@ -68,32 +69,33 @@ export default function UsersPage() {
     else if (editForm.pin.trim()) payload.pin = editForm.pin.trim()
     try {
       await client.patch(`/users/${editUser.id}`, payload)
-      toast.success('User updated')
+      toast.success('Usuario actualizado')
       qc.invalidateQueries({ queryKey: ['users'] })
       setEditUser(null)
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to update')
+      toast.error(err.response?.data?.message || 'No se pudo actualizar')
     } finally {
       setSaving(false)
     }
   }
 
   const handleDeactivate = async (id: string) => {
-    if (!confirm('Deactivate this user? They will no longer be able to log in.')) return
+    if (!confirm('¿Desactivar este usuario? Ya no podrá iniciar sesión.')) return
     await client.delete(`/users/${id}`)
-    toast.success('User deactivated')
+    toast.success('Usuario desactivado')
     refetch()
   }
 
   const needsPin = (role: string) => ['MANAGER', 'ADMIN'].includes(role)
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-screen bg-slate-950 page-root">
       <NavBar />
+      <ManagerBackButton />
       <div className="max-w-3xl mx-auto p-4">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-bold">👥 Staff Accounts</h1>
-          <button onClick={() => setShowCreate(true)} className="bg-sky-600 hover:bg-sky-500 px-4 py-2 rounded-lg font-semibold text-sm">+ New User</button>
+          <h1 className="text-xl font-bold">👥 Cuentas del Personal</h1>
+          <button onClick={() => setShowCreate(true)} className="bg-sky-600 hover:bg-sky-500 px-4 py-2 rounded-lg font-semibold text-sm">+ Nuevo Usuario</button>
         </div>
 
         <div className="space-y-2">
@@ -120,13 +122,13 @@ export default function UsersPage() {
                   {u.is_active && (
                     <button onClick={() => openEdit(u)}
                       className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-semibold">
-                      ✏️ Edit
+                      ✏️ Editar
                     </button>
                   )}
                   {u.is_active && (
                     <button onClick={() => handleDeactivate(u.id)}
                       className="px-3 py-1.5 text-red-400 hover:text-red-300 border border-red-800 hover:border-red-600 rounded-lg text-sm">
-                      Deactivate
+                      Desactivar
                     </button>
                   )}
                 </div>
@@ -140,16 +142,16 @@ export default function UsersPage() {
       {showCreate && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-600 space-y-3">
-            <h2 className="font-bold text-lg">New Staff Account</h2>
+            <h2 className="font-bold text-lg">Nueva Cuenta de Personal</h2>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Username</label>
+              <label className="text-xs text-slate-400 block mb-1">Usuario</label>
               <input autoFocus value={form.username} onChange={e => setForm(p => ({ ...p, username: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && handleCreate()}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
                 placeholder="john.doe" />
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Full Name</label>
+              <label className="text-xs text-slate-400 block mb-1">Nombre Completo</label>
               <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && handleCreate()}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
@@ -163,7 +165,7 @@ export default function UsersPage() {
               </select>
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Password</label>
+              <label className="text-xs text-slate-400 block mb-1">Contraseña</label>
               <input type="password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && handleCreate()}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
@@ -182,10 +184,10 @@ export default function UsersPage() {
             )}
             <div className="flex gap-3 pt-2">
               <button onClick={() => { setShowCreate(false); setForm({ ...emptyForm }) }}
-                className="flex-1 py-2 border border-slate-600 rounded-lg text-slate-300">Cancel</button>
+                className="flex-1 py-2 border border-slate-600 rounded-lg text-slate-300">Cancelar</button>
               <button onClick={handleCreate} disabled={saving || !form.username || !form.password}
                 className="flex-1 py-2 bg-sky-600 rounded-lg font-bold disabled:opacity-50">
-                {saving ? 'Creating…' : 'Create'}
+                {saving ? 'Creando…' : 'Crear'}
               </button>
             </div>
           </div>
@@ -198,7 +200,7 @@ export default function UsersPage() {
           <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-600 space-y-3">
             <h2 className="font-bold text-lg">Edit: {editUser.name}</h2>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Full Name</label>
+              <label className="text-xs text-slate-400 block mb-1">Nombre Completo</label>
               <input autoFocus value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && handleEdit()}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
@@ -211,7 +213,7 @@ export default function UsersPage() {
               </select>
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">New Password <span className="text-slate-500">(leave blank to keep current)</span></label>
+              <label className="text-xs text-slate-400 block mb-1">Nueva Contraseña <span className="text-slate-500">(dejar en blanco para conservar)</span></label>
               <input type="password" value={editForm.new_password} onChange={e => setEditForm(p => ({ ...p, new_password: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && handleEdit()}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" placeholder="••••••••" />
@@ -256,10 +258,10 @@ export default function UsersPage() {
 
             <div className="flex gap-3 pt-2">
               <button onClick={() => setEditUser(null)}
-                className="flex-1 py-2 border border-slate-600 rounded-lg text-slate-300">Cancel</button>
+                className="flex-1 py-2 border border-slate-600 rounded-lg text-slate-300">Cancelar</button>
               <button onClick={handleEdit} disabled={saving || !editForm.name}
                 className="flex-1 py-2 bg-sky-600 rounded-lg font-bold disabled:opacity-50">
-                {saving ? 'Saving…' : 'Save Changes'}
+                {saving ? 'Guardando…' : 'Guardar Cambios'}
               </button>
             </div>
           </div>

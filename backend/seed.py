@@ -27,30 +27,31 @@ def seed():
         print("Seeding database...")
 
         # ── Users ──────────────────────────────────────────
+        # Passwords read from env so they survive fresh deploys correctly.
         admin = User(username='admin', name='Admin User', role='ADMIN')
-        admin.set_password('admin123')
-        admin.set_pin('1234')
+        admin.set_password(os.environ.get('ADMIN_PASSWORD', 'admin123'))
+        admin.set_pin(os.environ.get('ADMIN_PIN', '1234'))
         db.session.add(admin)
 
         manager = User(username='manager', name='Floor Manager', role='MANAGER')
-        manager.set_password('manager123')
-        manager.set_pin('5678')
+        manager.set_password(os.environ.get('MANAGER_PASSWORD', 'manager123'))
+        manager.set_pin(os.environ.get('MANAGER_PIN', '5678'))
         db.session.add(manager)
 
         waiter1 = User(username='waiter1', name='Alice Waiter', role='WAITER')
-        waiter1.set_password('waiter123')
+        waiter1.set_password(os.environ.get('WAITER1_PASSWORD', 'waiter123'))
         db.session.add(waiter1)
 
         waiter2 = User(username='waiter2', name='Bob Waiter', role='WAITER')
-        waiter2.set_password('waiter123')
+        waiter2.set_password(os.environ.get('WAITER2_PASSWORD', 'waiter123'))
         db.session.add(waiter2)
 
         kitchen = User(username='kitchen', name='Kitchen Staff', role='KITCHEN_STAFF')
-        kitchen.set_password('kitchen123')
+        kitchen.set_password(os.environ.get('KITCHEN_PASSWORD', 'kitchen123'))
         db.session.add(kitchen)
 
         bar_staff = User(username='barstaff', name='Bar Staff', role='BAR_STAFF')
-        bar_staff.set_password('bar123')
+        bar_staff.set_password(os.environ.get('BARSTAFF_PASSWORD', 'bar123'))
         db.session.add(bar_staff)
 
         # ── Pool Tables ────────────────────────────────────

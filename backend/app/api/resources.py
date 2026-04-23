@@ -60,7 +60,8 @@ def create_resource():
         code=data['code'],
         name=data['name'],
         type=data['type'],
-        sort_order=data.get('sort_order', 0)
+        sort_order=data.get('sort_order', 0),
+        is_temp=data.get('is_temp', False)
     )
     db.session.add(r)
     if r.type == 'POOL_TABLE':

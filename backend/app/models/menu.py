@@ -26,6 +26,8 @@ class MenuItem(db.Model):
     sort_order = db.Column(db.Integer, default=0)
 
     modifier_groups = db.relationship('ModifierGroup', secondary='menu_item_modifier_groups', backref='items')
+    ingredients = db.relationship('MenuItemIngredient', backref='menu_item', lazy='dynamic',
+                                  foreign_keys='MenuItemIngredient.menu_item_id')
 
     def to_dict(self, with_modifiers=False):
         d = {
@@ -36,7 +38,8 @@ class MenuItem(db.Model):
             'requires_flavor': self.requires_flavor,
             'is_active': self.is_active,
             'sort_order': self.sort_order,
-            'routing': self.category.routing if self.category else None
+            'routing': self.category.routing if self.category else None,
+            'ingredient_count': self.ingredients.count(),
         }
         if with_modifiers:
             d['modifier_groups'] = [mg.to_dict() for mg in self.modifier_groups]
@@ -55,7 +58,8 @@ class ModifierGroup(db.Model):
     allow_multiple = db.Column(db.Boolean, default=False)
     modifiers = db.relationship('Modifier', backref='group', lazy='dynamic')
 
-    def to_dict(self):
+    def to_dict(self, include_inactive=False):
+        mods = self.modifiers.all() if include_inactive else self.modifiers.filter_by(is_active=True).all()
         return {
             'id': self.id,
             'name': self.name,
@@ -63,7 +67,7 @@ class ModifierGroup(db.Model):
             'min_selections': self.min_selections,
             'max_selections': self.max_selections,
             'allow_multiple': self.allow_multiple,
-            'modifiers': [m.to_dict() for m in self.modifiers if m.is_active]
+            'modifiers': [m.to_dict() for m in mods]
         }
 
 
@@ -98,5 +102,6 @@ class Modifier(db.Model):
             'name': self.name,
             'price_cents': self.price_cents,
             'modifier_group_id': self.modifier_group_id,
+            'is_active': self.is_active,
             'inventory_rules': rules
         }

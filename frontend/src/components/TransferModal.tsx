@@ -71,14 +71,14 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
   // ── Success screen ──────────────────────────────────────────────────────────
   if (result) {
     const typeLabel =
-      result.toType === 'POOL_TABLE' ? '🎱 Pool Table' :
-      result.toType === 'REGULAR_TABLE' ? '🪑 Regular Table' : '🍺 Bar Seat'
+      result.toType === 'POOL_TABLE' ? '🎱 Mesa de Billar' :
+      result.toType === 'REGULAR_TABLE' ? '🪑 Mesa Regular' : '🍺 Asiento de Bar'
     return (
       <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
         <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-green-700 shadow-2xl shadow-green-900/40">
           <div className="bg-green-700/30 rounded-t-2xl p-6 text-center border-b border-green-700">
             <div className="text-5xl mb-3">✅</div>
-            <div className="text-2xl font-extrabold text-green-400">Transfer Complete!</div>
+            <div className="text-2xl font-extrabold text-green-400">¡Transferencia Completada!</div>
           </div>
           <div className="p-6 space-y-4">
             <div className="flex items-center justify-center gap-4 text-xl font-bold">
@@ -88,18 +88,18 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
             </div>
             <div className="text-center text-slate-400 text-sm">{typeLabel}</div>
             <div className="bg-slate-700/50 rounded-xl p-3 text-sm text-slate-300 space-y-1">
-              <div>✓ All items and history preserved</div>
-              {result.toType === 'POOL_TABLE' && <div>✓ Pool timer started on {result.toCode}</div>}
+              <div>✓ Artículos e historial conservados</div>
+              {result.toType === 'POOL_TABLE' && <div>✓ Temporizador iniciado en {result.toCode}</div>}
               {result.fromCode.startsWith('PT') && result.toType !== 'POOL_TABLE' && (
-                <div>✓ Pool time billed and added to ticket</div>
+                <div>✓ Tiempo de billar facturado al ticket</div>
               )}
-              <div>✓ Floor map updated</div>
+              <div>✓ Mapa de piso actualizado</div>
             </div>
             <button
               onClick={handleDone}
               className="w-full py-3 bg-green-600 hover:bg-green-500 rounded-xl font-bold text-lg transition-colors"
             >
-              View Ticket →
+              Ver Ticket →
             </button>
           </div>
         </div>
@@ -123,14 +123,14 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
       >
         {busy && (
           <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-sky-900/60">
-            <span className="text-sky-300 text-xs font-bold animate-pulse">Moving…</span>
+            <span className="text-sky-300 text-xs font-bold animate-pulse">Moviendo…</span>
           </div>
         )}
         <div className="font-bold text-base">{r.code}</div>
         <div className="text-xs mt-0.5 font-medium">
           {available
-            ? <span className="text-green-400">✓ Available</span>
-            : <span className="text-red-400">✗ In Use</span>}
+            ? <span className="text-green-400">✓ Disponible</span>
+            : <span className="text-red-400">✗ En Uso</span>}
         </div>
       </button>
     )
@@ -143,9 +143,9 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
         <div className="p-5 border-b border-slate-700">
           <div className="flex items-start justify-between">
             <div>
-              <h2 className="text-xl font-bold">Transfer Ticket</h2>
+              <h2 className="text-xl font-bold">Transferir Ticket</h2>
               <p className="text-slate-400 text-sm mt-0.5">
-                Moving ticket from <span className="text-white font-semibold">{currentResourceCode}</span> — select destination
+                Moviendo ticket de <span className="text-white font-semibold">{currentResourceCode}</span> — selecciona destino
               </p>
             </div>
             <button onClick={onClose} disabled={loading} className="text-slate-500 hover:text-white text-2xl leading-none ml-3">×</button>
@@ -156,7 +156,7 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
         <div className="overflow-y-auto p-4 space-y-5 flex-1">
           {poolTables.length > 0 && (
             <div>
-              <div className="text-xs text-slate-400 uppercase tracking-widest mb-2 font-semibold">🎱 Pool Tables</div>
+              <div className="text-xs text-slate-400 uppercase tracking-widest mb-2 font-semibold">🎱 Mesas de Billar</div>
               <div className="grid grid-cols-3 gap-2">
                 {poolTables.map((r) => <ResourceBtn key={r.id} r={r} />)}
               </div>
@@ -164,7 +164,7 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
           )}
           {regularTables.length > 0 && (
             <div>
-              <div className="text-xs text-slate-400 uppercase tracking-widest mb-2 font-semibold">🪑 Regular Tables</div>
+              <div className="text-xs text-slate-400 uppercase tracking-widest mb-2 font-semibold">🪑 Mesas Regulares</div>
               <div className="grid grid-cols-3 gap-2">
                 {regularTables.map((r) => <ResourceBtn key={r.id} r={r} />)}
               </div>
@@ -172,20 +172,20 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
           )}
           {barSeats.length > 0 && (
             <div>
-              <div className="text-xs text-slate-400 uppercase tracking-widest mb-2 font-semibold">🍺 Bar Seats</div>
+              <div className="text-xs text-slate-400 uppercase tracking-widest mb-2 font-semibold">🍺 Asientos de Bar</div>
               <div className="grid grid-cols-3 gap-2">
                 {barSeats.map((r) => <ResourceBtn key={r.id} r={r} />)}
               </div>
             </div>
           )}
           {available.length === 0 && (
-            <div className="text-center py-8 text-slate-500">No other locations available</div>
+            <div className="text-center py-8 text-slate-500">Sin otras ubicaciones disponibles</div>
           )}
         </div>
 
         <div className="p-4 border-t border-slate-700">
           <button onClick={onClose} disabled={loading} className="w-full py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700 disabled:opacity-50">
-            Cancel
+            Cancelar
           </button>
         </div>
       </div>

@@ -159,38 +159,41 @@ export function printReceipt(ticket: ReceiptTicket, livePoolCents?: number, unpa
   <title>Receipt #${ticket.id.slice(-6).toUpperCase()}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    @page { size: 55mm auto; margin: 2mm; }
+    @page { size: 48mm auto; margin: 1mm; }
     body {
       font-family: 'Courier New', Courier, monospace;
-      font-size: 10px;
-      width: 51mm;
+      font-size: 11px;
+      font-weight: bold;
+      width: 46mm;
       color: #000;
-      padding: 2mm;
+      padding: 1mm;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     .center { text-align: center; }
-    .logo { width: 18mm; height: 18mm; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto 2mm; }
-    .venue-name { font-size: 13px; font-weight: bold; letter-spacing: 1px; }
-    .venue-sub { font-size: 9px; color: #444; margin-top: 1mm; }
-    .divider { border-top: 1px dashed #000; margin: 2mm 0; }
-    .divider-solid { border-top: 1px solid #000; margin: 2mm 0; }
-    .meta { font-size: 9px; margin-bottom: 1mm; }
-    .meta span { font-weight: bold; }
-    .section-title { font-size: 9px; text-transform: uppercase; font-weight: bold; margin-bottom: 1mm; }
-    .item-row { display: flex; justify-content: space-between; margin-bottom: 1mm; }
+    .logo { width: 16mm; height: 16mm; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto 2mm; }
+    .venue-name { font-size: 14px; font-weight: 900; letter-spacing: 1px; }
+    .venue-sub { font-size: 10px; font-weight: bold; color: #000; margin-top: 1mm; }
+    .divider { border-top: 1.5px dashed #000; margin: 2mm 0; }
+    .divider-solid { border-top: 2px solid #000; margin: 2mm 0; }
+    .meta { font-size: 10px; font-weight: bold; margin-bottom: 1mm; }
+    .meta span { font-weight: 900; }
+    .section-title { font-size: 10px; text-transform: uppercase; font-weight: 900; margin-bottom: 1mm; }
+    .item-row { display: flex; justify-content: space-between; margin-bottom: 1.5mm; font-weight: bold; }
     .item-name { flex: 1; padding-right: 2mm; }
-    .item-price { white-space: nowrap; font-weight: bold; }
-    .mod { font-size: 9px; color: #333; margin-bottom: 0.5mm; }
-    .total-row { display: flex; justify-content: space-between; margin-bottom: 1mm; font-size: 10px; }
-    .total-row.grand { font-size: 13px; font-weight: bold; margin-top: 1mm; }
-    .footer { text-align: center; font-size: 9px; color: #555; margin-top: 3mm; }
-    .ticket-num { font-size: 11px; font-weight: bold; letter-spacing: 2px; }
-    .payment-badge { display: inline-block; border: 1px solid #000; padding: 0.5mm 2mm; font-weight: bold; font-size: 10px; margin-top: 1mm; }
-    .unpaid-notice { text-align: center; font-size: 12px; font-weight: bold; border: 2px solid #000; padding: 2mm; margin-top: 3mm; letter-spacing: 0.5px; }
-    .tip-table { width: 100%; border-collapse: collapse; margin-top: 2mm; font-size: 10px; }
-    .tip-table th { font-size: 9px; font-weight: bold; text-align: center; padding: 0.5mm 1mm; border-bottom: 1px solid #000; }
-    .tip-table td { text-align: center; padding: 1mm; border-bottom: 1px dashed #ccc; }
-    .tip-table td.amt { font-weight: bold; font-size: 11px; }
-    .tip-total { font-size: 10px; font-weight: bold; }
+    .item-price { white-space: nowrap; font-weight: 900; }
+    .mod { font-size: 10px; font-weight: bold; color: #000; margin-bottom: 0.5mm; }
+    .total-row { display: flex; justify-content: space-between; margin-bottom: 1mm; font-size: 11px; font-weight: bold; }
+    .total-row.grand { font-size: 14px; font-weight: 900; margin-top: 1mm; }
+    .footer { text-align: center; font-size: 10px; font-weight: bold; color: #000; margin-top: 3mm; }
+    .ticket-num { font-size: 13px; font-weight: 900; letter-spacing: 2px; }
+    .payment-badge { display: inline-block; border: 2px solid #000; padding: 0.5mm 2mm; font-weight: 900; font-size: 11px; margin-top: 1mm; }
+    .unpaid-notice { text-align: center; font-size: 13px; font-weight: 900; border: 3px solid #000; padding: 2mm; margin-top: 3mm; letter-spacing: 0.5px; }
+    .tip-table { width: 100%; border-collapse: collapse; margin-top: 2mm; font-size: 11px; }
+    .tip-table th { font-size: 10px; font-weight: 900; text-align: center; padding: 0.5mm 1mm; border-bottom: 2px solid #000; }
+    .tip-table td { text-align: center; padding: 1mm; border-bottom: 1px solid #888; font-weight: bold; }
+    .tip-table td.amt { font-weight: 900; font-size: 12px; }
+    .tip-total { font-size: 11px; font-weight: 900; }
   </style>
 </head>
 <body>

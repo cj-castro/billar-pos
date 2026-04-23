@@ -10,6 +10,7 @@ class Resource(db.Model):
     type = db.Column(db.String(20), nullable=False)  # POOL_TABLE, REGULAR_TABLE, BAR_SEAT
     status = db.Column(db.String(20), default='AVAILABLE')  # AVAILABLE, IN_USE, INACTIVE
     is_active = db.Column(db.Boolean, default=True)
+    is_temp = db.Column(db.Boolean, default=False)
     sort_order = db.Column(db.Integer, default=0)
 
     pool_config = db.relationship('PoolTableConfig', backref='resource', uselist=False)
@@ -23,6 +24,7 @@ class Resource(db.Model):
             'type': self.type,
             'status': self.status,
             'is_active': self.is_active,
+            'is_temp': self.is_temp,
             'sort_order': self.sort_order,
         }
         if self.type == 'POOL_TABLE' and self.pool_config:

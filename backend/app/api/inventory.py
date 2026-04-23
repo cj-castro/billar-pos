@@ -20,9 +20,20 @@ def get_movements(item_id):
     claims = get_jwt()
     if claims.get('role') not in ('MANAGER', 'ADMIN'):
         return jsonify({'error': 'FORBIDDEN'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
     movements = StockMovement.query.filter_by(inventory_item_id=item_id)\
         .order_by(StockMovement.created_at.desc()).limit(200).all()
-    return jsonify([m.to_dict() for m in movements])
+
+    # Compute running balance: current qty, then subtract deltas going back in time
+    balance = item.quantity
+    result = []
+    for m in movements:
+        d = m.to_dict()
+        d['quantity_after'] = balance
+        d['performer_name'] = m.performer.username if m.performer else '—'
+        balance -= m.quantity_delta
+        result.append(d)
+    return jsonify(result)
 
 
 @inventory_bp.route('/<item_id>/adjust', methods=['POST'])
@@ -63,6 +74,7 @@ def create_inventory_item():
         low_stock_threshold=data.get('low_stock_threshold', 10),
         cost_cents=data.get('cost_cents', 0),
         category=data.get('category', 'other'),
+        item_type=data.get('item_type', 'STANDARD'),
         shots_per_bottle=data.get('shots_per_bottle'),
         yields_item_id=data.get('yields_item_id'),
     )
@@ -89,10 +101,55 @@ def update_inventory_item(item_id):
         item.low_stock_threshold = data['low_stock_threshold']
     if 'shots_per_bottle' in data:
         item.shots_per_bottle = data['shots_per_bottle'] or None
+    if 'item_type' in data:
+        item.item_type = data['item_type'] or 'STANDARD'
+    if 'yields_item_id' in data:
+        item.yields_item_id = data['yields_item_id'] or None
     if 'cost_cents' in data:
         item.cost_cents = data['cost_cents']
     db.session.commit()
     return jsonify(item.to_dict())
+
+
+@inventory_bp.route('/<item_id>', methods=['DELETE'])
+@jwt_required()
+def delete_inventory_item(item_id):
+    claims = get_jwt()
+    if claims.get('role') != 'ADMIN':
+        return jsonify({'error': 'FORBIDDEN', 'message': 'Solo un administrador puede eliminar artículos de inventario.'}), 403
+
+    item = InventoryItem.query.get_or_404(item_id)
+    item_snapshot = item.to_dict()
+
+    from app.models.inventory import StockMovement, ModifierInventoryRule, OpenCigaretteBox, MenuItemIngredient
+
+    # Count history for audit record
+    movement_count = StockMovement.query.filter_by(inventory_item_id=item_id).count()
+
+    # Cascade delete all dependent records
+    StockMovement.query.filter_by(inventory_item_id=item_id).delete()
+    ModifierInventoryRule.query.filter_by(inventory_item_id=item_id).delete()
+    OpenCigaretteBox.query.filter_by(box_item_id=item_id).delete()
+    MenuItemIngredient.query.filter_by(inventory_item_id=item_id).delete()
+
+    # Also unlink if this item was a yields_item_id (bottle/box child item)
+    InventoryItem.query.filter_by(yields_item_id=item_id).update({'yields_item_id': None})
+
+    db.session.delete(item)
+
+    # Audit log
+    user_id = get_jwt_identity()
+    audit_svc.log(
+        user_id=user_id,
+        action='INVENTORY_ITEM_DELETED',
+        entity_type='inventory_item',
+        entity_id=item_id,
+        before=item_snapshot,
+        reason=f'Admin hard-delete. {movement_count} movimientos de stock eliminados.',
+    )
+
+    db.session.commit()
+    return jsonify({'ok': True, 'movements_deleted': movement_count})
 
 
 
@@ -173,13 +230,52 @@ def stock_check():
                 blocked_modifiers.append(mod.id)
                 break
 
+    # Items that are low on stock (not blocked, but close)
+    # Also compute max servings per menu item (min across all ingredients)
+    low_stock_item_ids = []
+    remaining_by_item: dict = {}  # menu_item_id -> max servings remaining
+
+    inv_obj = {i.id: i for i in InventoryItem.query.all()}
+
+    for mi in MenuItem.query.filter_by(is_active=True).all():
+        if mi.id in blocked_items:
+            remaining_by_item[mi.id] = 0
+            continue
+        ings = MenuItemIngredient.query.filter_by(menu_item_id=mi.id).all()
+        if not ings:
+            continue  # no inventory tracking for this item
+        max_servings = None
+        is_low = False
+        for ing in ings:
+            inv = inv_obj.get(ing.inventory_item_id)
+            if inv:
+                servings = inv.quantity // ing.quantity if ing.quantity > 0 else inv.quantity
+                if max_servings is None or servings < max_servings:
+                    max_servings = servings
+                if 0 < inv.quantity <= inv.low_stock_threshold:
+                    is_low = True
+        if max_servings is not None:
+            remaining_by_item[mi.id] = max_servings
+            if is_low:
+                low_stock_item_ids.append(mi.id)
+
     return jsonify({
         'blocked_items': blocked_items,
-        'blocked_modifiers': blocked_modifiers
+        'blocked_modifiers': blocked_modifiers,
+        'low_stock_item_ids': low_stock_item_ids,
+        'remaining_by_item': remaining_by_item,
+        'low_stock_items': [
+            {'id': i.id, 'name': i.name, 'quantity': i.quantity, 'threshold': i.low_stock_threshold}
+            for i in InventoryItem.query.filter(
+                InventoryItem.quantity > 0,
+                InventoryItem.quantity <= InventoryItem.low_stock_threshold
+            ).all()
+        ]
     })
 
 
 
+@inventory_bp.route('/item-ingredients/<menu_item_id>', methods=['GET'])
 @jwt_required()
 def get_item_ingredients(menu_item_id):
     """Get recipe/ingredients for a menu item."""
@@ -226,3 +322,91 @@ def delete_item_ingredient(ingredient_id):
     db.session.delete(ing)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+# ── Cigarette Box Management ─────────────────────────────────────────────────
+
+@inventory_bp.route('/open-boxes', methods=['GET'])
+@jwt_required()
+def list_open_boxes():
+    """Return all currently open (not finished) cigarette boxes."""
+    from app.models.inventory import OpenCigaretteBox
+    boxes = OpenCigaretteBox.query.filter_by(is_finished=False)\
+        .order_by(OpenCigaretteBox.opened_at.desc()).all()
+    return jsonify([b.to_dict() for b in boxes])
+
+
+@inventory_bp.route('/<item_id>/open-box', methods=['POST'])
+@jwt_required()
+def open_cigarette_box(item_id):
+    """
+    Manager opens a sealed cigarette box:
+    - Decrements box quantity by 1
+    - Increments single-cig quantity by cigs_per_box
+    - Creates an OpenCigaretteBox tracking record
+    """
+    claims = get_jwt()
+    if claims.get('role') not in ('MANAGER', 'ADMIN'):
+        return jsonify({'error': 'FORBIDDEN'}), 403
+
+    user_id = get_jwt_identity()
+    from app.models.inventory import OpenCigaretteBox
+
+    box_item = InventoryItem.query.with_for_update().get(item_id)
+    if not box_item:
+        return jsonify({'error': 'NOT_FOUND'}), 404
+    if box_item.item_type != 'CIG_BOX':
+        return jsonify({'error': 'NOT_A_CIG_BOX', 'message': 'Este artículo no es una caja de cigarros'}), 422
+    if not box_item.shots_per_bottle or not box_item.yields_item_id:
+        return jsonify({'error': 'NOT_CONFIGURED', 'message': 'La caja no tiene configurada la cantidad de cigarros o el artículo individual'}), 422
+    if box_item.quantity < 1:
+        return jsonify({'error': 'NO_STOCK', 'message': 'No hay cajas selladas en inventario'}), 422
+
+    single_item = InventoryItem.query.with_for_update().get(box_item.yields_item_id)
+    if not single_item:
+        return jsonify({'error': 'SINGLE_ITEM_NOT_FOUND'}), 404
+
+    cigs_per_box = box_item.shots_per_bottle
+
+    # Decrement sealed boxes
+    box_item.quantity -= 1
+    db.session.add(StockMovement(
+        inventory_item_id=box_item.id,
+        event_type='BOX_OPENING',
+        quantity_delta=-1,
+        reason=f'Caja abierta → {cigs_per_box} cigarros individuales añadidos a {single_item.name}',
+        performed_by=user_id
+    ))
+
+    # Increment singles
+    single_item.quantity += cigs_per_box
+    db.session.add(StockMovement(
+        inventory_item_id=single_item.id,
+        event_type='BOX_OPENING',
+        quantity_delta=cigs_per_box,
+        reason=f'Apertura de caja: {box_item.name}',
+        performed_by=user_id
+    ))
+
+    # Create open box tracking record
+    open_box = OpenCigaretteBox(
+        box_item_id=box_item.id,
+        brand=box_item.name,
+        cigs_per_box=cigs_per_box,
+        cigs_sold=0,
+        opened_by=user_id,
+    )
+    db.session.add(open_box)
+
+    audit_svc.log(user_id, 'BOX_OPENED', 'inventory', item_id,
+                  after={'cigs_added': cigs_per_box, 'single_item': single_item.name})
+    db.session.commit()
+
+    from app.extensions import socketio
+    socketio.emit('inventory:box_opened', {
+        'brand': box_item.name,
+        'cigs_per_box': cigs_per_box,
+        'open_box_id': open_box.id,
+    })
+
+    return jsonify({'box': box_item.to_dict(), 'singles': single_item.to_dict(), 'open_box': open_box.to_dict()})

@@ -4,6 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from app.extensions import db
 from app.models.cash_session import CashSession, Expense, TipDistributionConfig
 from app.models.ticket import Ticket
+from app.models.resource import Resource
 
 cash_bp = Blueprint('cash', __name__)
 
@@ -23,7 +24,26 @@ def _current_session():
 @jwt_required()
 def get_status():
     session = _current_session()
-    return jsonify({'open': session is not None, 'session': session.to_dict() if session else None})
+    open_tickets = 0
+    ghost_tickets = 0
+    if session:
+        open_tickets = Ticket.query.filter(
+            Ticket.status == 'OPEN',
+            Ticket.opened_at >= session.opened_at
+        ).count()
+        # Ghosts: OPEN ticket but its resource is already AVAILABLE
+        ghost_tickets = (Ticket.query
+                         .join(Resource, Resource.id == Ticket.resource_id)
+                         .filter(Ticket.status == 'OPEN',
+                                 Resource.status == 'AVAILABLE',
+                                 Ticket.opened_at >= session.opened_at)
+                         .count())
+    return jsonify({
+        'open': session is not None,
+        'session': session.to_dict() if session else None,
+        'open_tickets_count': open_tickets,
+        'ghost_tickets_count': ghost_tickets,
+    })
 
 
 @cash_bp.route('/open', methods=['POST'])
@@ -57,6 +77,17 @@ def close_session():
     session = _current_session()
     if not session:
         return jsonify({'error': 'NO_OPEN_SESSION'}), 404
+
+    # Block close if there are open tickets
+    open_tickets = Ticket.query.filter(
+        Ticket.status == 'OPEN',
+        Ticket.opened_at >= session.opened_at
+    ).count()
+    if open_tickets:
+        return jsonify({
+            'error': 'OPEN_TICKETS',
+            'message': f'No se puede cerrar la caja: hay {open_tickets} cuenta{"s" if open_tickets != 1 else ""} abierta{"s" if open_tickets != 1 else ""} pendiente{"s" if open_tickets != 1 else ""}. Ciérralas primero.'
+        }), 409
 
     data = request.get_json()
     session.closing_cash_counted_cents = data.get('closing_cash_counted_cents')
@@ -189,27 +220,46 @@ def _build_summary(session: CashSession, tip_cfg=None):
     card_tips = 0
     for t in tickets:
         tip = t.tip_cents or 0
+        tip_src = t.tip_source  # CASH, CARD, SPLIT, or None
         if t.payment_type_2:
             # Split ticket — tendered_cents = cash portion, tendered_cents_2 = card portion
             t1 = t.tendered_cents or 0
             t2 = t.tendered_cents_2 or 0
-            grand = t1 + t2 or 1
+            grand = (t1 + t2) if (t1 + t2) > 0 else max(t.total_cents, 1)
             if t.payment_type == 'CASH':
                 cash_sales += t1 * t.total_cents // grand
-                cash_tips += round(tip * t1 / grand)
                 card_sales += t.total_cents - (t1 * t.total_cents // grand)
-                card_tips += tip - round(tip * t1 / grand)
-            else:  # primary CARD, secondary CASH
+            else:
                 card_sales += t1 * t.total_cents // grand
-                card_tips += round(tip * t1 / grand)
                 cash_sales += t.total_cents - (t1 * t.total_cents // grand)
-                cash_tips += tip - round(tip * t1 / grand)
+            # Tip source for split payments
+            if tip_src == 'CASH':
+                cash_tips += tip
+            elif tip_src == 'CARD':
+                card_tips += tip
+            else:  # SPLIT or None — split proportionally
+                cash_frac = (t1 / grand) if grand > 0 else 0.5
+                cash_tips += round(tip * cash_frac)
+                card_tips += tip - round(tip * cash_frac)
         elif t.payment_type == 'CASH':
             cash_sales += t.total_cents
-            cash_tips += tip
+            # Honor explicit tip_source if set, else default to payment type
+            if tip_src == 'CARD':
+                card_tips += tip
+            elif tip_src == 'SPLIT':
+                cash_tips += tip // 2
+                card_tips += tip - tip // 2
+            else:
+                cash_tips += tip
         else:
             card_sales += t.total_cents
-            card_tips += tip
+            if tip_src == 'CASH':
+                cash_tips += tip
+            elif tip_src == 'SPLIT':
+                cash_tips += tip // 2
+                card_tips += tip - tip // 2
+            else:
+                card_tips += tip
 
     expenses = session.expenses.all()
     cash_expenses = sum(e.amount_cents for e in expenses if e.payment_method == 'CASH')
@@ -298,6 +348,9 @@ def delete_expense(expense_id):
     err = _require_manager()
     if err: return err
     expense = Expense.query.get_or_404(expense_id)
+    user_id = get_jwt_identity()
+    from app.services import audit_svc
+    audit_svc.log(user_id, 'EXPENSE_DELETED', 'expense', expense_id, before=expense.to_dict())
     db.session.delete(expense)
     db.session.commit()
     return jsonify({'ok': True})

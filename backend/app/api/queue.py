@@ -36,6 +36,23 @@ def kitchen_queue():
     return jsonify(_get_queue_items('KITCHEN'))
 
 
+@queue_bp.route('/counts', methods=['GET'])
+@jwt_required()
+def queue_counts():
+    """Count of all active (SENT + IN_PROGRESS + READY) items per queue for nav badges."""
+    kitchen = TicketLineItem.query.join(Ticket).filter(
+        TicketLineItem.routing_dest == 'KITCHEN',
+        TicketLineItem.status.in_(['SENT', 'IN_PROGRESS', 'READY']),
+        Ticket.status == 'OPEN'
+    ).count()
+    bar = TicketLineItem.query.join(Ticket).filter(
+        TicketLineItem.routing_dest == 'BAR',
+        TicketLineItem.status.in_(['SENT', 'IN_PROGRESS', 'READY']),
+        Ticket.status == 'OPEN'
+    ).count()
+    return jsonify({'kitchen': kitchen, 'bar': bar})
+
+
 @queue_bp.route('/bar', methods=['GET'])
 @jwt_required()
 def bar_queue():
