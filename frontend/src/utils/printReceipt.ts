@@ -50,6 +50,50 @@ function groupModifiers(modifiers: Array<{ name: string; price_cents: number }>)
   return Array.from(map.values())
 }
 
+// Two-level grouping:
+//   Level 1: same base product (name + price) → merged into one row with total qty
+//   Level 2: within that row, each unique modifier combo is listed as a sub-line with its own count
+//
+// Example — 3 Micheladas ordered with different flavors:
+//   Michelada   3x  $XX.XX
+//     - 2x Clamato
+//     - 1x Tamarindo
+function groupLineItems(items: ReceiptTicket['line_items']) {
+  type Variant = { modifiers: Array<{ name: string; price_cents: number }>; notes?: string; quantity: number }
+  const map = new Map<string, {
+    name: string
+    quantity: number
+    unit_price_cents: number
+    variants: Variant[]
+    status: string
+  }>()
+
+  for (const item of items) {
+    const baseKey = `${item.menu_item_name}::${item.unit_price_cents}`
+    const modKey   = (item.modifiers ?? []).map(m => m.name).sort().join('|')
+    const variantKey = `${modKey}::${item.notes ?? ''}`
+
+    const existing = map.get(baseKey)
+    if (existing) {
+      existing.quantity += item.quantity
+      const v = existing.variants.find(v => {
+        const vk = (v.modifiers ?? []).map(m => m.name).sort().join('|') + '::' + (v.notes ?? '')
+        return vk === variantKey
+      })
+      if (v) { v.quantity += item.quantity } else { existing.variants.push({ modifiers: item.modifiers ?? [], notes: item.notes, quantity: item.quantity }) }
+    } else {
+      map.set(baseKey, {
+        name: item.menu_item_name,
+        quantity: item.quantity,
+        unit_price_cents: item.unit_price_cents,
+        variants: [{ modifiers: item.modifiers ?? [], notes: item.notes, quantity: item.quantity }],
+        status: item.status,
+      })
+    }
+  }
+  return Array.from(map.values())
+}
+
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -66,6 +110,7 @@ function fmtDuration(seconds: number): string {
 
 export function printReceipt(ticket: ReceiptTicket, livePoolCents?: number, unpaid = false) {
   const items = ticket.line_items.filter((i) => i.status !== 'VOIDED')
+  const groupedItems = groupLineItems(items)
 
   // Compute pool time — use live estimate for active (running) sessions
   const computedPoolCents = livePoolCents ?? (ticket.timer_sessions ?? []).reduce((sum, s) => {
@@ -76,21 +121,45 @@ export function printReceipt(ticket: ReceiptTicket, livePoolCents?: number, unpa
     return sum + (s.charge_cents ?? 0)
   }, 0)
 
-  const itemRows = items.map((item) => {
-    const lineTotal = item.quantity * item.unit_price_cents
-    const modLines = groupModifiers(item.modifiers ?? [])
-      .map((m) => {
-        const label = m.count > 1 ? `${m.name} ×${m.count}` : m.name
-        return `<div class="mod">&nbsp;&nbsp;+ ${label}${m.price_cents > 0 ? ` (${fmt(m.price_cents * m.count)})` : ''}</div>`
-      })
-      .join('')
-    const noteLines = item.notes ? `<div class="mod">&nbsp;&nbsp;<em>${item.notes}</em></div>` : ''
+  const itemRows = groupedItems.map((item) => {
+    const multiVariant = item.variants.length > 1
+
+    // lineTotal = sum across all variants of qty × (base + modifier prices)
+    const lineTotal = multiVariant
+      ? item.variants.reduce((sum, v) => {
+          const modExtra = (v.modifiers ?? []).reduce((s, m) => s + (m.price_cents ?? 0), 0)
+          return sum + v.quantity * (item.unit_price_cents + modExtra)
+        }, 0)
+      : (() => {
+          const [v] = item.variants
+          const modExtra = (v.modifiers ?? []).reduce((s, m) => s + (m.price_cents ?? 0), 0)
+          return item.quantity * (item.unit_price_cents + modExtra)
+        })()
+
+    // Build sub-lines — modifier names only, NO price (price is rolled into lineTotal)
+    const subLines = multiVariant
+      ? item.variants.map((v) => {
+          const modNames = (v.modifiers ?? []).map(m => m.name).filter(Boolean)
+          const label = [...modNames, v.notes ? `(${v.notes})` : ''].filter(Boolean).join(', ') || '—'
+          return `<div class="mod">&nbsp;&nbsp;${v.quantity > 1 ? `${v.quantity}x ` : ''}<span style="text-transform:capitalize">${label}</span></div>`
+        }).join('')
+      : (() => {
+          const [v] = item.variants
+          const modLines = groupModifiers(v.modifiers ?? [])
+            .map((m) => {
+              const label = m.count > 1 ? `${m.name} ×${m.count}` : m.name
+              return `<div class="mod">&nbsp;&nbsp;+ ${label}</div>`  // price hidden — rolled into total
+            }).join('')
+          const noteLine = v.notes ? `<div class="mod">&nbsp;&nbsp;<em>${v.notes}</em></div>` : ''
+          return modLines + noteLine
+        })()
+
     return `
       <div class="item-row">
-        <span class="item-name">${item.quantity}x ${item.menu_item_name}</span>
+        <span class="item-name">${item.quantity}x ${item.name}</span>
         <span class="item-price">${fmt(lineTotal)}</span>
       </div>
-      ${modLines}${noteLines}`
+      ${subLines}`
   }).join('')
 
   // Per-session rows — show live duration + charge for running sessions

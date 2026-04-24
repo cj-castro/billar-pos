@@ -107,25 +107,64 @@ def format_receipt(data: dict, unpaid: bool = False) -> bytes:
     buf += left_line(f'Fecha:  {fmt_date(closed_at or opened_at)}')
     buf += divider()
 
-    # ---- Items ----
+    # ---- Items: two-level grouping ----
+    # Level 1: same base product (name + price) → merged row with total qty
+    # Level 2: within that row, each modifier/flavor combo is a sub-line
+    # Example: 3 Micheladas → "3x Michelada  $XX" then "  2x Clamato / 1x Tamarindo"
     line_items = [i for i in (data.get('line_items') or []) if i.get('status') != 'VOIDED']
     if line_items:
+        base_groups = {}  # key=(name,price) → {qty, variants:[{mods,notes,qty}]}
+        for item in line_items:
+            name  = item.get('menu_item_name') or item.get('item_name') or 'Item'
+            price = item.get('unit_price_cents', 0)
+            mods  = item.get('modifiers') or []
+            notes = item.get('notes') or ''
+            mod_key = '|'.join(sorted(m.get('name', '') for m in mods))
+            var_key = f'{mod_key}::{notes}'
+            base_key = (name, price)
+            if base_key not in base_groups:
+                base_groups[base_key] = {'name': name, 'price': price, 'qty': 0, 'variants': {}}
+            bg = base_groups[base_key]
+            bg['qty'] += item.get('quantity', 1)
+            if var_key not in bg['variants']:
+                bg['variants'][var_key] = {'mods': mods, 'notes': notes, 'qty': 0}
+            bg['variants'][var_key]['qty'] += item.get('quantity', 1)
+
         buf += cmd_bold(True)
         buf += left_line('CONSUMO')
         buf += cmd_bold(False)
-        for item in line_items:
-            qty   = item.get('quantity', 1)
-            name  = item.get('menu_item_name') or item.get('item_name') or 'Item'
-            price = item.get('unit_price_cents', 0) * qty
-            label = f'{qty}x {name}'
-            buf += two_col(label, fmt_cents(price))
-            for mod in (item.get('modifiers') or []):
-                mname = mod.get('name', '')
-                mp    = mod.get('price_cents', 0)
-                line  = f'  + {mname}'
-                buf  += two_col(line, fmt_cents(mp) if mp else '') 
-            if item.get('notes'):
-                buf += left_line(f'  * {item["notes"]}')
+        for bg in base_groups.values():
+            base_price = bg['price']
+            variants = list(bg['variants'].values())
+            multi = len(variants) > 1
+            # total = sum of each variant's qty × (base + modifier prices)
+            total = sum(
+                v['qty'] * (base_price + sum(m.get('price_cents', 0) for m in v['mods']))
+                for v in variants
+            )
+            buf += two_col(f'{bg["qty"]}x {bg["name"]}', fmt_cents(total))
+            if multi:
+                # Show each flavor/variant as a sub-line (name only, price rolled in)
+                for v in variants:
+                    mod_names = [m.get('name','') for m in v['mods'] if m.get('name')]
+                    note_part = f'({v["notes"]})' if v['notes'] else ''
+                    label_parts = [p for p in mod_names + [note_part] if p]
+                    label = ', '.join(label_parts) or '—'
+                    prefix = f'  {v["qty"]}x ' if v['qty'] > 1 else '  '
+                    buf += left_line(f'{prefix}{label}')
+            else:
+                # Single variant: show modifier names only, NO price (rolled into total above)
+                v = variants[0]
+                mod_counts = {}
+                for mod in v['mods']:
+                    mname = mod.get('name', '')
+                    if mname:
+                        mod_counts[mname] = mod_counts.get(mname, 0) + 1
+                for mname, cnt in mod_counts.items():
+                    label_m = f'  + {mname}' + (f' x{cnt}' if cnt > 1 else '')
+                    buf += left_line(label_m)  # no price column — price is in the total
+                if v['notes']:
+                    buf += left_line(f'  * {v["notes"]}')
 
     # ---- Pool time ----
     timer_sessions = [s for s in (data.get('timer_sessions') or [])

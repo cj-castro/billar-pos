@@ -33,6 +33,45 @@ function groupModifiers(modifiers: Array<{ name: string; price_cents: number }>)
   return Array.from(map.values())
 }
 
+// Group line items by name + unit_price + modifiers + notes into single rows.
+// Each group tracks all original item IDs so voids still work per-item.
+function groupLineItemsUI(items: any[]) {
+  const map = new Map<string, {
+    ids: string[]           // all original line item ids in this group
+    menu_item_name: string
+    quantity: number
+    unit_price_cents: number
+    modifiers: any[]
+    notes?: string
+    status: string          // worst-case status (STAGED > SENT > IN_PROGRESS > READY > SERVED)
+  }>()
+  const statusRank: Record<string, number> = { STAGED: 5, SENT: 4, IN_PROGRESS: 3, READY: 2, SERVED: 1 }
+  for (const item of items) {
+    const modKey = (item.modifiers ?? []).map((m: any) => m.name).sort().join('|')
+    const key = `${item.menu_item_name}::${item.unit_price_cents}::${modKey}::${item.notes ?? ''}`
+    const existing = map.get(key)
+    if (existing) {
+      existing.ids.push(item.id)
+      existing.quantity += item.quantity
+      // keep the "most pending" status visible
+      if ((statusRank[item.status] ?? 0) > (statusRank[existing.status] ?? 0)) {
+        existing.status = item.status
+      }
+    } else {
+      map.set(key, {
+        ids: [item.id],
+        menu_item_name: item.menu_item_name,
+        quantity: item.quantity,
+        unit_price_cents: item.unit_price_cents,
+        modifiers: item.modifiers ?? [],
+        notes: item.notes,
+        status: item.status,
+      })
+    }
+  }
+  return Array.from(map.values())
+}
+
 export default function TicketPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -41,7 +80,8 @@ export default function TicketPage() {
 
   const [showAddItem, setShowAddItem] = useState(false)
   const [showTransfer, setShowTransfer] = useState(false)
-  const [showPinForVoid, setShowPinForVoid] = useState<string | null>(null)
+  const [showPinForVoid, setShowPinForVoid] = useState<string[] | null>(null)
+  const [voidQtyPicker, setVoidQtyPicker] = useState<{ ids: string[]; name: string; qty: number } | null>(null)
   const [showPinForDiscount, setShowPinForDiscount] = useState(false)
   const [pendingDiscountPct, setPendingDiscountPct] = useState<number | null>(null)
   const [showPayment, setShowPayment] = useState(false)
@@ -69,9 +109,10 @@ export default function TicketPage() {
   useEscKey(() => {
     if (closedTicket) return
     if (showPayment) { setShowPayment(false); return }
+    if (voidQtyPicker) { setVoidQtyPicker(null); return }
     if (showPinForVoid) { setShowPinForVoid(null); return }
     if (showPinForDiscount) { setShowPinForDiscount(false); setPendingDiscountPct(null); return }
-  }, showPayment || !!showPinForVoid || showPinForDiscount)
+  }, showPayment || !!voidQtyPicker || !!showPinForVoid || showPinForDiscount)
 
   const { data: ticket, refetch } = useQuery({
     queryKey: ['ticket', id],
@@ -84,16 +125,20 @@ export default function TicketPage() {
 
   if (!ticket) return <div className="p-8 text-center text-slate-400">{t('common.loading')}</div>
 
-  const handleVoid = async (itemId: string, managerId: string) => {
+  const handleVoid = async (itemIds: string | string[], managerId: string) => {
+    const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
     try {
       const reason = prompt('Reason for void:') || 'Void'
-      await client.delete(`/tickets/${id}/items/${itemId}`, { data: { manager_id: managerId, reason } })
-      toast.success('Artículo anulado')
+      for (const itemId of ids) {
+        await client.delete(`/tickets/${id}/items/${itemId}`, { data: { manager_id: managerId, reason } })
+      }
+      toast.success(ids.length > 1 ? `${ids.length} artículos anulados` : 'Artículo anulado')
       refetch()
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'No se pudo anular')
     }
     setShowPinForVoid(null)
+    setVoidQtyPicker(null)
   }
 
   const handleApplyDiscount = async (managerId: string) => {
@@ -176,6 +221,7 @@ export default function TicketPage() {
   }
 
   const openItems = ticket.line_items?.filter((i: any) => i.status !== 'VOIDED') ?? []
+  const groupedItems = groupLineItemsUI(openItems)
   const resource = ticket.resource_code
   const isPoolTable = (ticket.timer_sessions ?? []).length > 0 || ticket.resource_code?.startsWith('PT')
 
@@ -285,25 +331,41 @@ export default function TicketPage() {
           {openItems.length === 0 ? (
             <div className="p-4 text-center text-slate-500 text-sm">{t('ticket.noItems')}</div>
           ) : (
-            openItems.map((item: any) => (
-              <div key={item.id} className="flex items-start justify-between p-3 border-b border-slate-700 last:border-0">
+            groupedItems.map((group) => (
+              <div key={group.ids.join(',')} className="flex items-start justify-between p-3 border-b border-slate-700 last:border-0">
                 <div>
-                  <div className="font-medium">{item.quantity}× {item.menu_item_name}</div>
-                  {groupModifiers(item.modifiers ?? []).map((m) => (
+                  <div className="font-medium">{group.quantity}× {group.menu_item_name}</div>
+                  {groupModifiers(group.modifiers).map((m) => (
                     <div key={m.name} className="text-xs text-sky-300 ml-2">
                       → {m.count > 1 ? `${m.name} ×${m.count}` : m.name}
                     </div>
                   ))}
-                  {item.notes && <div className="text-xs text-slate-400 ml-2 italic">{item.notes}</div>}
+                  {group.notes && <div className="text-xs text-slate-400 ml-2 italic">{group.notes}</div>}
                   <div className={`text-xs mt-0.5 ${
-                    item.status === 'STAGED' ? 'text-yellow-400' :
-                    item.status === 'SERVED' ? 'text-green-400' : 'text-slate-400'
-                  }`}>{item.status}</div>
+                    group.status === 'STAGED' ? 'text-yellow-400' :
+                    group.status === 'SERVED' ? 'text-green-400' : 'text-slate-400'
+                  }`}>{group.status}{group.ids.length > 1 ? ` (${group.ids.length})` : ''}</div>
                 </div>
                 <div className="text-right">
-                  <div className="font-mono">{cents(item.quantity * item.unit_price_cents)}</div>
+                  <div className="font-mono">{cents(
+                    group.quantity * (
+                      group.unit_price_cents +
+                      (group.modifiers ?? []).reduce((s: number, m: any) => s + (m.price_cents ?? 0), 0)
+                    )
+                  )}</div>
                   {ticket.status === 'OPEN' && (
-                    <button onClick={() => setShowPinForVoid(item.id)} className="text-xs text-red-400 hover:text-red-300 mt-1">{t('ticket.voidItem')}</button>
+                    <button
+                      onClick={() => {
+                        if (group.ids.length === 1) {
+                          setShowPinForVoid([group.ids[0]])
+                        } else {
+                          setVoidQtyPicker({ ids: group.ids, name: group.menu_item_name, qty: 1 })
+                        }
+                      }}
+                      className="text-xs text-red-400 hover:text-red-300 mt-1"
+                    >
+                      {t('ticket.voidItem')}
+                    </button>
                   )}
                 </div>
               </div>
@@ -528,9 +590,44 @@ export default function TicketPage() {
       {showTransfer && (
         <TransferModal ticketId={id!} currentResourceCode={resource} onClose={() => setShowTransfer(false)} />
       )}
+      {voidQtyPicker && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl border border-slate-600 p-6 w-full max-w-xs">
+            <h3 className="font-bold text-lg mb-1">¿Cuántos anular?</h3>
+            <p className="text-sm text-slate-400 mb-4">{voidQtyPicker.name}</p>
+            <div className="flex items-center justify-center gap-6 mb-6">
+              <button
+                onClick={() => setVoidQtyPicker(p => p && p.qty > 1 ? { ...p, qty: p.qty - 1 } : p)}
+                className="w-10 h-10 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold"
+              >−</button>
+              <span className="text-3xl font-mono w-10 text-center">{voidQtyPicker.qty}</span>
+              <button
+                onClick={() => setVoidQtyPicker(p => p && p.qty < p.ids.length ? { ...p, qty: p.qty + 1 } : p)}
+                className="w-10 h-10 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold"
+              >+</button>
+            </div>
+            <p className="text-xs text-slate-500 text-center mb-4">máx: {voidQtyPicker.ids.length}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setVoidQtyPicker(null)}
+                className="flex-1 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm"
+              >Cancelar</button>
+              <button
+                onClick={() => {
+                  // take the last N ids (most recently added)
+                  const toVoid = voidQtyPicker.ids.slice(-voidQtyPicker.qty)
+                  setVoidQtyPicker(null)
+                  setShowPinForVoid(toVoid)
+                }}
+                className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-sm font-semibold"
+              >Continuar</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showPinForVoid && (
         <ManagerPinDialog
-          action="Anular Artículo"
+          action={`Anular ${showPinForVoid.length > 1 ? `${showPinForVoid.length} artículos` : 'Artículo'}`}
           onConfirm={(managerId) => handleVoid(showPinForVoid, managerId)}
           onCancel={() => setShowPinForVoid(null)}
         />
