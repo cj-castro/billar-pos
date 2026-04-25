@@ -6,3 +6,4 @@ from .inventory import InventoryItem, ModifierInventoryRule, MenuItemIngredient,
 from .promotion import Promotion
 from .audit import AuditLog
 from .cash_session import CashSession, Expense, TipDistributionConfig
+from .waiting_list import WaitingListEntry

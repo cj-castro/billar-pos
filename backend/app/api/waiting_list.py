@@ -228,8 +228,10 @@ def transfer_to_pool(entry_id):
     if ticket.status != 'OPEN':
         return jsonify({'error': 'Floor ticket is not open'}), 409
 
-    # Free floor resource (and auto-remove if temp)
-    floor_resource = Resource.query.get(ticket.resource_id)
+    # Free floor resource (and auto-remove if temp). Lock the row so a
+    # concurrent transfer can't race us into a lost-update on status.
+    floor_resource = (Resource.query.with_for_update().get(ticket.resource_id)
+                      if ticket.resource_id else None)
     if floor_resource:
         floor_resource.status = 'AVAILABLE'
         if floor_resource.is_temp:

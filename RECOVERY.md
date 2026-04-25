@@ -70,12 +70,29 @@ docker cp backups\restore_tmp\db_20260423_120000.sql billiards-postgres-1:/tmp/r
 # 3. Restore (WARNING: this overwrites current data)
 docker exec -i billiards-postgres-1 psql -U billiard -d billiardbar -f /tmp/restore.sql
 
+pg_dump -U billiard -d billiardbar --encoding UTF8 -f backup.sql
+
 # 4. Restart backend so it reconnects cleanly
 docker compose restart backend
 
 # 5. Clean up
 Remove-Item backups\restore_tmp -Recurse -Force
 ```
+
+# In Git Bash, WSL, or Cygwin terminal
+iconv -f UTF-16 -t UTF-8 billiardbar-2026-04-24_10-36-11.sql > /tmp/restore_utf8.sql
+
+# Then run your docker command
+docker exec -i billar-pos-postgres-1 psql -U billiard -d billiardbar -f /tmp/restore_utf8.sql
+
+# Drop and recreate without entering psql
+docker exec -i billar-pos-postgres-1 psql -U billiard -d postgres -c "DROP DATABASE IF EXISTS billiardbar; CREATE DATABASE billiardbar;"
+
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname = 'billiardbar';
+DROP DATABASE IF EXISTS billiardbar;
+CREATE DATABASE billiardbar;
 
 ---
 

@@ -5,6 +5,7 @@ from urllib.error import URLError
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
+from sqlalchemy import or_
 from app.extensions import db, socketio
 from app.models.resource import Resource, PoolTableConfig
 from app.models.ticket import (
@@ -47,6 +48,42 @@ def _stop_active_timer(ticket: Ticket, user_id: str) -> int:
                   before={'end_time': None},
                   after={'end_time': now.isoformat(), 'charge_cents': result['charge_cents']})
     return result['charge_cents']
+
+
+def _close_linked_waiting_entry(ticket_id: str, user_id: str, terminal_status: str = 'ASSIGNED') -> bool:
+    """When a ticket terminates (close/cancel/force-close), drop its linked
+    waiting-list entry from the active queue. Looks up by floor_ticket_id or
+    assigned_ticket_id and transitions to ASSIGNED (fulfilled) or CANCELLED.
+    Returns True if a row was updated. Caller is responsible for committing
+    and emitting `waiting:update`.
+    """
+    wl = (WaitingListEntry.query
+          .with_for_update()
+          .filter(
+              or_(
+                  WaitingListEntry.floor_ticket_id == ticket_id,
+                  WaitingListEntry.assigned_ticket_id == ticket_id,
+              ),
+              WaitingListEntry.status.in_(('WAITING', 'SEATED', 'ASSIGNED')),
+          )
+          .first())
+    if not wl:
+        return False
+    before = {'status': wl.status}
+    wl.status = terminal_status
+    if terminal_status == 'ASSIGNED' and not wl.assigned_at:
+        wl.assigned_at = datetime.now(timezone.utc)
+    # Renumber 1..N for whatever's still active
+    actives = (WaitingListEntry.query
+               .filter(WaitingListEntry.status.in_(('WAITING', 'SEATED')))
+               .order_by(WaitingListEntry.created_at)
+               .all())
+    for i, e in enumerate(actives, start=1):
+        e.position = i
+    audit_svc.log(user_id, 'WAITLIST_CLEAR_ON_TICKET_END', 'waiting_list', wl.id,
+                  before=before,
+                  after={'status': terminal_status, 'closed_ticket_id': ticket_id})
+    return True
 
 
 @tickets_bp.route('', methods=['POST'])
@@ -323,7 +360,8 @@ def transfer_ticket(ticket_id):
     if ticket.status != 'OPEN':
         return jsonify({'error': 'TICKET_CLOSED'}), 403
 
-    old_resource = Resource.query.get(ticket.resource_id)
+    old_resource = (Resource.query.with_for_update().get(ticket.resource_id)
+                    if ticket.resource_id else None)
     new_resource = Resource.query.with_for_update().get_or_404(target_resource_id)
 
     # Check target availability for pool tables
@@ -369,11 +407,54 @@ def transfer_ticket(ticket_id):
     ticket.recalculate_totals()
     ticket.version += 1
 
+    # Keep any linked waiting-list entry in sync with the ticket's new home.
+    # Without this, a SEATED party whose floor ticket is transferred via this
+    # endpoint disappears from the floor view and a follow-up /transfer-to-pool
+    # on the stale entry can spawn a duplicate PoolTimerSession.
+    wl_entry = (WaitingListEntry.query
+                .with_for_update()
+                .filter(
+                    or_(
+                        WaitingListEntry.floor_ticket_id == ticket.id,
+                        WaitingListEntry.assigned_ticket_id == ticket.id,
+                    ),
+                    WaitingListEntry.status.in_(('WAITING', 'SEATED', 'ASSIGNED')),
+                )
+                .first())
+    if wl_entry:
+        before_wl = {
+            'status': wl_entry.status,
+            'floor_resource_id': wl_entry.floor_resource_id,
+            'floor_ticket_id': wl_entry.floor_ticket_id,
+            'assigned_resource_id': wl_entry.assigned_resource_id,
+            'assigned_ticket_id': wl_entry.assigned_ticket_id,
+        }
+        if new_resource.type == 'POOL_TABLE':
+            wl_entry.status = 'ASSIGNED'
+            wl_entry.assigned_at = wl_entry.assigned_at or datetime.now(timezone.utc)
+            wl_entry.assigned_resource_id = target_resource_id
+            wl_entry.assigned_ticket_id = ticket.id
+        else:
+            # Still on a floor/bar resource — keep them seated, follow the ticket.
+            wl_entry.status = 'SEATED'
+            wl_entry.floor_resource_id = target_resource_id
+            wl_entry.floor_ticket_id = ticket.id
+        audit_svc.log(user_id, 'WAITLIST_SYNC_ON_TRANSFER', 'waiting_list', wl_entry.id,
+                      before=before_wl,
+                      after={
+                          'status': wl_entry.status,
+                          'floor_resource_id': wl_entry.floor_resource_id,
+                          'floor_ticket_id': wl_entry.floor_ticket_id,
+                          'assigned_resource_id': wl_entry.assigned_resource_id,
+                          'assigned_ticket_id': wl_entry.assigned_ticket_id,
+                      })
+
     audit_svc.log(user_id, 'TRANSFER', 'ticket', ticket.id,
                   before={'resource': before_resource},
                   after={'resource': new_resource.code})
     db.session.commit()
     _emit_floor_update()
+    socketio.emit('waiting:update', {}, room='floor')
     return jsonify(ticket.to_dict())
 
 
@@ -432,11 +513,15 @@ def close_ticket(ticket_id):
     total_tendered = (tendered_cents or 0) + (tendered_cents_2 or 0)
     change_due = max(0, total_tendered - ticket.total_cents - tip_cents) if total_tendered else 0
 
+    wl_changed = _close_linked_waiting_entry(ticket.id, user_id, terminal_status='ASSIGNED')
+
     audit_svc.log(user_id, 'TICKET_CLOSE', 'ticket', ticket.id,
                   after={'total_cents': ticket.total_cents, 'tip_cents': tip_cents,
                          'payment_type': payment_type, 'payment_type_2': payment_type_2})
     db.session.commit()
     _emit_floor_update()
+    if wl_changed:
+        socketio.emit('waiting:update', {}, room='floor')
 
     result = ticket.to_dict()
     result['change_due'] = change_due
@@ -539,21 +624,27 @@ def cancel_ticket(ticket_id):
     if ticket.timer_sessions.count() > 0:
         return jsonify({'error': 'HAS_POOL_TIME', 'message': 'Ticket has pool time recorded'}), 422
 
-    # Free the resource
+    # Free the resource. Floating tables auto-deactivate on terminate, same as close_ticket.
     if ticket.resource_id:
         resource = Resource.query.get(ticket.resource_id)
         if resource:
             resource.status = 'AVAILABLE'
+            if resource.is_temp:
+                resource.is_active = False
 
     ticket.status = 'CANCELLED'
     ticket.closed_at = datetime.now(timezone.utc)
     ticket.closed_by = user_id
     ticket.version += 1
 
+    wl_changed = _close_linked_waiting_entry(ticket_id, user_id, terminal_status='CANCELLED')
+
     audit_svc.log(user_id, 'TICKET_CANCEL', 'ticket', ticket_id,
                   after={'reason': 'Opened by mistake — no items, no pool time'})
     db.session.commit()
     _emit_floor_update()
+    if wl_changed:
+        socketio.emit('waiting:update', {}, room='floor')
     return jsonify({'ok': True, 'message': 'Ticket cancelled and table freed'})
 
 
@@ -720,11 +811,15 @@ def force_close_ticket(ticket_id):
     ticket.payment_type = 'CASH'   # neutral placeholder
     ticket.version += 1
 
+    wl_changed = _close_linked_waiting_entry(ticket.id, user_id, terminal_status='ASSIGNED')
+
     audit_svc.log(user_id, 'TICKET_FORCE_CLOSE', 'ticket', ticket.id,
                   before={'status': 'OPEN'},
                   after={'status': 'CLOSED', 'reason': reason})
     db.session.commit()
     _emit_floor_update()
+    if wl_changed:
+        socketio.emit('waiting:update', {}, room='floor')
     return jsonify({'ok': True, 'ticket_id': ticket.id})
 
 
@@ -742,11 +837,16 @@ def clean_ghost_tickets():
 
     ghosts = (Ticket.query
               .join(Resource, Resource.id == Ticket.resource_id)
-              .filter(Ticket.status == 'OPEN', Resource.status == 'AVAILABLE')
+              .filter(
+                  Ticket.status == 'OPEN',
+                  Resource.status == 'AVAILABLE',
+                  Ticket.payment_requested.is_(False),
+              )
               .with_for_update()
               .all())
 
     closed_ids = []
+    wl_any_changed = False
     for ticket in ghosts:
         _stop_active_timer(ticket, user_id)
         db.session.flush()
@@ -756,6 +856,8 @@ def clean_ghost_tickets():
         ticket.closed_at = datetime.now(timezone.utc)
         ticket.payment_type = 'CASH'
         ticket.version += 1
+        if _close_linked_waiting_entry(ticket.id, user_id, terminal_status='ASSIGNED'):
+            wl_any_changed = True
         audit_svc.log(user_id, 'TICKET_FORCE_CLOSE', 'ticket', ticket.id,
                       before={'status': 'OPEN'},
                       after={'status': 'CLOSED', 'reason': reason, 'auto_ghost_clean': True})
@@ -763,6 +865,8 @@ def clean_ghost_tickets():
 
     db.session.commit()
     _emit_floor_update()
+    if wl_any_changed:
+        socketio.emit('waiting:update', {}, room='floor')
     return jsonify({'ok': True, 'cleaned': len(closed_ids), 'ticket_ids': closed_ids})
 
 
