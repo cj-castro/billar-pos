@@ -266,7 +266,20 @@ def _build_summary(session: CashSession, tip_cfg=None):
     card_expenses = sum(e.amount_cents for e in expenses if e.payment_method == 'CARD')
     total_expenses = cash_expenses + card_expenses
 
-    expected_cash = session.opening_fund_cents + cash_sales + cash_tips - cash_expenses
+    # Bar policy (since 2026-04-26): all tips — both cash and card — are paid
+    # out to staff in cash from the register at close. We auto-deduct the full
+    # tip total so expected_cash reflects what should physically remain in the
+    # drawer after tip payouts. This eliminates the daily phantom shortfall
+    # that came from card tips leaving the register without a matching expense.
+    tip_payout = total_tips
+
+    expected_cash = (
+        session.opening_fund_cents
+        + cash_sales
+        + cash_tips
+        - cash_expenses
+        - tip_payout
+    )
     cash_over_short = None
     if session.closing_cash_counted_cents is not None:
         cash_over_short = session.closing_cash_counted_cents - expected_cash
@@ -294,6 +307,7 @@ def _build_summary(session: CashSession, tip_cfg=None):
         'total_expenses_cents': total_expenses,
         'cash_expenses_cents': cash_expenses,
         'card_expenses_cents': card_expenses,
+        'tip_payout_cents': tip_payout,
         'opening_fund_cents': session.opening_fund_cents,
         'expected_cash_cents': expected_cash,
         'closing_cash_counted_cents': session.closing_cash_counted_cents,

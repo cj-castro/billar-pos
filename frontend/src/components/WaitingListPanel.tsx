@@ -106,7 +106,22 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
       await client.patch(`/waiting-list/${id}/status`, { status })
       toast.success('Actualizado')
       refetch()
-    } catch (err: any) { toast.error(err.response?.data?.error || 'Error') }
+      qc.invalidateQueries({ queryKey: ['resources'] })
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'Error')
+    }
+  }
+
+  const handleDequeue = async (id: string) => {
+    const entry = waiting.find(e => e.id === id)
+    if (!confirm(`Sacar a "${entry?.party_name}" de la cola?\nEl ticket en ${entry?.floor_resource_code ?? 'su mesa'} permanece abierto.`)) return
+    try {
+      await client.post(`/waiting-list/${id}/dequeue`)
+      toast.success('Sacado de la cola')
+      refetch()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'Error')
+    }
   }
 
   const handleAssign = async (entryId: string, resourceId: string) => {
@@ -222,10 +237,20 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
                               className="bg-slate-700 hover:bg-slate-600 disabled:opacity-30 px-2 py-1 rounded text-xs">↓</button>
                           </>
                         )}
-                        <button onClick={() => handleUpdateStatus(entry.id, 'NO_SHOW')}
-                          className="bg-slate-700 hover:bg-yellow-800 px-2 py-1 rounded text-xs text-yellow-400">👻</button>
-                        <button onClick={() => handleUpdateStatus(entry.id, 'CANCELLED')}
-                          className="bg-slate-700 hover:bg-red-900 px-2 py-1 rounded text-xs text-red-400">✕</button>
+                        {entry.status === 'SEATED' ? (
+                          <button onClick={() => handleDequeue(entry.id)}
+                            title="Sacar de la cola — mantiene el ticket abierto"
+                            className="bg-slate-700 hover:bg-sky-800 px-2 py-1 rounded text-xs text-sky-300">🚪</button>
+                        ) : (
+                          <>
+                            <button onClick={() => handleUpdateStatus(entry.id, 'NO_SHOW')}
+                              title="No-show"
+                              className="bg-slate-700 hover:bg-yellow-800 px-2 py-1 rounded text-xs text-yellow-400">👻</button>
+                            <button onClick={() => handleUpdateStatus(entry.id, 'CANCELLED')}
+                              title="Cancelar"
+                              className="bg-slate-700 hover:bg-red-900 px-2 py-1 rounded text-xs text-red-400">✕</button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

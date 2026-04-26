@@ -4,7 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from app.extensions import db, socketio
 from app.models.waiting_list import WaitingListEntry
 from app.models.resource import Resource, PoolTableConfig
-from app.models.ticket import Ticket, PoolTimerSession
+from app.models.ticket import Ticket, TicketLineItem, PoolTimerSession
 from app.services import audit_svc
 from app.config import Config
 
@@ -22,6 +22,52 @@ def _reorder_positions():
     ).order_by(WaitingListEntry.created_at).all()
     for i, e in enumerate(entries, start=1):
         e.position = i
+
+
+def _cancel_seated_ticket(entry, user_id):
+    """Cascade-terminate the floor ticket linked to a SEATED entry that is
+    being marked NO_SHOW or CANCELLED. Mirrors `cancel_ticket`'s rules:
+    only proceeds if the ticket is empty (no active items, no pool time).
+    Returns (ok, err_response, changed). On HAS_ITEMS / HAS_POOL_TIME
+    returns ok=False with a 422 the caller should propagate so a started
+    tab can't be silently destroyed.
+    """
+    if not entry.floor_ticket_id:
+        return True, None, False
+    ticket = Ticket.query.with_for_update().get(entry.floor_ticket_id)
+    if ticket is None or ticket.status != 'OPEN':
+        return True, None, False
+
+    active_items = ticket.line_items.filter(
+        TicketLineItem.status != 'VOIDED'
+    ).count()
+    if active_items > 0:
+        return False, (jsonify({
+            'error': 'TICKET_HAS_ITEMS',
+            'message': f'El ticket de "{ticket.customer_name or entry.party_name}" tiene productos. Ciérralo o páguelo antes.',
+            'ticket_id': ticket.id,
+        }), 422), False
+    if ticket.timer_sessions.count() > 0:
+        return False, (jsonify({
+            'error': 'TICKET_HAS_POOL_TIME',
+            'message': 'El ticket tiene tiempo de pool registrado. Ciérralo antes.',
+            'ticket_id': ticket.id,
+        }), 422), False
+
+    if ticket.resource_id:
+        resource = Resource.query.get(ticket.resource_id)
+        if resource:
+            resource.status = 'AVAILABLE'
+            if resource.is_temp:
+                resource.is_active = False
+
+    ticket.status = 'CANCELLED'
+    ticket.closed_at = datetime.now(timezone.utc)
+    ticket.closed_by = user_id
+    ticket.version += 1
+    audit_svc.log(user_id, 'TICKET_CANCEL', 'ticket', ticket.id,
+                  after={'reason': 'Waiting-list entry marked NO_SHOW/CANCELLED'})
+    return True, None, True
 
 
 @waiting_list_bp.route('', methods=['GET'])
@@ -153,21 +199,60 @@ def assign_entry(entry_id):
 @waiting_list_bp.route('/<entry_id>/status', methods=['PATCH'])
 @jwt_required()
 def update_status(entry_id):
-    """Cancel or mark no-show."""
+    """Cancel or mark no-show. If the entry is SEATED, the linked floor
+    ticket cascades to CANCELLED — but only when empty (no items, no pool
+    time). A started tab refuses with 422 so it can't be silently lost."""
     user_id = get_jwt_identity()
     data = request.get_json()
     new_status = data.get('status')
     if new_status not in ('CANCELLED', 'NO_SHOW'):
         return jsonify({'error': 'status must be CANCELLED or NO_SHOW'}), 400
 
-    entry = WaitingListEntry.query.get_or_404(entry_id)
+    entry = WaitingListEntry.query.with_for_update().get_or_404(entry_id)
     if entry.status not in ('WAITING', 'SEATED'):
         return jsonify({'error': 'Entry not active'}), 409
+
+    before_status = entry.status
+    floor_changed = False
+    if entry.status == 'SEATED':
+        ok, err, floor_changed = _cancel_seated_ticket(entry, user_id)
+        if not ok:
+            return err
 
     entry.status = new_status
     _reorder_positions()
     audit_svc.log(user_id, 'WAITLIST_STATUS', 'waiting_list', entry.id,
-                  before={'status': 'WAITING'}, after={'status': new_status})
+                  before={'status': before_status}, after={'status': new_status})
+    db.session.commit()
+    _emit_waiting_update()
+    if floor_changed:
+        socketio.emit('floor:update', {}, room='floor')
+    return jsonify(entry.to_dict())
+
+
+@waiting_list_bp.route('/<entry_id>/dequeue', methods=['POST'])
+@jwt_required()
+def dequeue_entry(entry_id):
+    """Remove a SEATED party from the queue while keeping their floor
+    ticket and table intact. Used when the customer no longer wants to
+    wait for a pool table but stays at their assigned floor seat.
+    For WAITING entries (no ticket yet) use /status with NO_SHOW/CANCELLED.
+    """
+    user_id = get_jwt_identity()
+    entry = WaitingListEntry.query.with_for_update().get_or_404(entry_id)
+    if entry.status != 'SEATED':
+        return jsonify({
+            'error': 'NOT_SEATED',
+            'message': 'Sólo se puede sacar de la cola a una mesa ya sentada.',
+        }), 409
+    before_status = entry.status
+    entry.status = 'ASSIGNED'
+    if not entry.assigned_at:
+        entry.assigned_at = datetime.now(timezone.utc)
+    _reorder_positions()
+    audit_svc.log(user_id, 'WAITLIST_DEQUEUE', 'waiting_list', entry.id,
+                  before={'status': before_status},
+                  after={'status': 'ASSIGNED', 'reason': 'Customer left queue, kept tab'})
     db.session.commit()
     _emit_waiting_update()
     return jsonify(entry.to_dict())

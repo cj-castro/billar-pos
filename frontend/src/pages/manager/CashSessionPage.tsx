@@ -371,6 +371,10 @@ export default function CashSessionPage() {
                             <span className="text-slate-400">💳 Propinas tarjeta</span>
                             <span className="font-mono text-amber-200">+{cents(s.card_tips_cents)}</span>
                           </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">📤 Pago propinas (efectivo + tarjeta) a staff</span>
+                            <span className="font-mono text-red-400">-{cents(s.tip_payout_cents)}</span>
+                          </div>
                         </>
                       )}
                       <div className="border-t border-slate-700 pt-2 mt-2 space-y-1">
@@ -732,6 +736,9 @@ export default function CashSessionPage() {
                   <div className="flex justify-between"><span className="text-slate-400">+ Propinas Efectivo</span><span className="font-mono">{cents(viewingSummary.cash_tips_cents)}</span></div>
                   {viewingSummary.cash_expenses_cents > 0 && (
                     <div className="flex justify-between"><span className="text-slate-400">- Gastos Efectivo</span><span className="font-mono text-red-400">-{cents(viewingSummary.cash_expenses_cents)}</span></div>
+                  )}
+                  {viewingSummary.tip_payout_cents > 0 && (
+                    <div className="flex justify-between"><span className="text-slate-400">- Pago Propinas a Staff</span><span className="font-mono text-red-400">-{cents(viewingSummary.tip_payout_cents)}</span></div>
                   )}
                   <div className="flex justify-between font-bold border-t border-slate-700 pt-2"><span>Efectivo Esperado</span><span className="font-mono text-sky-300">{cents(viewingSummary.expected_cash_cents)}</span></div>
                   {viewingSummary.closing_cash_counted_cents != null && (
