@@ -65,10 +65,10 @@ cd C:\Users\bola8lacalma\Desktop\POS\billiards
 Expand-Archive backups\db_20260423_120000.zip -DestinationPath backups\restore_tmp
 
 # 2. Copy the SQL file into the container
-docker cp backups\restore_tmp\db_20260423_120000.sql billiards-postgres-1:/tmp/restore.sql
+docker cp backups\restore_tmp\db_20260423_120000.sql billar-pos-postgres-1:/tmp/restore.sql
 
 # 3. Restore (WARNING: this overwrites current data)
-docker exec -i billiards-postgres-1 psql -U billiard -d billiardbar -f /tmp/restore.sql
+docker exec -i billar-pos-postgres-1 psql -U billiard -d billiardbar -f /tmp/restore.sql
 
 pg_dump -U billiard -d billiardbar --encoding UTF8 -f backup.sql
 
@@ -80,21 +80,18 @@ Remove-Item backups\restore_tmp -Recurse -Force
 ```
 
 # In Git Bash, WSL, or Cygwin terminal
-iconv -f UTF-16 -t UTF-8 billiardbar-2026-04-24_10-36-11.sql > /tmp/restore_utf8.sql
 
-# Then run your docker command
-docker exec -i billar-pos-postgres-1 psql -U billiard -d billiardbar -f /tmp/restore_utf8.sql
+iconv -f UTF-16LE -t UTF-8 billiardbar-2026-04-27_15-50-03.sql > new_file_utf8.sql     
 
-# Drop and recreate without entering psql
-docker exec -i billar-pos-postgres-1 psql -U billiard -d postgres -c "DROP DATABASE IF EXISTS billiardbar; CREATE DATABASE billiardbar;"
+docker exec -it billar-pos-postgres-1 psql -U billiard -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'billiardbar' AND pid <> pg_backend_pid();"  
 
-SELECT pg_terminate_backend(pid)
-FROM pg_stat_activity
-WHERE datname = 'billiardbar';
-DROP DATABASE IF EXISTS billiardbar;
-CREATE DATABASE billiardbar;
+docker exec -it billar-pos-postgres-1 psql -U billiard -d postgres -c "DROP DATABASE billiardbar;"  
 
----
+docker exec -it billar-pos-postgres-1 psql -U billiard -d postgres -c "CREATE DATABASE billiardbar;"   
+
+docker exec -i billar-pos-postgres-1 psql -U billiard -d billiardbar <  new_file_utf8.sql   
+
+
 
 ## 🚨 Crash Scenarios & Fixes
 
@@ -124,7 +121,7 @@ Start-Sleep -Seconds 10
 docker compose restart backend
 
 # Verify DB is accessible
-docker exec billiards-postgres-1 psql -U billiard -d billiardbar -c "SELECT 'OK';"
+docker exec -it billar-pos-postgres-1 psql -U billiard -d postgres -c "SELECT 'OK';"  
 ```
 
 ### Scenario 3 — Backend crashes / 500 errors everywhere
@@ -196,7 +193,7 @@ Run these manually if you suspect data corruption:
 
 ```powershell
 # Quick check — connect and run integrity queries
-docker exec -i billiards-postgres-1 psql -U billiard -d billiardbar << 'SQL'
+docker exec -i billar-pos-postgres-1 psql -U billiard -d billiardbar << 'SQL'
 -- Table count (expect 12+)
 SELECT count(*) AS table_count FROM information_schema.tables WHERE table_schema='public';
 
@@ -222,7 +219,7 @@ SQL
 
 **PowerShell version (Windows):**
 ```powershell
-docker exec -i billiards-postgres-1 psql -U billiard -d billiardbar -c "SELECT count(*) AS tables FROM information_schema.tables WHERE table_schema='public';" -c "SELECT count(*) AS ghost_tickets FROM tickets t JOIN resources r ON r.id=t.resource_id WHERE t.status='OPEN' AND r.status='AVAILABLE';" -c "SELECT count(*) AS orphan_timers FROM timer_sessions WHERE end_time IS NULL AND ticket_id NOT IN (SELECT id FROM tickets WHERE status='OPEN');"
+docker exec -i billar-pos-postgres-1 psql -U billiard -d billiardbar -c "SELECT count(*) AS tables FROM information_schema.tables WHERE table_schema='public';" -c "SELECT count(*) AS ghost_tickets FROM tickets t JOIN resources r ON r.id=t.resource_id WHERE t.status='OPEN' AND r.status='AVAILABLE';" -c "SELECT count(*) AS orphan_timers FROM timer_sessions WHERE end_time IS NULL AND ticket_id NOT IN (SELECT id FROM tickets WHERE status='OPEN');"
 ```
 
 ---
