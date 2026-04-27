@@ -649,6 +649,98 @@ def cancel_ticket(ticket_id):
 
 
 
+_EDITABLE_PAYMENT_FIELDS = {
+    'payment_type', 'tendered_cents', 'tip_cents', 'tip_source',
+    'tip_cash_cents', 'tip_card_cents', 'payment_type_2', 'tendered_cents_2',
+}
+
+
+@tickets_bp.route('/<ticket_id>/edit-payment', methods=['POST'])
+@jwt_required()
+def edit_payment(ticket_id):
+    """Edit payment fields on a CLOSED ticket. Manager/admin only, PIN-gated.
+    Logs every change to audit_log; sets edited_after_close=True. Does NOT
+    allow editing of items, total_cents, discounts, or pool time — those
+    require the full reopen flow because they affect kitchen / inventory /
+    invariants on the bill total."""
+    from app.api.auth import verify_manager_pin
+    claims = get_jwt()
+    if claims.get('role') not in ('MANAGER', 'ADMIN'):
+        return jsonify({'error': 'FORBIDDEN'}), 403
+
+    user_id = get_jwt_identity()
+    data = request.get_json() or {}
+    pin = data.get('pin', '')
+    reason = (data.get('reason') or '').strip()
+
+    if not reason:
+        return jsonify({'error': 'REASON_REQUIRED',
+                        'message': 'Razón requerida para editar un ticket cerrado.'}), 422
+
+    manager = verify_manager_pin(pin)
+    if not manager:
+        audit_svc.log(user_id, 'TICKET_EDIT_PAYMENT_BAD_PIN', 'ticket', ticket_id,
+                      ip_address=request.remote_addr)
+        db.session.commit()
+        return jsonify({'error': 'INVALID_PIN', 'message': 'PIN incorrecto'}), 401
+
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    if ticket.status != 'CLOSED':
+        return jsonify({'error': 'TICKET_NOT_CLOSED',
+                        'message': 'Sólo tickets cerrados pueden editarse con esta vía. Usa "Reabrir" para tickets abiertos.'}), 409
+
+    before = {}
+    after = {}
+    for field in _EDITABLE_PAYMENT_FIELDS:
+        if field not in data:
+            continue
+        new_val = data[field]
+        old_val = getattr(ticket, field)
+        if old_val == new_val:
+            continue
+        # Field-specific validation
+        if field == 'payment_type' and new_val not in ('CASH', 'CARD'):
+            return jsonify({'error': 'INVALID_PAYMENT_TYPE'}), 422
+        if field == 'payment_type_2' and new_val not in (None, '', 'CASH', 'CARD'):
+            return jsonify({'error': 'INVALID_PAYMENT_TYPE_2'}), 422
+        if field == 'tip_source' and new_val not in (None, '', 'CASH', 'CARD', 'SPLIT'):
+            return jsonify({'error': 'INVALID_TIP_SOURCE'}), 422
+        # Normalize empty strings to None for nullable fields
+        if new_val == '' and field in ('payment_type_2', 'tip_source'):
+            new_val = None
+        before[field] = old_val
+        after[field] = new_val
+        setattr(ticket, field, new_val)
+
+    if not after:
+        return jsonify({'error': 'NO_CHANGES',
+                        'message': 'No se enviaron cambios.'}), 422
+
+    ticket.edited_after_close = True
+    ticket.version += 1
+
+    audit_svc.log(user_id, 'TICKET_EDIT_PAYMENT', 'ticket', ticket_id,
+                  before=before, after=after,
+                  reason=f'Manager PIN ({manager.username}): {reason}',
+                  ip_address=request.remote_addr)
+    db.session.commit()
+    return jsonify(ticket.to_dict())
+
+
+@tickets_bp.route('/<ticket_id>/edit-history', methods=['GET'])
+@jwt_required()
+def edit_history(ticket_id):
+    """Return chronological list of TICKET_EDIT_PAYMENT entries for this ticket."""
+    from app.models.audit import AuditLog
+    logs = (AuditLog.query
+            .filter(AuditLog.entity_type == 'ticket',
+                    AuditLog.entity_id == ticket_id,
+                    AuditLog.action == 'TICKET_EDIT_PAYMENT')
+            .order_by(AuditLog.created_at.desc())
+            .all())
+    return jsonify([l.to_dict() for l in logs])
+
+
 @tickets_bp.route('/<ticket_id>/reopen', methods=['POST'])
 @jwt_required()
 def reopen_ticket(ticket_id):

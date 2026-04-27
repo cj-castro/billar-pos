@@ -60,6 +60,21 @@ def logout():
     return jsonify({'message': 'Logged out'})
 
 
+def verify_manager_pin(pin: str):
+    """Return the active MANAGER/ADMIN user whose PIN matches, or None.
+    Caller is responsible for audit-logging and committing the session."""
+    if not pin:
+        return None
+    managers = User.query.filter(
+        User.role.in_(['MANAGER', 'ADMIN']),
+        User.is_active == True
+    ).all()
+    for manager in managers:
+        if manager.check_pin(pin):
+            return manager
+    return None
+
+
 @auth_bp.route('/verify-pin', methods=['POST'])
 @jwt_required()
 def verify_pin():
@@ -67,19 +82,13 @@ def verify_pin():
     pin = data.get('pin', '')
     user_id = get_jwt_identity()
 
-    # Find a manager/admin with this PIN
-    managers = User.query.filter(
-        User.role.in_(['MANAGER', 'ADMIN']),
-        User.is_active == True
-    ).all()
-
-    for manager in managers:
-        if manager.check_pin(pin):
-            audit_svc.log(user_id, 'MANAGER_PIN_USED', 'user', manager.id,
-                          after={'manager_id': manager.id},
-                          ip_address=request.remote_addr)
-            db.session.commit()
-            return jsonify({'valid': True, 'manager_id': manager.id, 'manager_name': manager.name})
+    manager = verify_manager_pin(pin)
+    if manager:
+        audit_svc.log(user_id, 'MANAGER_PIN_USED', 'user', manager.id,
+                      after={'manager_id': manager.id},
+                      ip_address=request.remote_addr)
+        db.session.commit()
+        return jsonify({'valid': True, 'manager_id': manager.id, 'manager_name': manager.name})
 
     audit_svc.log(user_id, 'MANAGER_PIN_FAILED', 'user', None, ip_address=request.remote_addr)
     db.session.commit()

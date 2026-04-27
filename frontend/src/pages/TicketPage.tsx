@@ -6,6 +6,8 @@ import NavBar from '../components/NavBar'
 import AddItemModal from '../components/AddItemModal'
 import TransferModal from '../components/TransferModal'
 import ManagerPinDialog from '../components/ManagerPinDialog'
+import EditPaymentModal from '../components/EditPaymentModal'
+import { useAuthStore } from '../stores/authStore'
 import { useTimer } from '../hooks/useTimer'
 import { useEscKey } from '../hooks/useEscKey'
 import client from '../api/client'
@@ -80,6 +82,7 @@ export default function TicketPage() {
 
   const [showAddItem, setShowAddItem] = useState(false)
   const [showTransfer, setShowTransfer] = useState(false)
+  const [showEditPayment, setShowEditPayment] = useState(false)
   const [showPinForVoid, setShowPinForVoid] = useState<string[] | null>(null)
   const [voidQtyPicker, setVoidQtyPicker] = useState<{ ids: string[]; name: string; qty: number } | null>(null)
   const [showPinForDiscount, setShowPinForDiscount] = useState(false)
@@ -223,7 +226,9 @@ export default function TicketPage() {
   const openItems = ticket.line_items?.filter((i: any) => i.status !== 'VOIDED') ?? []
   const groupedItems = groupLineItemsUI(openItems)
   const resource = ticket.resource_code
-  const isPoolTable = (ticket.timer_sessions ?? []).length > 0 || ticket.resource_code?.startsWith('PT')
+  const isPoolTable = (ticket.timer_sessions ?? []).length > 0
+    || ticket.resource_code?.startsWith('BT')
+    || ticket.resource_code?.startsWith('PT')  // legacy codes pre-2026-04-27 rename
 
   const handleJoinWaitlist = async () => {
     setWlJoining(true)
@@ -570,6 +575,11 @@ export default function TicketPage() {
               {ticket.payment_type === 'CASH' ? '💵 Cash' : '💳 Card'} &nbsp;·&nbsp;
               <span className="font-bold text-sky-400">{cents(ticket.total_cents)}</span>
             </div>
+            {ticket.edited_after_close && (
+              <div className="text-xs text-amber-300 bg-amber-900/30 rounded-lg px-3 py-1.5">
+                ✏️ Editado después del cierre
+              </div>
+            )}
             {(ticket.change_due ?? 0) > 0 && (
               <div className="text-yellow-300 font-semibold">💰 {t('ticket.closed.changeDue')}: {cents(ticket.change_due)}</div>
             )}
@@ -579,6 +589,14 @@ export default function TicketPage() {
             >
               🖨️ {t('ticket.closed.printReceipt')}
             </button>
+            {(useAuthStore.getState().user?.role === 'MANAGER' || useAuthStore.getState().user?.role === 'ADMIN') && (
+              <button
+                onClick={() => setShowEditPayment(true)}
+                className="w-full py-2.5 bg-amber-700 hover:bg-amber-600 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+              >
+                ✏️ Editar Pago (PIN)
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -589,6 +607,13 @@ export default function TicketPage() {
       )}
       {showTransfer && (
         <TransferModal ticketId={id!} currentResourceCode={resource} onClose={() => setShowTransfer(false)} />
+      )}
+      {showEditPayment && ticket && (
+        <EditPaymentModal
+          ticket={ticket}
+          onClose={() => setShowEditPayment(false)}
+          onSaved={refetch}
+        />
       )}
       {voidQtyPicker && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">

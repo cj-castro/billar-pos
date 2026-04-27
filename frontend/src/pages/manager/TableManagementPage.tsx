@@ -43,7 +43,7 @@ const TYPE_ICONS: Record<ResourceType, string> = {
 }
 
 const TYPE_CODE_PREFIX: Record<ResourceType, string> = {
-  POOL_TABLE: 'PT',
+  POOL_TABLE: 'BT',
   REGULAR_TABLE: 'T',
   BAR_SEAT: 'Bar-',
 }
@@ -330,12 +330,12 @@ export default function TableManagementPage() {
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Code (e.g. PT6, T15, Bar-05)</label>
+                <label className="block text-xs text-slate-400 mb-1">Code (e.g. BT6, T15, Bar-05)</label>
                 <input
                   value={addForm.code}
                   onChange={e => setAddForm(f => ({ ...f, code: e.target.value }))}
                   className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm font-mono uppercase"
-                  placeholder="PT6"
+                  placeholder="BT6"
                 />
               </div>
               <div>

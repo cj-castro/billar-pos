@@ -5,6 +5,7 @@ import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 import { printCashReconciliation, printTipDistribution, type ReconSummary } from '../../utils/printCashReconciliation'
+import EditPaymentModal from '../../components/EditPaymentModal'
 
 function cents(n: number) { return `$${((n ?? 0) / 100).toFixed(2)}` }
 function diff(n: number) {
@@ -22,6 +23,7 @@ export default function CashSessionPage() {
   const [viewingSession, setViewingSession] = useState<any>(null)
   const [viewingSummary, setViewingSummary] = useState<any>(null)
   const [loadingSession, setLoadingSession] = useState(false)
+  const [editingPaymentTicket, setEditingPaymentTicket] = useState<any>(null)
 
   // Expense form
   const [expAmount, setExpAmount] = useState('')
@@ -510,12 +512,24 @@ export default function CashSessionPage() {
                             {(t.tip_cents || 0) > 0 && (
                               <div className="text-xs text-amber-400">+{cents(t.tip_cents)} tip</div>
                             )}
+                            {t.edited_after_close && (
+                              <div className="text-xs text-amber-300">✏️ editado</div>
+                            )}
                           </div>
-                          <button
-                            onClick={() => handleReopenTicket(t.id, `${t.customer_name || t.resource_code}`)}
-                            className="text-xs bg-orange-700 hover:bg-orange-600 px-3 py-1.5 rounded-lg font-semibold">
-                            Re-open
-                          </button>
+                          <div className="flex flex-col gap-1">
+                            <button
+                              onClick={() => setEditingPaymentTicket(t)}
+                              title="Editar método de pago / propina sin reabrir el ticket"
+                              className="text-xs bg-amber-700 hover:bg-amber-600 px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap">
+                              ✏️ Editar Pago
+                            </button>
+                            <button
+                              onClick={() => handleReopenTicket(t.id, `${t.customer_name || t.resource_code}`)}
+                              title="Reabrir ticket para modificar artículos"
+                              className="text-xs bg-orange-700 hover:bg-orange-600 px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap">
+                              ↺ Reabrir
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -766,6 +780,18 @@ export default function CashSessionPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {editingPaymentTicket && (
+          <EditPaymentModal
+            ticket={editingPaymentTicket}
+            onClose={() => setEditingPaymentTicket(null)}
+            onSaved={() => {
+              qc.invalidateQueries({ queryKey: ['cash-tickets'] })
+              qc.invalidateQueries({ queryKey: ['cash-summary'] })
+              qc.invalidateQueries({ queryKey: ['cash-status'] })
+            }}
+          />
         )}
       </div>
     </div>

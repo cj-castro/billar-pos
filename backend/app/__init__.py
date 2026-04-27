@@ -71,6 +71,7 @@ def create_app(config_class=Config):
             "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS reopened_at TIMESTAMP WITH TIME ZONE",
             "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS reopened_by VARCHAR(36)",
             "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS manual_discount_pct INTEGER DEFAULT 0",
+            "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS edited_after_close BOOLEAN DEFAULT FALSE",
             "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'other'",
             "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS shots_per_bottle INTEGER",
             "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS yields_item_id VARCHAR(36)",

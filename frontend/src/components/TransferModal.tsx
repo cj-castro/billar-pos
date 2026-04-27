@@ -90,7 +90,7 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
             <div className="bg-slate-700/50 rounded-xl p-3 text-sm text-slate-300 space-y-1">
               <div>✓ Artículos e historial conservados</div>
               {result.toType === 'POOL_TABLE' && <div>✓ Temporizador iniciado en {result.toCode}</div>}
-              {result.fromCode.startsWith('PT') && result.toType !== 'POOL_TABLE' && (
+              {(result.fromCode.startsWith('BT') || result.fromCode.startsWith('PT')) && result.toType !== 'POOL_TABLE' && (
                 <div>✓ Tiempo de billar facturado al ticket</div>
               )}
               <div>✓ Mapa de piso actualizado</div>

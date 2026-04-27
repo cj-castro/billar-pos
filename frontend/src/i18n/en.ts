@@ -270,7 +270,7 @@ export default {
     addPool: 'Add Pool Table',
     addFloor: 'Add Floor Table',
     addBar: 'Add Bar Seat',
-    code: 'Code (e.g. PT6, T15, Bar-05)',
+    code: 'Code (e.g. BT6, T15, Bar-05)',
     displayName: 'Display Name',
     sortOrder: 'Sort Order',
     billingConfig: 'Billing Config',

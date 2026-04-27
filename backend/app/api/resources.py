@@ -11,7 +11,7 @@ from app.services import audit_svc
 
 _CODE_PREFIX = {
     'BAR_SEAT': 'B',
-    'POOL_TABLE': 'PT',
+    'POOL_TABLE': 'BT',  # 'BT' = Billar Table; was 'PT'. Bar seats stay 'B' (legacy seed uses 'Bar-NN').
     'REGULAR_TABLE': 'T',
 }
 

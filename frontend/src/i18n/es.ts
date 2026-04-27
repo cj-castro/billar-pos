@@ -270,7 +270,7 @@ export default {
     addPool: 'Agregar Mesa de Billar',
     addFloor: 'Agregar Mesa de Piso',
     addBar: 'Agregar Asiento de Barra',
-    code: 'Código (ej. PT6, T15, Bar-05)',
+    code: 'Código (ej. BT6, T15, Bar-05)',
     displayName: 'Nombre a mostrar',
     sortOrder: 'Orden',
     billingConfig: 'Configuración de Cobro',

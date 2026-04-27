@@ -25,6 +25,7 @@ class Ticket(db.Model):
     was_reopened = db.Column(db.Boolean, default=False)
     reopened_at = db.Column(db.DateTime(timezone=True))
     reopened_by = db.Column(db.String(36), db.ForeignKey('users.id'))
+    edited_after_close = db.Column(db.Boolean, default=False)
     payment_requested = db.Column(db.Boolean, default=False)
     payment_requested_at = db.Column(db.DateTime(timezone=True))
     subtotal_cents = db.Column(db.Integer, default=0)
@@ -83,6 +84,7 @@ class Ticket(db.Model):
             'manual_discount_pct': self.manual_discount_pct or 0,
             'was_reopened': self.was_reopened or False,
             'reopened_at': self.reopened_at.isoformat() if self.reopened_at else None,
+            'edited_after_close': self.edited_after_close or False,
             'payment_requested': self.payment_requested or False,
             'payment_requested_at': self.payment_requested_at.isoformat() if self.payment_requested_at else None,
             'subtotal_cents': self.subtotal_cents,
