@@ -1,4 +1,5 @@
 import { LOGO_BASE64 } from './logoBase64'
+import { formatMXN } from './money'
 
 export interface ReconSummary {
   opening_fund_cents: number
@@ -22,7 +23,7 @@ export interface ReconSummary {
   } | null
 }
 
-function c(n: number) { return `$${((n ?? 0) / 100).toFixed(2)}` }
+const c = formatMXN
 function sign(n: number) { return n >= 0 ? `+${c(n)}` : `-${c(Math.abs(n))}` }
 
 const SHARED_STYLE = `

@@ -18,4 +18,5 @@ class Config:
     HAPPY_HOUR_END = os.environ.get('HAPPY_HOUR_END', '20:00')
     HAPPY_HOUR_DISCOUNT_PCT = int(os.environ.get('HAPPY_HOUR_DISCOUNT_PCT', 20))
     CURRENCY = os.environ.get('CURRENCY', 'USD')
+    TZ = os.environ.get('TZ', 'America/Mexico_City')
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')

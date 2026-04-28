@@ -6,11 +6,11 @@ import client from '../../api/client'
 import toast from 'react-hot-toast'
 import { printCashReconciliation, printTipDistribution, type ReconSummary } from '../../utils/printCashReconciliation'
 import EditPaymentModal from '../../components/EditPaymentModal'
+import { formatMXN } from '../../utils/money'
 
-function cents(n: number) { return `$${((n ?? 0) / 100).toFixed(2)}` }
+const cents = formatMXN
 function diff(n: number) {
-  const abs = Math.abs(n)
-  return n >= 0 ? `+$${(abs / 100).toFixed(2)}` : `-$${(abs / 100).toFixed(2)}`
+  return n >= 0 ? `+${formatMXN(n)}` : `-${formatMXN(Math.abs(n))}`
 }
 
 export default function CashSessionPage() {

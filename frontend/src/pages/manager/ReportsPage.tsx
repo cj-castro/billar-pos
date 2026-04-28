@@ -7,8 +7,15 @@ import {
 import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
+import { formatMXN, formatMXNFromPesos } from '../../utils/money'
 
-function cents(n: number | null) { return n != null ? `$${(n / 100).toFixed(2)}` : '-' }
+const cents = formatMXN  // backwards-compatible alias for inline JSX
+
+/** YYYY-MM-DD in the bar's local timezone (Mexico). Avoids the UTC-rollover
+ *  bug where after 6pm local the default-day jumps to "tomorrow" with zero data. */
+function localToday(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
+}
 
 const ROLE_LABELS: Record<string, string> = {
   WAITER: '🏃 Mesero', BAR_STAFF: '🍹 Bar', KITCHEN_STAFF: '🍳 Cocina',
@@ -16,7 +23,7 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 export default function ReportsPage() {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
   const [from, setFrom] = useState(today)
   const [to, setTo] = useState(today)
   const [tab, setTab] = useState<'sales' | 'pool' | 'payments' | 'modifiers' | 'staff' | 'voids' | 'peak-hours' | 'inv-deletions' | 'menu-deletions' | 'charts' | 'cigarettes'>('sales')
@@ -25,7 +32,7 @@ export default function ReportsPage() {
   const params = { from: `${from}T00:00:00`, to: `${to}T23:59:59` }
 
   const { data: sales } = useQuery({ queryKey: ['report-sales', from, to], queryFn: () => client.get('/reports/sales', { params }).then(r => r.data), enabled: tab === 'sales' })
-  const { data: pool } = useQuery({ queryKey: ['report-pool', from, to], queryFn: () => client.get('/reports/pool-time', { params }).then(r => r.data), enabled: tab === 'pool' })
+  const { data: pool } = useQuery({ queryKey: ['report-pool', from, to], queryFn: () => client.get('/reports/pool-time', { params }).then(r => r.data), enabled: tab === 'pool' || tab === 'charts' })
   const { data: payments } = useQuery({ queryKey: ['report-payments', from, to], queryFn: () => client.get('/reports/payments', { params }).then(r => r.data), enabled: tab === 'payments' })
   const { data: modifiers } = useQuery({ queryKey: ['report-modifiers', from, to], queryFn: () => client.get('/reports/modifiers', { params }).then(r => r.data), enabled: tab === 'modifiers' })
   const { data: staff } = useQuery({ queryKey: ['report-staff', from, to], queryFn: () => client.get('/reports/staff', { params }).then(r => r.data), enabled: tab === 'staff' })
@@ -416,11 +423,11 @@ export default function ReportsPage() {
                     <LineChart data={daily} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                       <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                      <YAxis tickFormatter={(v) => `$${v}`} tick={{ fill: '#94a3b8', fontSize: 11 }} width={60} />
+                      <YAxis tickFormatter={(v) => formatMXNFromPesos(v)} tick={{ fill: '#94a3b8', fontSize: 11 }} width={80} />
                       <Tooltip
                         contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
                         labelStyle={{ color: '#cbd5e1' }}
-                        formatter={(v: any) => `$${Number(v).toFixed(2)}`}
+                        formatter={(v: any) => formatMXNFromPesos(Number(v))}
                       />
                       <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
                       <Line type="monotone" dataKey="items_net" name="Consumo" stroke="#38bdf8" strokeWidth={2} dot={false} />
@@ -459,12 +466,12 @@ export default function ReportsPage() {
                     <ResponsiveContainer width="100%" height={Math.max(260, topProds.length * 30)}>
                       <BarChart data={topProds} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-                        <XAxis type="number" tickFormatter={(v) => `$${v}`} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                        <XAxis type="number" tickFormatter={(v) => formatMXNFromPesos(v)} tick={{ fill: '#94a3b8', fontSize: 11 }} />
                         <YAxis type="category" dataKey="item_name" width={130} tick={{ fill: '#cbd5e1', fontSize: 11 }} />
                         <Tooltip
                           contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
                           labelStyle={{ color: '#cbd5e1' }}
-                          formatter={(v: any) => `$${Number(v).toFixed(2)}`}
+                          formatter={(v: any) => formatMXNFromPesos(Number(v))}
                         />
                         <Bar dataKey="gross" name="Ingresos" fill="#818cf8" radius={[0, 4, 4, 0]} />
                       </BarChart>
@@ -474,7 +481,8 @@ export default function ReportsPage() {
 
                 {byCat.length > 0 && (
                   <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4">
-                    <h2 className="text-sm font-semibold text-slate-300 mb-4">🍕 Ingresos por categoría</h2>
+                    <h2 className="text-sm font-semibold text-slate-300 mb-1">🍕 Ingresos por categoría</h2>
+                    <p className="text-[10px] text-slate-500 mb-3">Sólo productos del menú — el ingreso de billar se grafica abajo.</p>
                     <ResponsiveContainer width="100%" height={260}>
                       <PieChart>
                         <Pie data={byCat} dataKey="gross" nameKey="category" cx="50%" cy="50%" outerRadius={90}
@@ -487,7 +495,7 @@ export default function ReportsPage() {
                         </Pie>
                         <Tooltip
                           contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-                          formatter={(v: any) => `$${Number(v).toFixed(2)}`}
+                          formatter={(v: any) => formatMXNFromPesos(Number(v))}
                         />
                       </PieChart>
                     </ResponsiveContainer>
@@ -495,13 +503,100 @@ export default function ReportsPage() {
                       {byCat.map((r: any, idx: number) => (
                         <div key={idx} className="flex items-center gap-1 text-xs text-slate-400">
                           <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: PIE_COLORS[idx % PIE_COLORS.length] }} />
-                          {r.category} — ${Number(r.gross).toFixed(2)}
+                          {r.category} — {formatMXNFromPesos(Number(r.gross))}
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
               </div>
+
+              {/* ── Pool table income visualizations ─────────────────────── */}
+              {(() => {
+                const itemsTotal = daily.reduce((s: number, d: any) => s + Number(d.items_net || 0), 0)
+                const poolTotal  = daily.reduce((s: number, d: any) => s + Number(d.pool || 0), 0)
+                const grandTotal = itemsTotal + poolTotal
+                const productsVsPool = [
+                  { name: 'Productos / Bebidas', value: itemsTotal, color: '#38bdf8' },
+                  { name: 'Mesas de Billar',     value: poolTotal,  color: '#a78bfa' },
+                ].filter(d => d.value > 0)
+                const poolRows = (pool as any[] | undefined) ?? []
+                const poolBars = poolRows.map((r: any) => ({
+                  table_code: r.table_code,
+                  revenue: (Number(r.revenue_cents) || 0) / 100,
+                  minutes: Math.round((Number(r.total_seconds) || 0) / 60),
+                  sessions: Number(r.sessions) || 0,
+                }))
+                const noPoolData = grandTotal <= 0 && poolBars.length === 0
+                if (noPoolData) return null
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                    {/* Productos vs Billar */}
+                    {productsVsPool.length > 0 && (
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4">
+                        <h2 className="text-sm font-semibold text-slate-300 mb-1">💰 Ingresos: Productos vs Billar</h2>
+                        <p className="text-[10px] text-slate-500 mb-3">
+                          Total: {formatMXNFromPesos(grandTotal)}
+                          {' · '}Billar: {formatMXNFromPesos(poolTotal)}
+                          {' '}({grandTotal > 0 ? `${Math.round((poolTotal / grandTotal) * 100)}%` : '0%'})
+                        </p>
+                        <ResponsiveContainer width="100%" height={260}>
+                          <PieChart>
+                            <Pie
+                              data={productsVsPool}
+                              dataKey="value"
+                              nameKey="name"
+                              cx="50%" cy="50%" outerRadius={90}
+                              label={({ name, percent }) => `${name} ${percent != null ? (percent * 100).toFixed(0) : 0}%`}
+                              labelLine={{ stroke: '#475569' }}
+                            >
+                              {productsVsPool.map((d, idx) => <Cell key={idx} fill={d.color} />)}
+                            </Pie>
+                            <Tooltip
+                              contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                              formatter={(v: any) => formatMXNFromPesos(Number(v))}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+
+                    {/* Per-pool-table bar */}
+                    {poolBars.length > 0 && (
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4">
+                        <h2 className="text-sm font-semibold text-slate-300 mb-1">🎱 Ingresos por Mesa de Billar</h2>
+                        <p className="text-[10px] text-slate-500 mb-3">
+                          Top: <span className="text-amber-300 font-semibold">{poolBars[0]?.table_code}</span>
+                          {' · '}{formatMXNFromPesos(poolBars[0]?.revenue || 0)}
+                        </p>
+                        <ResponsiveContainer width="100%" height={Math.max(220, poolBars.length * 36)}>
+                          <BarChart data={poolBars} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+                            <XAxis type="number" tickFormatter={(v) => formatMXNFromPesos(v)} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                            <YAxis type="category" dataKey="table_code" width={60} tick={{ fill: '#cbd5e1', fontSize: 11 }} />
+                            <Tooltip
+                              contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                              labelStyle={{ color: '#cbd5e1' }}
+                              formatter={(v: any, name: any, props: any) => {
+                                if (name === 'revenue') return [formatMXNFromPesos(Number(v)), 'Ingresos']
+                                return [v, name]
+                              }}
+                              labelFormatter={(label: any, payload: any) => {
+                                const row = payload?.[0]?.payload
+                                if (!row) return label
+                                return `${row.table_code} — ${row.minutes} min · ${row.sessions} sesiones`
+                              }}
+                            />
+                            <Bar dataKey="revenue" name="revenue" fill="#a78bfa" radius={[0, 4, 4, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           )
         })()}

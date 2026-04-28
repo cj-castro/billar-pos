@@ -1,11 +1,15 @@
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, Response
 from flask_jwt_extended import jwt_required, get_jwt
 from app.extensions import db
+from app.config import Config
 from sqlalchemy import text
+
+LOCAL_TZ = ZoneInfo(Config.TZ)
 
 reports_bp = Blueprint('reports', __name__)
 
@@ -25,10 +29,33 @@ def require_manager():
 
 
 def parse_dates():
+    """Parse `from`/`to` query args. Naive ISO strings are interpreted in
+    the bar's local timezone (Config.TZ, default America/Mexico_City) and
+    converted to UTC before comparison. This makes "2026-04-26T00:00:00"
+    mean midnight in Mexico, not midnight UTC, so a ticket closed at 8pm
+    Mexico time on Apr 26 lands in the Apr 26 report as expected.
+
+    If a `to` value has no time component (date-only YYYY-MM-DD), we expand
+    it to end-of-day-23:59:59.999999 in local time so BETWEEN covers the
+    whole day cleanly.
+    """
     from_str = request.args.get('from')
     to_str = request.args.get('to')
-    from_dt = datetime.fromisoformat(from_str) if from_str else datetime(2000, 1, 1, tzinfo=timezone.utc)
-    to_dt = datetime.fromisoformat(to_str) if to_str else datetime.now(timezone.utc)
+
+    def _parse(s, end_of_day=False):
+        if not s:
+            return None
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            # Naive ISO — assume bar's local timezone
+            if end_of_day and len(s) <= 10:
+                # Date-only "YYYY-MM-DD" → expand to 23:59:59.999999 local
+                dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+            dt = dt.replace(tzinfo=LOCAL_TZ)
+        return dt.astimezone(timezone.utc)
+
+    from_dt = _parse(from_str) or datetime(2000, 1, 1, tzinfo=timezone.utc)
+    to_dt = _parse(to_str, end_of_day=True) or datetime.now(timezone.utc)
     return from_dt, to_dt
 
 
