@@ -66,20 +66,28 @@ def sales_report():
     if err: return err
     from_dt, to_dt = parse_dates()
 
+    # Pre-aggregate promotion discounts per line item before joining. A line
+    # item with N promotions used to produce N rows in the join, multiplying
+    # SUM(quantity) and SUM(quantity*price) by N. The subquery collapses
+    # promotions to one row per line item, leaving qty/gross unaffected.
     sql = text("""
         SELECT
-            COALESCE(mi.id, 'deleted')        as item_id,
-            COALESCE(mi.name, tli.item_name)  as item_name,
-            COALESCE(mc.name, '—')            as category,
-            COALESCE(mc.routing, tli.routing_dest) as routing,
-            SUM(tli.quantity) as units_sold,
-            SUM(tli.quantity * tli.unit_price_cents) as gross_cents,
-            COALESCE(SUM(lip.discount_cents), 0) as discounts_cents
+            COALESCE(mi.id, 'deleted')             AS item_id,
+            COALESCE(mi.name, tli.item_name)       AS item_name,
+            COALESCE(mc.name, '—')                 AS category,
+            COALESCE(mc.routing, tli.routing_dest) AS routing,
+            SUM(tli.quantity)                              AS units_sold,
+            SUM(tli.quantity * tli.unit_price_cents)       AS gross_cents,
+            COALESCE(SUM(promo.discount_cents), 0)         AS discounts_cents
         FROM ticket_line_items tli
         JOIN tickets t ON tli.ticket_id = t.id
         LEFT JOIN menu_items mi ON tli.menu_item_id = mi.id
         LEFT JOIN menu_categories mc ON mi.category_id = mc.id
-        LEFT JOIN line_item_promotions lip ON lip.line_item_id = tli.id
+        LEFT JOIN (
+            SELECT line_item_id, SUM(discount_cents) AS discount_cents
+            FROM line_item_promotions
+            GROUP BY line_item_id
+        ) promo ON promo.line_item_id = tli.id
         WHERE t.status = 'CLOSED'
           AND t.closed_at BETWEEN :from_dt AND :to_dt
           AND tli.status != 'VOIDED'
@@ -221,27 +229,45 @@ def staff_report():
     if err: return err
     from_dt, to_dt = parse_dates()
 
+    # Pre-aggregate opened/closed counts and sums per user in independent
+    # subqueries, then LEFT JOIN to users. Joining `tickets` twice in the
+    # outer FROM (once for opened, once for closed) creates a Cartesian
+    # product: every closed-ticket sum gets multiplied by the user's
+    # opened-ticket count. The subquery shape eliminates that.
     sql = text("""
         SELECT
-            u.id as user_id,
-            u.name as staff_name,
-            u.role as role,
-            COUNT(DISTINCT t.id) as tickets_opened,
-            COUNT(DISTINCT t2.id) as tickets_closed,
-            COALESCE(SUM(t2.total_cents), 0) as total_sales_cents,
-            COALESCE(SUM(t2.tip_cents), 0) as total_tips_cents,
-            COALESCE(SUM(CASE WHEN t2.payment_type = 'CASH' THEN t2.total_cents ELSE 0 END), 0) as cash_sales_cents,
-            COALESCE(SUM(CASE WHEN t2.payment_type = 'CARD' THEN t2.total_cents ELSE 0 END), 0) as card_sales_cents
+            u.id   AS user_id,
+            u.name AS staff_name,
+            u.role AS role,
+            COALESCE(opened.cnt, 0)         AS tickets_opened,
+            COALESCE(closed.cnt, 0)         AS tickets_closed,
+            COALESCE(closed.total_sales, 0) AS total_sales_cents,
+            COALESCE(closed.total_tips,  0) AS total_tips_cents,
+            COALESCE(closed.cash_sales,  0) AS cash_sales_cents,
+            COALESCE(closed.card_sales,  0) AS card_sales_cents
         FROM users u
-        LEFT JOIN tickets t ON t.opened_by = u.id
-            AND t.opened_at BETWEEN :from_dt AND :to_dt
-        LEFT JOIN tickets t2 ON t2.opened_by = u.id
-            AND t2.status = 'CLOSED'
-            AND t2.closed_at BETWEEN :from_dt AND :to_dt
+        LEFT JOIN (
+            SELECT opened_by, COUNT(*) AS cnt
+            FROM tickets
+            WHERE opened_at BETWEEN :from_dt AND :to_dt
+            GROUP BY opened_by
+        ) opened ON opened.opened_by = u.id
+        LEFT JOIN (
+            SELECT
+                opened_by,
+                COUNT(*)            AS cnt,
+                SUM(total_cents)    AS total_sales,
+                SUM(tip_cents)      AS total_tips,
+                SUM(CASE WHEN payment_type = 'CASH' THEN total_cents ELSE 0 END) AS cash_sales,
+                SUM(CASE WHEN payment_type = 'CARD' THEN total_cents ELSE 0 END) AS card_sales
+            FROM tickets
+            WHERE status = 'CLOSED'
+              AND closed_at BETWEEN :from_dt AND :to_dt
+            GROUP BY opened_by
+        ) closed ON closed.opened_by = u.id
         WHERE u.is_active = TRUE
-        GROUP BY u.id, u.name, u.role
-        HAVING COUNT(DISTINCT t.id) > 0 OR COUNT(DISTINCT t2.id) > 0
-        ORDER BY total_sales_cents DESC
+          AND (COALESCE(opened.cnt, 0) > 0 OR COALESCE(closed.cnt, 0) > 0)
+        ORDER BY closed.total_sales DESC NULLS LAST
     """)
     rows = db.session.execute(sql, {'from_dt': from_dt, 'to_dt': to_dt}).mappings().all()
     return jsonify([{
