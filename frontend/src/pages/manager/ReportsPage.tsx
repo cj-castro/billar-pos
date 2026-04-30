@@ -41,7 +41,7 @@ export default function ReportsPage() {
   const { data: menuDeletions } = useQuery({ queryKey: ['report-menu-deletions', from, to], queryFn: () => client.get('/reports/menu-deletions', { params }).then(r => r.data), enabled: tab === 'menu-deletions' })
   const { data: invDeletions } = useQuery({ queryKey: ['report-inv-deletions', from, to], queryFn: () => client.get('/reports/inventory-deletions', { params }).then(r => r.data), enabled: tab === 'inv-deletions' })
   const { data: cigData } = useQuery({ queryKey: ['report-cigarettes', from, to], queryFn: () => client.get('/reports/cigarettes', { params }).then(r => r.data), enabled: tab === 'cigarettes' })
-  const { data: chartsData } = useQuery({ queryKey: ['report-charts', from, to], queryFn: () => client.get('/reports/charts-data', { params }).then(r => r.data), enabled: tab === 'charts' })
+  const { data: chartsData } = useQuery({ queryKey: ['report-charts', from, to], queryFn: () => client.get('/reports/charts-data', { params }).then(r => r.data), enabled: tab === 'charts' || tab === 'sales' || tab === 'pool' || tab === 'staff' })
 
   // Derive unique categories from sales data
   const categories = useMemo(() => {
@@ -61,6 +61,12 @@ export default function ReportsPage() {
     gross: filteredSales.reduce((s: number, r: any) => s + Number(r.gross_cents), 0),
     discounts: filteredSales.reduce((s: number, r: any) => s + Number(r.discounts_cents), 0),
   }), [filteredSales])
+
+  // Grand total note — sums chartsData daily_revenue which covers the full period (sales + pool)
+  const chartDaily = (chartsData as any)?.daily_revenue ?? []
+  const grandTotalPesos  = chartDaily.reduce((s: number, d: any) => s + Number(d.total    || 0), 0)
+  const itemsTotalPesos  = chartDaily.reduce((s: number, d: any) => s + Number(d.items_net || 0), 0)
+  const poolChartPesos   = chartDaily.reduce((s: number, d: any) => s + Number(d.pool     || 0), 0)
 
   const handleExport = () => {
     const catParam = categoryFilter !== 'ALL' ? `&category=${encodeURIComponent(categoryFilter)}` : ''
@@ -126,6 +132,7 @@ export default function ReportsPage() {
 
         {/* Sales */}
         {tab === 'sales' && sales && (
+          <div className="space-y-2">
           <div className="bg-slate-800 rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead>
@@ -165,6 +172,16 @@ export default function ReportsPage() {
               )}
             </table>
           </div>
+          {grandTotalPesos > 0 && (
+            <div className="flex justify-end">
+              <div className="bg-slate-700/40 border border-slate-600 rounded-lg px-4 py-2 text-sm text-right">
+                <span className="text-slate-400">Total general (Ventas + Billar):</span>
+                <span className="ml-2 font-mono font-bold text-yellow-300">{formatMXNFromPesos(grandTotalPesos)}</span>
+                <span className="ml-3 text-xs text-slate-500">• Billar: {formatMXNFromPesos(poolChartPesos)}</span>
+              </div>
+            </div>
+          )}
+          </div>
         )}
 
         {/* Staff Sales */}
@@ -172,49 +189,129 @@ export default function ReportsPage() {
           <div className="space-y-3">
             {(staff as any[]).length === 0 ? (
               <div className="text-center text-slate-500 py-12">Sin actividad de personal en este período</div>
-            ) : (staff as any[]).map((r: any, i: number) => (
-              <div key={i} className="bg-slate-800 rounded-xl p-4 border border-slate-700">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <div className="font-bold text-white">{r.staff_name}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">{ROLE_LABELS[r.role] ?? r.role}</div>
+            ) : (
+              <>
+                {(staff as any[]).map((r: any, i: number) => (
+                  <div key={i} className="bg-slate-800 rounded-xl p-4 border border-slate-700">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <div className="font-bold text-white">{r.staff_name}</div>
+                        <div className="text-xs text-slate-400 mt-0.5">{ROLE_LABELS[r.role] ?? r.role}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xl font-bold text-green-400">{cents(r.total_sales_cents)}</div>
+                        <div className="text-xs text-slate-400">{r.tickets_closed} tickets cerrados</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="bg-slate-700 rounded-lg p-2 text-center">
+                        <div className="text-slate-400">Tickets Abiertos</div>
+                        <div className="font-bold text-white mt-0.5">{r.tickets_opened}</div>
+                      </div>
+                      <div className="bg-slate-700 rounded-lg p-2 text-center">
+                        <div className="text-slate-400">💵 Efectivo</div>
+                        <div className="font-bold font-mono mt-0.5">{cents(r.cash_sales_cents)}</div>
+                      </div>
+                      <div className="bg-slate-700 rounded-lg p-2 text-center">
+                        <div className="text-slate-400">💳 Tarjeta</div>
+                        <div className="font-bold font-mono mt-0.5">{cents(r.card_sales_cents)}</div>
+                      </div>
+                    </div>
+                    {(r.total_tips_cents || 0) > 0 && (
+                      <div className="mt-2 text-xs text-amber-400 text-right">
+                        Propinas recaudadas: {cents(r.total_tips_cents)}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-right">
-                    <div className="text-xl font-bold text-green-400">{cents(r.total_sales_cents)}</div>
-                    <div className="text-xs text-slate-400">{r.tickets_closed} tickets cerrados</div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div className="bg-slate-700 rounded-lg p-2 text-center">
-                    <div className="text-slate-400">Tickets Abiertos</div>
-                    <div className="font-bold text-white mt-0.5">{r.tickets_opened}</div>
-                  </div>
-                  <div className="bg-slate-700 rounded-lg p-2 text-center">
-                    <div className="text-slate-400">💵 Efectivo</div>
-                    <div className="font-bold font-mono mt-0.5">{cents(r.cash_sales_cents)}</div>
-                  </div>
-                  <div className="bg-slate-700 rounded-lg p-2 text-center">
-                    <div className="text-slate-400">💳 Tarjeta</div>
-                    <div className="font-bold font-mono mt-0.5">{cents(r.card_sales_cents)}</div>
-                  </div>
-                </div>
-                {(r.total_tips_cents || 0) > 0 && (
-                  <div className="mt-2 text-xs text-amber-400 text-right">
-                    Propinas recaudadas: {cents(r.total_tips_cents)}
-                  </div>
-                )}
-              </div>
-            ))}
+                ))}
+                {/* Staff totals row */}
+                {(() => {
+                  const tot = {
+                    tickets_opened:    (staff as any[]).reduce((s: number, r: any) => s + Number(r.tickets_opened    || 0), 0),
+                    tickets_closed:    (staff as any[]).reduce((s: number, r: any) => s + Number(r.tickets_closed    || 0), 0),
+                    total_sales_cents: (staff as any[]).reduce((s: number, r: any) => s + Number(r.total_sales_cents || 0), 0),
+                    total_tips_cents:  (staff as any[]).reduce((s: number, r: any) => s + Number(r.total_tips_cents  || 0), 0),
+                    cash_sales_cents:  (staff as any[]).reduce((s: number, r: any) => s + Number(r.cash_sales_cents  || 0), 0),
+                    card_sales_cents:  (staff as any[]).reduce((s: number, r: any) => s + Number(r.card_sales_cents  || 0), 0),
+                  }
+                  return (
+                    <div className="bg-slate-700 rounded-xl p-4 border-2 border-slate-500">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <div className="font-bold text-slate-300 text-sm">Total del Período</div>
+                          {grandTotalPesos > 0 && Math.abs(Math.round(grandTotalPesos * 100) - tot.total_sales_cents) > 10 && (
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              Personal activo: {cents(tot.total_sales_cents)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xl font-bold text-yellow-300">
+                            {grandTotalPesos > 0 ? formatMXNFromPesos(grandTotalPesos) : cents(tot.total_sales_cents)}
+                          </div>
+                          <div className="text-xs text-slate-400">{tot.tickets_closed} tickets cerrados</div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div className="bg-slate-800 rounded-lg p-2 text-center">
+                          <div className="text-slate-400">Tickets Abiertos</div>
+                          <div className="font-bold text-white mt-0.5">{tot.tickets_opened}</div>
+                        </div>
+                        <div className="bg-slate-800 rounded-lg p-2 text-center">
+                          <div className="text-slate-400">💵 Efectivo</div>
+                          <div className="font-bold font-mono mt-0.5">{cents(tot.cash_sales_cents)}</div>
+                        </div>
+                        <div className="bg-slate-800 rounded-lg p-2 text-center">
+                          <div className="text-slate-400">💳 Tarjeta</div>
+                          <div className="font-bold font-mono mt-0.5">{cents(tot.card_sales_cents)}</div>
+                        </div>
+                      </div>
+                      {tot.total_tips_cents > 0 && (
+                        <div className="mt-2 text-xs text-amber-400 text-right">
+                          Propinas totales: {cents(tot.total_tips_cents)}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+              </>
+            )}
           </div>
         )}
 
         {/* Pool */}
         {tab === 'pool' && pool && (
-          <div className="bg-slate-800 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead><tr className="bg-slate-700"><th className="p-3 text-left">Mesa</th><th className="p-3 text-right">Sesiones</th><th className="p-3 text-right">Minutos Totales</th><th className="p-3 text-right">Ingresos</th></tr></thead>
-              <tbody>{(pool as any[]).map((r, i) => <tr key={i} className="border-t border-slate-700"><td className="p-3">{r.table_code}</td><td className="p-3 text-right">{r.sessions}</td><td className="p-3 text-right">{r.total_seconds ? Math.round(r.total_seconds / 60) : 0}m</td><td className="p-3 text-right font-mono text-yellow-300">{cents(r.revenue_cents)}</td></tr>)}</tbody>
-            </table>
+          <div className="space-y-2">
+            <div className="bg-slate-800 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead><tr className="bg-slate-700"><th className="p-3 text-left">Mesa</th><th className="p-3 text-right">Sesiones</th><th className="p-3 text-right">Minutos Totales</th><th className="p-3 text-right">Ingresos</th></tr></thead>
+                <tbody>{(pool as any[]).map((r, i) => <tr key={i} className="border-t border-slate-700"><td className="p-3">{r.table_code}</td><td className="p-3 text-right">{r.sessions}</td><td className="p-3 text-right">{r.total_seconds ? Math.round(r.total_seconds / 60) : 0}m</td><td className="p-3 text-right font-mono text-yellow-300">{cents(r.revenue_cents)}</td></tr>)}</tbody>
+                {(pool as any[]).length > 0 && (() => {
+                  const totSessions = (pool as any[]).reduce((s: number, r: any) => s + Number(r.sessions || 0), 0)
+                  const totSeconds  = (pool as any[]).reduce((s: number, r: any) => s + Number(r.total_seconds || 0), 0)
+                  const totRevenue  = (pool as any[]).reduce((s: number, r: any) => s + Number(r.revenue_cents || 0), 0)
+                  return (
+                    <tfoot>
+                      <tr className="bg-slate-700 font-bold border-t-2 border-slate-500">
+                        <td className="p-3">Total</td>
+                        <td className="p-3 text-right">{totSessions}</td>
+                        <td className="p-3 text-right">{totSeconds ? Math.round(totSeconds / 60) : 0}m</td>
+                        <td className="p-3 text-right font-mono text-yellow-300">{cents(totRevenue)}</td>
+                      </tr>
+                    </tfoot>
+                  )
+                })()}
+              </table>
+            </div>
+            {grandTotalPesos > 0 && (
+              <div className="flex justify-end">
+                <div className="bg-slate-700/40 border border-slate-600 rounded-lg px-4 py-2 text-sm text-right">
+                  <span className="text-slate-400">Total general (Billar + Ventas):</span>
+                  <span className="ml-2 font-mono font-bold text-yellow-300">{formatMXNFromPesos(grandTotalPesos)}</span>
+                  <span className="ml-3 text-xs text-slate-500">• Ventas: {formatMXNFromPesos(itemsTotalPesos)}</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -247,7 +344,7 @@ export default function ReportsPage() {
                   <tfoot>
                     <tr className="bg-slate-700 font-bold border-t-2 border-slate-500">
                       <td className="p-3">Total</td>
-                      <td className="p-3 text-right">{(payments as any[]).reduce((s: number, r: any) => s + Number(r.ticket_count), 0)}</td>
+                      <td className="p-3 text-right">{(payments as any[])[0]?.unique_tickets ?? (payments as any[]).reduce((s: number, r: any) => s + Number(r.ticket_count), 0)}</td>
                       <td className="p-3 text-right font-mono text-yellow-300">
                         {cents((payments as any[]).reduce((s: number, r: any) => s + Number(r.total_cents || 0), 0))}
                       </td>

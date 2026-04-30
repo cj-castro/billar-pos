@@ -135,10 +135,12 @@ def payments_report():
     if err: return err
     from_dt, to_dt = parse_dates()
 
-    # Build per-method totals that properly split split-payment tickets
+    # Build per-method totals that properly split split-payment tickets.
+    # ticket_id is carried through so we can compute unique/split counts accurately.
     sql = text("""
         WITH ticket_data AS (
             SELECT
+                id AS ticket_id,
                 payment_type,
                 payment_type_2,
                 total_cents,
@@ -153,10 +155,11 @@ def payments_report():
         payment_rows AS (
             -- Primary payment
             SELECT
+                ticket_id,
                 payment_type AS method,
                 CASE
-                    WHEN payment_type_2 IS NOT NULL THEN tendered_cents          -- split: use actual tendered
-                    ELSE total_cents                                              -- single: use bill total
+                    WHEN payment_type_2 IS NOT NULL THEN tendered_cents
+                    ELSE total_cents
                 END AS amount_cents,
                 CASE
                     WHEN payment_type_2 IS NOT NULL
@@ -168,21 +171,31 @@ def payments_report():
             UNION ALL
             -- Secondary payment (split tickets only)
             SELECT
+                ticket_id,
                 payment_type_2 AS method,
                 tendered_cents_2 AS amount_cents,
                 ROUND(tip_cents * tendered_cents_2::numeric / NULLIF(tendered_cents + tendered_cents_2, 0)) AS tip_portion,
                 TRUE AS is_split
             FROM ticket_data
             WHERE payment_type_2 IS NOT NULL
+        ),
+        -- Single-row summary for cross-join: unique ticket count and split ticket count
+        totals AS (
+            SELECT
+                COUNT(DISTINCT ticket_id)                          AS unique_tickets,
+                COUNT(DISTINCT ticket_id) FILTER (WHERE is_split)  AS split_tickets
+            FROM payment_rows
         )
         SELECT
             method AS payment_type,
             COUNT(*) AS ticket_count,
             SUM(amount_cents) AS total_cents,
             SUM(tip_portion) AS tips_cents,
-            SUM(CASE WHEN is_split THEN 1 ELSE 0 END) AS split_count
-        FROM payment_rows
-        GROUP BY method
+            SUM(CASE WHEN is_split THEN 1 ELSE 0 END) AS split_count,
+            t.unique_tickets,
+            t.split_tickets
+        FROM payment_rows, totals t
+        GROUP BY method, t.unique_tickets, t.split_tickets
         ORDER BY method
     """)
     rows = db.session.execute(sql, {'from_dt': from_dt, 'to_dt': to_dt}).mappings().all()
@@ -192,6 +205,8 @@ def payments_report():
         'total_cents': int(r['total_cents'] or 0),
         'tips_cents': int(r['tips_cents'] or 0),
         'split_count': int(r['split_count'] or 0),
+        'unique_tickets': int(r['unique_tickets'] or 0),
+        'split_tickets': int(r['split_tickets'] or 0),
     } for r in rows])
 
 
@@ -247,7 +262,7 @@ def staff_report():
             COALESCE(closed.card_sales,  0) AS card_sales_cents
         FROM users u
         LEFT JOIN (
-            SELECT opened_by, COUNT(*) AS cnt
+            SELECT opened_by, COUNT(DISTINCT id) AS cnt
             FROM tickets
             WHERE opened_at BETWEEN :from_dt AND :to_dt
             GROUP BY opened_by
@@ -255,11 +270,22 @@ def staff_report():
         LEFT JOIN (
             SELECT
                 opened_by,
-                COUNT(*)            AS cnt,
+                COUNT(DISTINCT id)  AS cnt,
                 SUM(total_cents)    AS total_sales,
                 SUM(tip_cents)      AS total_tips,
-                SUM(CASE WHEN payment_type = 'CASH' THEN total_cents ELSE 0 END) AS cash_sales,
-                SUM(CASE WHEN payment_type = 'CARD' THEN total_cents ELSE 0 END) AS card_sales
+                -- For split tickets use tendered amounts, not total_cents (which is the full bill)
+                SUM(CASE
+                    WHEN payment_type = 'CASH' AND payment_type_2 IS NULL THEN total_cents
+                    WHEN payment_type = 'CASH' AND payment_type_2 IS NOT NULL THEN COALESCE(tendered_cents, 0)
+                    WHEN payment_type_2 = 'CASH' THEN COALESCE(tendered_cents_2, 0)
+                    ELSE 0
+                END) AS cash_sales,
+                SUM(CASE
+                    WHEN payment_type = 'CARD' AND payment_type_2 IS NULL THEN total_cents
+                    WHEN payment_type = 'CARD' AND payment_type_2 IS NOT NULL THEN COALESCE(tendered_cents, 0)
+                    WHEN payment_type_2 = 'CARD' THEN COALESCE(tendered_cents_2, 0)
+                    ELSE 0
+                END) AS card_sales
             FROM tickets
             WHERE status = 'CLOSED'
               AND closed_at BETWEEN :from_dt AND :to_dt
@@ -423,17 +449,34 @@ def charts_data():
     if err: return err
     from_dt, to_dt = parse_dates()
 
-    # Daily revenue (food+drinks net of discounts, pool time, total)
+    # Daily revenue (food+drinks net of discounts, pool time, total).
+    # Pre-aggregate line items and pool sessions independently before joining
+    # to avoid the Cartesian product that occurs when both are joined to tickets
+    # in the same FROM clause (each pool session row multiplied by line-item count).
     daily_sql = text("""
         SELECT
             DATE(t.closed_at AT TIME ZONE 'America/Mexico_City') AS day,
-            COALESCE(SUM(tli.quantity * tli.unit_price_cents) FILTER (WHERE tli.status != 'VOIDED'), 0)
-                - COALESCE(SUM(lip.discount_cents), 0) AS items_net_cents,
-            COALESCE(SUM(pts.charge_cents), 0) AS pool_cents
+            COALESCE(SUM(items.items_net_cents), 0)               AS items_net_cents,
+            COALESCE(SUM(pool.pool_cents), 0)                     AS pool_cents
         FROM tickets t
-        LEFT JOIN ticket_line_items tli ON tli.ticket_id = t.id
-        LEFT JOIN line_item_promotions lip ON lip.line_item_id = tli.id
-        LEFT JOIN pool_timer_sessions pts ON pts.ticket_id = t.id
+        LEFT JOIN (
+            SELECT
+                tli.ticket_id,
+                SUM(tli.quantity * tli.unit_price_cents) FILTER (WHERE tli.status != 'VOIDED')
+                    - COALESCE(SUM(lip.discount_cents), 0) AS items_net_cents
+            FROM ticket_line_items tli
+            LEFT JOIN (
+                SELECT line_item_id, SUM(discount_cents) AS discount_cents
+                FROM line_item_promotions
+                GROUP BY line_item_id
+            ) lip ON lip.line_item_id = tli.id
+            GROUP BY tli.ticket_id
+        ) items ON items.ticket_id = t.id
+        LEFT JOIN (
+            SELECT ticket_id, SUM(charge_cents) AS pool_cents
+            FROM pool_timer_sessions
+            GROUP BY ticket_id
+        ) pool ON pool.ticket_id = t.id
         WHERE t.status = 'CLOSED'
           AND t.closed_at BETWEEN :from_dt AND :to_dt
         GROUP BY day

@@ -16,6 +16,7 @@ import TableManagementPage from './pages/manager/TableManagementPage'
 import SettingsPage from './pages/manager/SettingsPage'
 import ModifiersPage from './pages/manager/ModifiersPage'
 import SafeCollectionsPage from './pages/manager/SafeCollectionsPage'
+import EarningsPage from './pages/manager/EarningsPage'
 import { SocketProvider } from './hooks/useSocket'
 
 function RequireAuth({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
@@ -37,16 +38,17 @@ export default function App() {
         <Route path="/queue/kitchen" element={<RequireAuth roles={['KITCHEN_STAFF','BAR_STAFF','WAITER','MANAGER','ADMIN']}><KitchenQueuePage /></RequireAuth>} />
         <Route path="/queue/bar" element={<RequireAuth roles={['KITCHEN_STAFF','BAR_STAFF','WAITER','MANAGER','ADMIN']}><BarQueuePage /></RequireAuth>} />
         <Route path="/manager" element={<RequireAuth roles={['MANAGER','ADMIN']}><ManagerDashboard /></RequireAuth>} />
-        <Route path="/manager/reports" element={<RequireAuth roles={['MANAGER','ADMIN']}><ReportsPage /></RequireAuth>} />
+        <Route path="/manager/reports" element={<RequireAuth roles={['ADMIN']}><ReportsPage /></RequireAuth>} />
         <Route path="/manager/inventory" element={<RequireAuth roles={['MANAGER','ADMIN']}><InventoryPage /></RequireAuth>} />
         <Route path="/manager/menu" element={<RequireAuth roles={['MANAGER','ADMIN']}><MenuManagementPage /></RequireAuth>} />
-        <Route path="/manager/users" element={<RequireAuth roles={['ADMIN']}><UsersPage /></RequireAuth>} />
+        <Route path="/manager/users" element={<RequireAuth roles={['MANAGER','ADMIN']}><UsersPage /></RequireAuth>} />
         <Route path="/manager/pool-config" element={<RequireAuth roles={['MANAGER','ADMIN']}><PoolTableConfigPage /></RequireAuth>} />
         <Route path="/manager/tables" element={<RequireAuth roles={['MANAGER','ADMIN']}><TableManagementPage /></RequireAuth>} />
         <Route path="/manager/cash" element={<RequireAuth roles={['MANAGER','ADMIN']}><CashSessionPage /></RequireAuth>} />
         <Route path="/manager/settings" element={<RequireAuth roles={['MANAGER','ADMIN']}><SettingsPage /></RequireAuth>} />
         <Route path="/manager/modifiers" element={<RequireAuth roles={['MANAGER','ADMIN']}><ModifiersPage /></RequireAuth>} />
         <Route path="/manager/safe" element={<RequireAuth roles={['ADMIN']}><SafeCollectionsPage /></RequireAuth>} />
+        <Route path="/manager/earnings" element={<RequireAuth roles={['ADMIN']}><EarningsPage /></RequireAuth>} />
         <Route path="*" element={<Navigate to={user ? '/floor' : '/login'} replace />} />
       </Routes>
     </SocketProvider>

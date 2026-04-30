@@ -89,6 +89,9 @@ export default function NavBar() {
             {showSafe && (
               <Link to="/manager/safe" className="text-emerald-400 hover:text-emerald-300">🔐 Caja</Link>
             )}
+            {showSafe && (
+              <Link to="/manager/earnings" className="text-violet-400 hover:text-violet-300">💹 Ganancias</Link>
+            )}
           </div>
         )}
 
@@ -174,6 +177,11 @@ export default function NavBar() {
             {showSafe && (
               <Link to="/manager/safe" onClick={close} className="px-4 py-3 text-emerald-400 hover:bg-slate-800 active:bg-slate-700 text-sm">
                 🔐 Caja Fuerte
+              </Link>
+            )}
+            {showSafe && (
+              <Link to="/manager/earnings" onClick={close} className="px-4 py-3 text-violet-400 hover:bg-slate-800 active:bg-slate-700 text-sm">
+                💹 Ganancias
               </Link>
             )}
             <button onClick={handleLogout} className="px-4 py-3 text-left text-red-400 hover:bg-slate-800 active:bg-slate-700 text-sm">

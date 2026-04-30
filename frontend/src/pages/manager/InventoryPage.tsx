@@ -8,7 +8,7 @@ import { useEscKey } from '../../hooks/useEscKey'
 import { useSocket } from '../../hooks/useSocket'
 import { useAuthStore } from '../../stores/authStore'
 
-const BLANK_NEW = { name: '', unit: 'bottle', quantity: 0, low_stock_threshold: 6, category: 'beer', shots_per_bottle: '', item_type: 'STANDARD', yields_item_id: '' }
+const BLANK_NEW = { name: '', unit: 'bottle', quantity: 0, low_stock_threshold: 6, category: 'beer', shots_per_bottle: '', item_type: 'STANDARD', yields_item_id: '', cost_pesos: '' }
 
 const CATEGORY_LABELS: Record<string, string> = {
   all: '📦 Todos',
@@ -37,7 +37,7 @@ export default function InventoryPage() {
   const [openingBottle, setOpeningBottle] = useState<any>(null)
   const [openingBox, setOpeningBox] = useState<any>(null)
   const [editing, setEditing] = useState<any>(null)
-  const [editForm, setEditForm] = useState({ name: '', unit: 'bottle', category: 'beer', low_stock_threshold: 6, shots_per_bottle: '', item_type: 'STANDARD', yields_item_id: '' })
+  const [editForm, setEditForm] = useState({ name: '', unit: 'bottle', category: 'beer', low_stock_threshold: 6, shots_per_bottle: '', item_type: 'STANDARD', yields_item_id: '', cost_pesos: '' })
   const [viewingMovements, setViewingMovements] = useState<any>(null)
   const [addToMenu, setAddToMenu] = useState<any>(null)
   const [menuForm, setMenuForm] = useState({ category_id: '', price_cents: 0, requires_flavor: false })
@@ -124,6 +124,8 @@ export default function InventoryPage() {
       const payload: any = { ...newItem }
       if (!payload.shots_per_bottle) delete payload.shots_per_bottle
       else payload.shots_per_bottle = parseInt(payload.shots_per_bottle)
+      payload.cost_cents = Math.round(parseFloat(payload.cost_pesos || '0') * 100)
+      delete payload.cost_pesos
       await client.post('/inventory', payload)
       toast.success(`${newItem.name} añadido`)
       qc.invalidateQueries({ queryKey: ['inventory'] })
@@ -140,6 +142,8 @@ export default function InventoryPage() {
       const payload: any = { ...editForm }
       if (!payload.shots_per_bottle) payload.shots_per_bottle = null
       else payload.shots_per_bottle = parseInt(payload.shots_per_bottle)
+      payload.cost_cents = Math.round(parseFloat(payload.cost_pesos || '0') * 100)
+      delete payload.cost_pesos
       await client.patch(`/inventory/${editing.id}`, payload)
       toast.success('Artículo actualizado')
       qc.invalidateQueries({ queryKey: ['inventory'] })
@@ -198,6 +202,7 @@ export default function InventoryPage() {
       shots_per_bottle: item.shots_per_bottle ? String(item.shots_per_bottle) : '',
       item_type: item.item_type || 'STANDARD',
       yields_item_id: item.yields_item_id || '',
+      cost_pesos: item.cost_cents ? (item.cost_cents / 100).toFixed(2) : '',
     })
     setEditing(item)
   }
@@ -361,11 +366,20 @@ export default function InventoryPage() {
                   </select>
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Umbral de Stock Bajo</label>
-                <input type="number" min={0} value={editForm.low_stock_threshold}
-                  onChange={(e) => setEditForm({ ...editForm, low_stock_threshold: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Umbral de Stock Bajo</label>
+                  <input type="number" min={0} value={editForm.low_stock_threshold}
+                    onChange={(e) => setEditForm({ ...editForm, low_stock_threshold: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Costo de Compra ($)</label>
+                  <input type="number" min={0} step="0.01" value={editForm.cost_pesos}
+                    onChange={(e) => setEditForm({ ...editForm, cost_pesos: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                    placeholder="0.00" />
+                </div>
               </div>
               {(editForm.category === 'spirit' || editForm.category === 'cigarette' || editing.shots_per_bottle) && (
                 <div>
@@ -528,6 +542,13 @@ export default function InventoryPage() {
                   <label className="text-xs text-slate-400 block mb-1">Umbral de Stock Bajo</label>
                   <input type="number" min={0} value={newItem.low_stock_threshold} onChange={(e) => setNewItem({ ...newItem, low_stock_threshold: parseInt(e.target.value) || 0 })} className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
                 </div>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Costo de Compra ($)</label>
+                <input type="number" min={0} step="0.01" value={newItem.cost_pesos}
+                  onChange={(e) => setNewItem({ ...newItem, cost_pesos: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                  placeholder="ej. 25.50" />
               </div>
               {(newItem.category === 'spirit' || newItem.category === 'cigarette') && (
                 <div>

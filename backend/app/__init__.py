@@ -27,6 +27,7 @@ def create_app(config_class=Config):
     from .api.queue import queue_bp
     from .api.inventory import inventory_bp
     from .api.reports import reports_bp
+    from .api.earnings import earnings_bp
     from .api.menu import menu_bp
     from .api.users import users_bp
     from .api.waiting_list import waiting_list_bp
@@ -39,6 +40,7 @@ def create_app(config_class=Config):
     app.register_blueprint(queue_bp, url_prefix='/api/v1/queue')
     app.register_blueprint(inventory_bp, url_prefix='/api/v1/inventory')
     app.register_blueprint(reports_bp, url_prefix='/api/v1/reports')
+    app.register_blueprint(earnings_bp, url_prefix='/api/v1/reports/earnings')
     app.register_blueprint(menu_bp, url_prefix='/api/v1/menu')
     app.register_blueprint(users_bp, url_prefix='/api/v1/users')
     app.register_blueprint(waiting_list_bp, url_prefix='/api/v1/waiting-list')
@@ -76,6 +78,7 @@ def create_app(config_class=Config):
             "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS shots_per_bottle INTEGER",
             "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS yields_item_id VARCHAR(36)",
             "ALTER TABLE modifier_groups ADD COLUMN IF NOT EXISTS allow_multiple BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE ticket_line_items ADD COLUMN IF NOT EXISTS cost_snapshot_cents INTEGER DEFAULT NULL",
         ]
         for stmt in migrations:
             try:

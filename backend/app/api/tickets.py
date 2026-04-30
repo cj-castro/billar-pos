@@ -13,6 +13,7 @@ from app.models.ticket import (
     PoolTimerSession
 )
 from app.models.menu import MenuItem
+from app.models.inventory import MenuItemIngredient, InventoryItem
 from app.models.waiting_list import WaitingListEntry
 from app.services import audit_svc, billing, inventory_svc, promotion_svc
 from app.config import Config
@@ -512,6 +513,28 @@ def close_ticket(ticket_id):
     # Change: total tendered across all methods minus bill+tip
     total_tendered = (tendered_cents or 0) + (tendered_cents_2 or 0)
     change_due = max(0, total_tendered - ticket.total_cents - tip_cents) if total_tendered else 0
+
+    # Freeze cost snapshot on each non-voided line item.
+    # One query: sum(ingredient.qty × ii.cost_cents) per menu_item_id.
+    active_items = ticket.line_items.filter(TicketLineItem.status != 'VOIDED').all()
+    menu_ids = [li.menu_item_id for li in active_items if li.menu_item_id]
+    if menu_ids:
+        from sqlalchemy import text as _text
+        recipe_rows = db.session.execute(
+            _text("""
+                SELECT mii.menu_item_id,
+                       SUM(mii.quantity * ii.cost_cents) AS unit_cost_cents
+                FROM menu_item_ingredients mii
+                JOIN inventory_items ii ON ii.id = mii.inventory_item_id
+                WHERE mii.menu_item_id IN :ids
+                GROUP BY mii.menu_item_id
+            """),
+            {'ids': tuple(menu_ids)}
+        ).mappings().all()
+        recipe_cost = {r['menu_item_id']: int(r['unit_cost_cents']) for r in recipe_rows}
+        for li in active_items:
+            if li.menu_item_id and li.menu_item_id in recipe_cost:
+                li.cost_snapshot_cents = li.quantity * recipe_cost[li.menu_item_id]
 
     wl_changed = _close_linked_waiting_entry(ticket.id, user_id, terminal_status='ASSIGNED')
 

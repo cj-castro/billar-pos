@@ -134,6 +134,7 @@ class TicketLineItem(db.Model):
     void_reason = db.Column(db.Text)
     notes = db.Column(db.Text)
     sort_order = db.Column(db.Integer, default=0)
+    cost_snapshot_cents = db.Column(db.Integer, nullable=True)
 
     menu_item = db.relationship('MenuItem')
     modifiers = db.relationship('LineItemModifier', backref='line_item', cascade='all,delete-orphan')
