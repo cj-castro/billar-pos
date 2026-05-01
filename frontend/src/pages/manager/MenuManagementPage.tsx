@@ -27,7 +27,7 @@ export default function MenuManagementPage() {
   const [recipeItem, setRecipeItem] = useState<any>(null)
   const [recipeItemFull, setRecipeItemFull] = useState<any>(null)
   const [recipeIngredients, setRecipeIngredients] = useState<any[]>([])
-  const [addIngr, setAddIngr] = useState({ inventory_item_id: '', quantity: 1 })
+  const [addIngr, setAddIngr] = useState({ inventory_item_id: '', quantity: '1' })
   // Category management
   const [showCatManager, setShowCatManager] = useState(false)
   const [editCat, setEditCat] = useState<any>(null)
@@ -52,7 +52,7 @@ export default function MenuManagementPage() {
   })
   const [newItemGroups, setNewItemGroups] = useState<string[]>([])
   const [newItemIngredients, setNewItemIngredients] = useState<{inventory_item_id: string, quantity: number, name: string, unit: string}[]>([])
-  const [newIngrPick, setNewIngrPick] = useState({ inventory_item_id: '', quantity: 1 })
+  const [newIngrPick, setNewIngrPick] = useState({ inventory_item_id: '', quantity: '1' })
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['all-items'] })
@@ -158,7 +158,7 @@ export default function MenuManagementPage() {
         await client.put(`/menu/items/${created.id}/modifier-groups`, { modifier_group_ids: newItemGroups })
       }
       for (const ing of newItemIngredients) {
-        await client.post('/inventory/item-ingredients', {
+        await client.post('/inventory/insumos-base', {
           menu_item_id: created.id,
           inventory_item_id: ing.inventory_item_id,
           quantity: ing.quantity,
@@ -170,7 +170,7 @@ export default function MenuManagementPage() {
       setNewItem({ ...BLANK_ITEM })
       setNewItemGroups([])
       setNewItemIngredients([])
-      setNewIngrPick({ inventory_item_id: '', quantity: 1 })
+      setNewIngrPick({ inventory_item_id: '', quantity: '1' })
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Error al guardar')
     } finally { setSaving(false) }
@@ -181,34 +181,44 @@ export default function MenuManagementPage() {
     setRecipeItemFull(null)
     try {
       const [ingrRes, fullRes] = await Promise.all([
-        client.get(`/inventory/item-ingredients/${item.id}`),
+        client.get(`/inventory/insumos-base/${item.id}`),
         client.get(`/menu/items/${item.id}`),
       ])
       setRecipeIngredients(ingrRes.data)
       setRecipeItemFull(fullRes.data)
     } catch { setRecipeIngredients([]) }
-    setAddIngr({ inventory_item_id: '', quantity: 1 })
+    setAddIngr({ inventory_item_id: '', quantity: '1' })
   }
 
   const handleAddIngredient = async () => {
     if (!addIngr.inventory_item_id) return toast.error('Selecciona un artículo de inventario')
+    const qty = parseFloat(addIngr.quantity)
+    if (!qty || qty <= 0) return toast.error('La cantidad debe ser mayor a 0')
     try {
-      const res = await client.post('/inventory/item-ingredients', {
+      const res = await client.post('/inventory/insumos-base', {
         menu_item_id: recipeItem.id,
         inventory_item_id: addIngr.inventory_item_id,
-        quantity: addIngr.quantity,
+        quantity: qty,
       })
-      setRecipeIngredients(prev => [...prev, res.data])
-      setAddIngr({ inventory_item_id: '', quantity: 1 })
-      toast.success('Ingrediente añadido')
+      setRecipeIngredients(prev => {
+        const existing = prev.findIndex(i => i.inventory_item_id === addIngr.inventory_item_id)
+        if (existing >= 0) {
+          const updated = [...prev]
+          updated[existing] = res.data
+          return updated
+        }
+        return [...prev, res.data]
+      })
+      setAddIngr({ inventory_item_id: '', quantity: '1' })
+      toast.success('Insumo vinculado')
     } catch (err: any) { toast.error(err.response?.data?.message || 'Error') }
   }
 
   const handleDeleteIngredient = async (ingId: string) => {
     try {
-      await client.delete(`/inventory/item-ingredients/${ingId}`)
+      await client.delete(`/inventory/insumos-base/${ingId}`)
       setRecipeIngredients(prev => prev.filter(i => i.id !== ingId))
-      toast.success('Ingrediente eliminado')
+      toast.success('Insumo eliminado')
     } catch { toast.error('Error') }
   }
 
@@ -378,15 +388,25 @@ export default function MenuManagementPage() {
                 <p className="text-slate-500 text-sm mb-4 pl-1">Sin insumos vinculados — agrega abajo.</p>
               ) : (
                 <div className="space-y-2 mb-4">
-                  {recipeIngredients.map((ing: any) => (
-                    <div key={ing.id} className="flex items-center justify-between bg-slate-700 rounded-lg px-3 py-2">
-                      <span className="text-sm font-medium">{ing.inventory_item_name}</span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm text-emerald-300 font-mono">{ing.quantity} {ing.inventory_item_unit}</span>
-                        <button onClick={() => handleDeleteIngredient(ing.id)} className="text-red-400 hover:text-red-300 text-sm">✕</button>
+                  {recipeIngredients.map((ing: any) => {
+                    const qtyDisplay = parseFloat(ing.quantity) % 1 === 0
+                      ? String(Math.round(parseFloat(ing.quantity)))
+                      : parseFloat(ing.quantity).toFixed(2)
+                    return (
+                      <div key={ing.id} className="flex items-center justify-between bg-slate-700 rounded-lg px-3 py-2">
+                        <span className="text-sm font-medium">{ing.inventory_item_name}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm text-emerald-300 font-mono">
+                            {qtyDisplay} {ing.deduction_unit_key}
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            ({ing.stock_quantity != null ? parseFloat(ing.stock_quantity).toFixed(0) : '?'} disp.)
+                          </span>
+                          <button onClick={() => handleDeleteIngredient(ing.id)} className="text-red-400 hover:text-red-300 text-sm">✕</button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 
@@ -426,12 +446,30 @@ export default function MenuManagementPage() {
                     className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm min-w-0">
                     <option value="">— selecciona artículo de inventario —</option>
                     {(inventoryItems as any[]).map((inv: any) => (
-                      <option key={inv.id} value={inv.id}>{inv.name} ({inv.unit}) — Stock: {inv.quantity}</option>
+                      <option key={inv.id} value={inv.id}>
+                        {inv.name} ({inv.base_unit_key}) — {parseFloat(inv.stock_quantity).toFixed(0)} disp.
+                      </option>
                     ))}
                   </select>
-                  <input type="number" min={1} value={addIngr.quantity}
-                    onChange={e => setAddIngr({ ...addIngr, quantity: parseInt(e.target.value) || 1 })}
-                    className="w-16 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm text-center font-mono" />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={0.001}
+                      step={(() => {
+                        const sel = (inventoryItems as any[]).find((i: any) => i.id === addIngr.inventory_item_id)
+                        return sel?.base_unit_key === 'ml' || sel?.base_unit_key === 'gramo' ? '0.1' : '1'
+                      })()}
+                      value={addIngr.quantity}
+                      onChange={e => setAddIngr({ ...addIngr, quantity: e.target.value })}
+                      className="w-20 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm text-center font-mono"
+                    />
+                    <span className="text-xs text-slate-400 whitespace-nowrap">
+                      {(() => {
+                        const sel = (inventoryItems as any[]).find((i: any) => i.id === addIngr.inventory_item_id)
+                        return sel?.base_unit_key ?? ''
+                      })()}
+                    </span>
+                  </div>
                   <button onClick={handleAddIngredient}
                     className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap">+ Vincular</button>
                 </div>
@@ -628,19 +666,31 @@ export default function MenuManagementPage() {
                     className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm min-w-0">
                     <option value="">— selecciona artículo —</option>
                     {(inventoryItems as any[]).filter(inv => !newItemIngredients.find(i => i.inventory_item_id === inv.id)).map((inv: any) => (
-                      <option key={inv.id} value={inv.id}>{inv.name} ({inv.unit}) — {inv.quantity} en stock</option>
+                      <option key={inv.id} value={inv.id}>
+                        {inv.name} ({inv.base_unit_key}) — {parseFloat(inv.stock_quantity).toFixed(0)} disp.
+                      </option>
                     ))}
                   </select>
-                  <input type="number" min={1} value={newIngrPick.quantity}
-                    onChange={e => setNewIngrPick({ ...newIngrPick, quantity: parseInt(e.target.value) || 1 })}
-                    className="w-14 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm text-center font-mono" />
+                  <input
+                    type="number" min={0.001}
+                    step={(() => {
+                      const sel = (inventoryItems as any[]).find((i: any) => i.id === newIngrPick.inventory_item_id)
+                      return sel?.base_unit_key === 'ml' || sel?.base_unit_key === 'gramo' ? '0.1' : '1'
+                    })()}
+                    value={newIngrPick.quantity}
+                    onChange={e => setNewIngrPick({ ...newIngrPick, quantity: e.target.value })}
+                    className="w-16 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm text-center font-mono" />
                   <button
                     onClick={() => {
                       if (!newIngrPick.inventory_item_id) return
-                      const inv = (inventoryItems as any[]).find(i => i.id === newIngrPick.inventory_item_id)
+                      const inv = (inventoryItems as any[]).find((i: any) => i.id === newIngrPick.inventory_item_id)
                       if (!inv) return
-                      setNewItemIngredients(prev => [...prev, { inventory_item_id: inv.id, quantity: newIngrPick.quantity, name: inv.name, unit: inv.unit }])
-                      setNewIngrPick({ inventory_item_id: '', quantity: 1 })
+                      const qty = parseFloat(newIngrPick.quantity) || 1
+                      setNewItemIngredients(prev => [...prev, {
+                        inventory_item_id: inv.id, quantity: qty,
+                        name: inv.name, unit: inv.base_unit_key
+                      }])
+                      setNewIngrPick({ inventory_item_id: '', quantity: '1' })
                     }}
                     className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap">+ Agregar</button>
                 </div>
