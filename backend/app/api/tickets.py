@@ -13,7 +13,7 @@ from app.models.ticket import (
     PoolTimerSession
 )
 from app.models.menu import MenuItem
-from app.models.inventory import MenuItemIngredient, InventoryItem
+from app.models.inventory import InventoryItem
 from app.models.waiting_list import WaitingListEntry
 from app.services import audit_svc, billing, inventory_svc, promotion_svc
 from app.config import Config
@@ -515,26 +515,52 @@ def close_ticket(ticket_id):
     change_due = max(0, total_tendered - ticket.total_cents - tip_cents) if total_tendered else 0
 
     # Freeze cost snapshot on each non-voided line item.
-    # One query: sum(ingredient.qty × ii.cost_cents) per menu_item_id.
+    # Primary source: sale_item_costs rows written at SENT time (inventory v2).
+    # Fallback for pre-migration tickets: sum recipe cost from insumos_base.
     active_items = ticket.line_items.filter(TicketLineItem.status != 'VOIDED').all()
     menu_ids = [li.menu_item_id for li in active_items if li.menu_item_id]
     if menu_ids:
         from sqlalchemy import text as _text
-        recipe_rows = db.session.execute(
+
+        # v2: sum COGS already captured in sale_item_costs at item-send time
+        sic_rows = db.session.execute(
             _text("""
-                SELECT mii.menu_item_id,
-                       SUM(mii.quantity * ii.cost_cents) AS unit_cost_cents
-                FROM menu_item_ingredients mii
-                JOIN inventory_items ii ON ii.id = mii.inventory_item_id
-                WHERE mii.menu_item_id IN :ids
-                GROUP BY mii.menu_item_id
+                SELECT ticket_line_item_id,
+                       SUM(total_cost_cents) AS total_cost_cents
+                FROM sale_item_costs
+                WHERE ticket_line_item_id IN :ids
+                GROUP BY ticket_line_item_id
             """),
-            {'ids': tuple(menu_ids)}
+            {'ids': tuple(li.id for li in active_items)}
         ).mappings().all()
-        recipe_cost = {r['menu_item_id']: int(r['unit_cost_cents']) for r in recipe_rows}
+        sic_by_line = {r['ticket_line_item_id']: int(r['total_cost_cents']) for r in sic_rows}
+
+        # v1 fallback: compute from insumos_base + unit_cost_cents for items
+        # that predate the v2 migration (no sale_item_costs rows)
+        legacy_menu_ids = [
+            li.menu_item_id for li in active_items
+            if li.menu_item_id and li.id not in sic_by_line
+        ]
+        legacy_cost: dict = {}
+        if legacy_menu_ids:
+            recipe_rows = db.session.execute(
+                _text("""
+                    SELECT ib.menu_item_id,
+                           SUM(ib.quantity * ii.unit_cost_cents) AS unit_cost_cents
+                    FROM insumos_base ib
+                    JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+                    WHERE ib.menu_item_id IN :ids
+                    GROUP BY ib.menu_item_id
+                """),
+                {'ids': tuple(legacy_menu_ids)}
+            ).mappings().all()
+            legacy_cost = {r['menu_item_id']: int(r['unit_cost_cents']) for r in recipe_rows}
+
         for li in active_items:
-            if li.menu_item_id and li.menu_item_id in recipe_cost:
-                li.cost_snapshot_cents = li.quantity * recipe_cost[li.menu_item_id]
+            if li.id in sic_by_line:
+                li.cost_snapshot_cents = sic_by_line[li.id]
+            elif li.menu_item_id and li.menu_item_id in legacy_cost:
+                li.cost_snapshot_cents = li.quantity * legacy_cost[li.menu_item_id]
 
     wl_changed = _close_linked_waiting_entry(ticket.id, user_id, terminal_status='ASSIGNED')
 
