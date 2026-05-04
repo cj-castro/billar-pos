@@ -46,11 +46,11 @@ def _int(v):
 _RECIPE_CTE = """
 WITH recipe_cost AS (
     SELECT
-        mii.menu_item_id,
-        SUM(mii.quantity * ii.cost_cents) AS unit_cost_cents
-    FROM menu_item_ingredients mii
-    JOIN inventory_items ii ON ii.id = mii.inventory_item_id
-    GROUP BY mii.menu_item_id
+        ib.menu_item_id,
+        SUM(ib.quantity * ii.unit_cost_cents) AS unit_cost_cents
+    FROM insumos_base ib
+    JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    GROUP BY ib.menu_item_id
 ),
 line_costs AS (
     SELECT

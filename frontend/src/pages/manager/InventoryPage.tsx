@@ -537,80 +537,75 @@ export default function InventoryPage() {
         )}
 
         {/* Item list */}
-        <div className="space-y-2">
-          {filtered.map((item) => (
-            <div key={item.id}
-              className={`bg-slate-800 rounded-xl p-4 flex items-start justify-between border ${item.is_low ? 'border-red-700' : 'border-slate-700'}`}>
-              <div className="flex-1 min-w-0 mr-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold truncate">{item.name}</span>
-                  {item.sku && <span className="text-xs text-slate-500 font-mono">{item.sku}</span>}
-                </div>
-                <div className="text-xs text-slate-400 mt-0.5">
-                  {getUnitName(item.base_unit_key)} · {CATEGORY_LABELS[item.category]?.replace(/^.+ /, '') ?? item.category}
-                  {item.supplier && <span className="ml-2 text-slate-500">{item.supplier}</span>}
-                </div>
-                {item.is_low && <div className="text-xs text-red-400 font-semibold mt-0.5">⚠ {t('inventory.lowStock')}</div>}
-                {item.item_type === 'CIG_BOX' && item.shots_per_bottle && (
-                  <div className="text-xs text-orange-400 mt-0.5">🚬 {item.shots_per_bottle} cigarros/caja</div>
-                )}
-                {item.item_type === 'BOTTLE' && item.shots_per_bottle && (
-                  <div className="text-xs text-amber-400 mt-0.5">🍾 {item.shots_per_bottle} copas/botella</div>
-                )}
-                {item.unit_cost_cents > 0 && (
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    {t('inventory.unitCost')}: {formatMXN(item.unit_cost_cents)}/{getUnitName(item.base_unit_key)}
+        <div className="space-y-1.5">
+          {filtered.map((item) => {
+            const inMenu = (menuItems as any[]).some((m: any) =>
+              m.name.toLowerCase() === item.name.toLowerCase()
+            )
+            return (
+              <div key={item.id}
+                className={`bg-slate-800 rounded-xl px-3 py-2.5 flex items-center gap-3 border ${item.is_low ? 'border-red-700' : 'border-slate-700'}`}>
+
+                {/* Name + meta — grows to fill space */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-semibold text-sm leading-tight">{item.name}</span>
+                    {item.is_low && <span className="text-[10px] text-red-400 font-bold bg-red-900/40 px-1.5 py-0.5 rounded">⚠ bajo</span>}
+                    {item.item_type === 'BOTTLE' && item.shots_per_bottle && (
+                      <span className="text-[10px] text-amber-400">🍾 {item.shots_per_bottle}c</span>
+                    )}
+                    {item.item_type === 'CIG_BOX' && item.shots_per_bottle && (
+                      <span className="text-[10px] text-orange-400">🚬 {item.shots_per_bottle}</span>
+                    )}
                   </div>
-                )}
-              </div>
-
-              <div className="flex items-start gap-1.5 flex-shrink-0">
-                {/* Stock quantity */}
-                <div className={`font-bold text-lg font-mono text-right min-w-[3.5rem] ${item.is_low ? 'text-red-400' : 'text-white'}`}>
-                  {fmtQty(item.stock_quantity)}
-                  <div className="text-xs font-normal text-slate-400">{getUnitName(item.base_unit_key)}</div>
+                  <div className="text-xs text-slate-500 leading-tight mt-0.5">
+                    {getUnitName(item.base_unit_key)} · {CATEGORY_LABELS[item.category]?.replace(/^.+ /, '') ?? item.category}
+                    {item.unit_cost_cents > 0 && <span className="ml-2">{formatMXN(item.unit_cost_cents)}/u</span>}
+                  </div>
                 </div>
 
-                <div className="flex flex-col gap-1 ml-1">
-                  {/* Bottle / box open buttons */}
+                {/* Stock badge */}
+                <div className={`text-right font-mono font-bold text-base leading-tight flex-shrink-0 ${item.is_low ? 'text-red-400' : 'text-white'}`}>
+                  {fmtQty(item.stock_quantity)}
+                  <div className="text-[10px] font-normal text-slate-400">{getUnitName(item.base_unit_key)}</div>
+                </div>
+
+                {/* Action buttons — all horizontal */}
+                <div className="flex items-center gap-1 flex-shrink-0">
                   {item.item_type === 'BOTTLE' && item.shots_per_bottle && item.yields_item_id && (
-                    <button onClick={() => setOpeningBottle(item)}
-                      className="bg-amber-700 hover:bg-amber-600 px-2 py-1 rounded-lg text-xs font-bold">🍾 Abrir</button>
+                    <button onClick={() => setOpeningBottle(item)} title="Abrir botella"
+                      className="bg-amber-700 hover:bg-amber-600 px-2 py-1 rounded text-xs font-bold">🍾</button>
                   )}
                   {item.item_type === 'CIG_BOX' && item.shots_per_bottle && item.yields_item_id && (
-                    <button onClick={() => setOpeningBox(item)}
-                      className="bg-orange-700 hover:bg-orange-600 px-2 py-1 rounded-lg text-xs font-bold">🚬 Abrir</button>
+                    <button onClick={() => setOpeningBox(item)} title="Abrir caja"
+                      className="bg-orange-700 hover:bg-orange-600 px-2 py-1 rounded text-xs font-bold">🚬</button>
                   )}
                   <button onClick={() => openRestock(item)}
-                    className="bg-emerald-800 hover:bg-emerald-700 px-2 py-1 rounded-lg text-xs font-bold text-emerald-300">
-                    📦 {t('inventory.restock')}
+                    className="bg-emerald-700 hover:bg-emerald-600 px-2.5 py-1 rounded text-xs font-bold text-emerald-100 whitespace-nowrap">
+                    📦 Reabastecer
                   </button>
-                  <button onClick={() => openAdjust(item)}
-                    className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded-lg text-xs">
-                    {t('inventory.adjust')}
+                  <button onClick={() => openAdjust(item)} title="Ajustar stock"
+                    className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs text-slate-300">
+                    ⚡
                   </button>
-                  <button onClick={() => openEdit(item)}
-                    className="bg-slate-700 hover:bg-sky-700 px-2 py-1 rounded-lg text-xs" title="Editar">✏️</button>
-                  <button onClick={() => setViewingMovements(item)}
-                    className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded-lg text-xs text-slate-300" title="Movimientos">📋</button>
+                  <button onClick={() => openEdit(item)} title="Editar"
+                    className="bg-slate-700 hover:bg-sky-700 px-2 py-1 rounded text-xs">✏️</button>
+                  <button onClick={() => setViewingMovements(item)} title="Movimientos"
+                    className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs text-slate-300">📋</button>
                   {isAdmin && (
-                    <button onClick={() => handleDelete(item)}
-                      className="bg-slate-700 hover:bg-red-800 px-2 py-1 rounded-lg text-xs text-red-400" title="Eliminar">🗑</button>
+                    <button onClick={() => handleDelete(item)} title="Eliminar"
+                      className="bg-slate-700 hover:bg-red-800 px-2 py-1 rounded text-xs text-red-400">🗑</button>
                   )}
-                  {/* Add to menu */}
-                  {(() => {
-                    const inMenu = (menuItems as any[]).some((m: any) =>
-                      m.name.toLowerCase() === item.name.toLowerCase()
-                    )
-                    return inMenu
-                      ? <span className="text-xs text-emerald-400 font-semibold text-center">✅ Menú</span>
-                      : <button onClick={() => { setAddToMenu(item); setMenuForm({ category_id: '', price_cents: 0, requires_flavor: false }) }}
-                          className="bg-emerald-800 hover:bg-emerald-700 px-2 py-1 rounded-lg text-xs font-bold">🍽️ Menú</button>
-                  })()}
+                  {inMenu
+                    ? <span className="text-[10px] text-emerald-400 font-semibold px-1">✅</span>
+                    : <button onClick={() => { setAddToMenu(item); setMenuForm({ category_id: '', price_cents: 0, requires_flavor: false }) }}
+                        title="Agregar al menú"
+                        className="bg-slate-700 hover:bg-emerald-800 px-2 py-1 rounded text-xs">🍽️</button>
+                  }
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
 
           {filtered.length === 0 && (
             <div className="text-center text-slate-500 py-10">
