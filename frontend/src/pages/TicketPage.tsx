@@ -7,17 +7,17 @@ import AddItemModal from '../components/AddItemModal'
 import TransferModal from '../components/TransferModal'
 import ManagerPinDialog from '../components/ManagerPinDialog'
 import EditPaymentModal from '../components/EditPaymentModal'
+import PrintRetryBanner from '../components/PrintRetryBanner'
 import { useAuthStore } from '../stores/authStore'
 import { useTimer } from '../hooks/useTimer'
 import { useEscKey } from '../hooks/useEscKey'
 import client from '../api/client'
 import toast from 'react-hot-toast'
-import { printReceipt } from '../utils/printReceipt'
+import {
+  getPendingJob, storePendingJob, removePendingJob,
+  hasPrinted, markPrinted,
+} from '../utils/printJobStorage'
 
-function printTicket(ticketData: any, unpaid = false) {
-  // Use browser native print — no print agent required
-  printReceipt({ ...ticketData, unpaid }, undefined, unpaid)
-}
 
 function cents(n: number) { return `$${(n / 100).toFixed(2)}` }
 
@@ -108,6 +108,8 @@ export default function TicketPage() {
   const [wlSize, setWlSize] = useState(1)
   const [wlJoining, setWlJoining] = useState(false)
   const [printingThermal, setPrintingThermal] = useState(false)
+  const [showPinForReprint, setShowPinForReprint] = useState<string | null>(null) // ticketId
+  const [reprintBannerKey, setReprintBannerKey] = useState(0)
 
   // Close modals with Escape
   useEscKey(() => {
@@ -145,15 +147,46 @@ export default function TicketPage() {
     setVoidQtyPicker(null)
   }
 
-  const thermalPrint = async (ticketId: string) => {
+  const thermalPrint = async (ticketId: string, unpaid = false) => {
     setPrintingThermal(true)
+    // Retrieve any existing failed job_id for idempotent retry
+    const pending = getPendingJob(ticketId)
     try {
-      await client.post(`/tickets/${ticketId}/print`)
-      toast.success('Enviado a impresora térmica')
+      const res = await client.post(
+        `/tickets/${ticketId}/print${unpaid ? '?unpaid=true' : ''}`,
+        pending ? { job_id: pending.job_id } : {},
+      )
+      const jobId: string = res.data?.job_id
+      removePendingJob(ticketId)
+      markPrinted(ticketId)
+      setReprintBannerKey((k) => k + 1)
+      toast.success('Enviado a impresora')
     } catch (err: any) {
+      const jobId: string | undefined = err.response?.data?.job_id
       const msg = err.response?.data?.error || 'No se pudo imprimir'
+      if (jobId) {
+        storePendingJob({ job_id: jobId, ticketId, type: 'RECEIPT', timestamp: Date.now() })
+        setReprintBannerKey((k) => k + 1)
+      }
       toast.error(msg)
     } finally { setPrintingThermal(false) }
+  }
+
+  const handleReprint = async (ticketId: string, managerId: string) => {
+    try {
+      const res = await client.post(`/tickets/${ticketId}/reprint`, { manager_id: managerId })
+      markPrinted(ticketId)
+      toast.success('Reimpresión enviada')
+    } catch (err: any) {
+      const jobId: string | undefined = err.response?.data?.job_id
+      if (jobId) {
+        storePendingJob({ job_id: jobId, ticketId, type: 'REPRINT', timestamp: Date.now() })
+        setReprintBannerKey((k) => k + 1)
+      }
+      toast.error(err.response?.data?.error || 'Error al reimprimir')
+    } finally {
+      setShowPinForReprint(null)
+    }
   }
 
   const handleApplyDiscount = async (managerId: string) => {
@@ -328,18 +361,11 @@ export default function TicketPage() {
             )}
             <div className="flex gap-2">
               <button
-                onClick={() => printTicket(ticket)}
-                className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 px-3 py-1.5 rounded-lg text-sm font-semibold"
-              >
-                🖨️ Imprimir
-              </button>
-              <button
                 onClick={() => thermalPrint(ticket.id)}
                 disabled={printingThermal}
                 className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 px-3 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50"
-                title="Enviar a impresora térmica"
               >
-                🧾 Térmica
+                {printingThermal ? '⏳ Imprimiendo…' : '🖨️ Imprimir'}
               </button>
             </div>
           </div>
@@ -540,9 +566,8 @@ export default function TicketPage() {
               onClick={async () => {
                 try {
                   await client.post(`/tickets/${ticket.id}/request-payment`)
-                  const result = await refetch()
-                  const fresh = result.data ?? ticket
-                  printTicket(fresh, true)
+                  await refetch()
+                  await thermalPrint(ticket.id, true)
                 } catch (err: any) {
                   toast.error(err.response?.data?.message || 'Error al pedir cuenta')
                 }
@@ -606,18 +631,21 @@ export default function TicketPage() {
               <div className="text-yellow-300 font-semibold">💰 {t('ticket.closed.changeDue')}: {cents(ticket.change_due)}</div>
             )}
             <button
-              onClick={() => printTicket(ticket)}
-              className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-base flex items-center justify-center gap-2"
-            >
-              🖨️ {t('ticket.closed.printReceipt')}
-            </button>
-            <button
               onClick={() => thermalPrint(ticket.id)}
               disabled={printingThermal}
-              className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              🧾 {printingThermal ? 'Enviando…' : 'Impresora Térmica'}
+              🖨️ {printingThermal ? 'Enviando…' : t('ticket.closed.printReceipt')}
             </button>
+            <PrintRetryBanner key={reprintBannerKey} ticketId={ticket.id} onSuccess={() => setReprintBannerKey((k) => k + 1)} />
+            {hasPrinted(ticket.id) && (
+              <button
+                onClick={() => setShowPinForReprint(ticket.id)}
+                className="w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold text-slate-300 flex items-center justify-center gap-2"
+              >
+                🔄 Reimprimir (PIN)
+              </button>
+            )}
             {(useAuthStore.getState().user?.role === 'MANAGER' || useAuthStore.getState().user?.role === 'ADMIN') && (
               <button
                 onClick={() => setShowEditPayment(true)}
@@ -644,8 +672,15 @@ export default function TicketPage() {
           onSaved={refetch}
         />
       )}
+      {showPinForReprint && (
+        <ManagerPinDialog
+          action="Reimprimir Recibo"
+          onConfirm={(managerId) => handleReprint(showPinForReprint, managerId)}
+          onCancel={() => setShowPinForReprint(null)}
+        />
+      )}
       {voidQtyPicker && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
           <div className="bg-slate-800 rounded-2xl border border-slate-600 p-6 w-full max-w-xs">
             <h3 className="font-bold text-lg mb-1">¿Cuántos anular?</h3>
             <p className="text-sm text-slate-400 mb-4">{voidQtyPicker.name}</p>
@@ -695,7 +730,7 @@ export default function TicketPage() {
       )}
 
       {showPayment && (
-        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
           <div className="bg-slate-800 rounded-t-2xl sm:rounded-2xl w-full max-w-sm border border-slate-600 flex flex-col max-h-[92dvh] sm:max-h-[90vh]">
             {/* Sticky header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-700 shrink-0">
@@ -987,7 +1022,7 @@ export default function TicketPage() {
 
       {/* ── Ticket Closed Overlay ─────────────────────────────────────────── */}
       {closedTicket && (
-        <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-[60] p-4">
           <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-green-700 shadow-2xl shadow-green-900/40 overflow-hidden">
             <div className="bg-green-700/30 p-6 text-center border-b border-green-700">
               <img src="/logo.jpg" alt="Bola 8 Pool Club" className="w-20 h-20 rounded-full object-cover mx-auto mb-3 border-2 border-green-500 shadow-lg" />
@@ -1033,18 +1068,21 @@ export default function TicketPage() {
             </div>
             <div className="px-5 pb-5 space-y-3">
               <button
-                onClick={() => printTicket(closedTicket)}
-                className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-base flex items-center justify-center gap-2"
-              >
-                🖨️ {t('ticket.closed.printReceipt')}
-              </button>
-              <button
                 onClick={() => thermalPrint(closedTicket.id)}
                 disabled={printingThermal}
-                className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                🧾 {printingThermal ? 'Enviando…' : 'Impresora Térmica'}
+                🖨️ {printingThermal ? 'Enviando…' : t('ticket.closed.printReceipt')}
               </button>
+              <PrintRetryBanner key={reprintBannerKey} ticketId={closedTicket.id} onSuccess={() => setReprintBannerKey((k) => k + 1)} />
+              {hasPrinted(closedTicket.id) && (
+                <button
+                  onClick={() => setShowPinForReprint(closedTicket.id)}
+                  className="w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold text-slate-300 flex items-center justify-center gap-2"
+                >
+                  🔄 Reimprimir (PIN)
+                </button>
+              )}
               <button
                 onClick={() => navigate('/floor')}
                 className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-semibold text-base"
@@ -1058,7 +1096,7 @@ export default function TicketPage() {
 
       {/* Join Waiting List Modal */}
       {showJoinWaitlist && (
-        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-[60] p-4">
           <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
             <div className="p-5 border-b border-slate-700">
               <h2 className="text-lg font-bold">⏳ Lista de Espera — Pool</h2>

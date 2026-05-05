@@ -99,7 +99,7 @@ def create_app(config_class=Config):
             UnitCatalog, InventoryItem, InventoryMovement, StockMovement,
             InsumoBase, MenuItemIngredient, ModifierInventoryRule, SaleItemCost,
             OpenCigaretteBox, Promotion, AuditLog, CashSession, Expense, TipDistributionConfig,
-            Supplier,
+            Supplier, PrintJob,
         )
         from .models.waiting_list import WaitingListEntry  # noqa: F401
 
@@ -117,6 +117,7 @@ def create_app(config_class=Config):
             "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS manual_discount_pct INTEGER DEFAULT 0",
             "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS edited_after_close BOOLEAN DEFAULT FALSE",
             "ALTER TABLE ticket_line_items ADD COLUMN IF NOT EXISTS cost_snapshot_cents INTEGER DEFAULT NULL",
+            "ALTER TABLE ticket_line_items ADD COLUMN IF NOT EXISTS needs_reprint BOOLEAN DEFAULT FALSE",
             "ALTER TABLE modifier_groups ADD COLUMN IF NOT EXISTS allow_multiple BOOLEAN DEFAULT FALSE",
         ]:
             run(stmt)

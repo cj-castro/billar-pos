@@ -12,6 +12,7 @@ from app.models.ticket import (
     Ticket, TicketLineItem, LineItemModifier,
     PoolTimerSession
 )
+from app.models.print_job import PrintJob
 from app.models.menu import MenuItem
 from app.models.inventory import InventoryItem
 from app.models.waiting_list import WaitingListEntry
@@ -1076,26 +1077,121 @@ def clean_ghost_tickets():
 @tickets_bp.route('/<ticket_id>/print', methods=['POST'])
 @jwt_required()
 def print_ticket(ticket_id):
-    """Send ticket receipt to the Windows USB thermal printer via the print agent."""
-    ticket = Ticket.query.get_or_404(ticket_id)
-    unpaid = request.args.get('unpaid', 'false').lower() == 'true'
+    """Send ticket receipt to the Windows thermal printer via the print agent.
+    Accepts optional {job_id} in the JSON body for idempotent retries."""
+    ticket  = Ticket.query.get_or_404(ticket_id)
+    user_id = get_jwt_identity()
+    unpaid  = request.args.get('unpaid', 'false').lower() == 'true'
+    data    = request.get_json(silent=True) or {}
+    job_id  = data.get('job_id')
+
+    # ── Idempotency: if the frontend retries with the same job_id and it
+    #    already succeeded, return success without printing again.
+    if job_id:
+        existing = PrintJob.query.get(job_id)
+        if existing and existing.status == 'PRINTED':
+            return jsonify({'ok': True, 'job_id': job_id, 'duplicate': True})
+
+    # Create or reuse job record
+    if job_id and existing:
+        job = existing
+        job.retry_count += 1
+        job.status = 'PENDING'
+        job.error_msg = None
+    else:
+        job = PrintJob(ticket_id=ticket_id, type='RECEIPT',
+                       requested_by=user_id)
+        db.session.add(job)
+
+    job.status = 'SENT'
+    db.session.commit()
 
     payload = ticket.to_dict()
     payload['unpaid'] = unpaid
+    payload['job_id'] = job.id
 
     try:
         body = json.dumps(payload).encode('utf-8')
-        req = Request(
-            f'{PRINT_AGENT_URL}/print',
-            data=body,
-            headers={'Content-Type': 'application/json'},
-            method='POST'
-        )
+        req  = Request(f'{PRINT_AGENT_URL}/print', data=body,
+                       headers={'Content-Type': 'application/json'}, method='POST')
         with urlopen(req, timeout=8) as resp:
             if resp.status == 200:
-                return jsonify({'ok': True})
-            return jsonify({'ok': False, 'error': resp.read().decode()}), 502
-    except URLError as e:
-        return jsonify({'ok': False, 'error': 'Print agent not running. Start it on the Windows host.'}), 503
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+                job.status = 'PRINTED'
+                job.printed_at = datetime.now(timezone.utc)
+                db.session.commit()
+                return jsonify({'ok': True, 'job_id': job.id})
+            err = resp.read().decode()
+            raise RuntimeError(err)
+    except URLError:
+        err_msg = 'Print agent not running. Start it on the Windows host.'
+    except Exception as exc:
+        err_msg = str(exc)
+
+    job.status = 'FAILED'
+    job.error_msg = err_msg
+    db.session.commit()
+
+    socketio.emit('print:failed', {
+        'job_id':    job.id,
+        'ticket_id': ticket_id,
+        'type':      job.type,
+        'error':     err_msg,
+    }, room='manager')
+
+    code = 503 if 'not running' in err_msg else 500
+    return jsonify({'ok': False, 'job_id': job.id, 'error': err_msg}), code
+
+
+@tickets_bp.route('/<ticket_id>/reprint', methods=['POST'])
+@jwt_required()
+def reprint_ticket(ticket_id):
+    """Manager-authorised reprint. Prints with REPRINT flag so the agent adds
+    a 'REIMPRESIÓN' header to distinguish from the original receipt.
+    Expects {manager_id} already verified by /auth/verify-pin."""
+    from app.models.user import User
+    ticket     = Ticket.query.get_or_404(ticket_id)
+    user_id    = get_jwt_identity()
+    data       = request.get_json(silent=True) or {}
+    manager_id = data.get('manager_id', '')
+
+    manager = User.query.get(manager_id)
+    if not manager or manager.role not in ('MANAGER', 'ADMIN') or not manager.is_active:
+        return jsonify({'error': 'UNAUTHORIZED', 'message': 'Manager authorization required'}), 401
+
+    job = PrintJob(ticket_id=ticket_id, type='REPRINT',
+                   requested_by=user_id, status='SENT')
+    db.session.add(job)
+    db.session.commit()
+
+    payload = ticket.to_dict()
+    payload['reprint'] = True
+    payload['job_id']  = job.id
+
+    try:
+        body = json.dumps(payload).encode('utf-8')
+        req  = Request(f'{PRINT_AGENT_URL}/print', data=body,
+                       headers={'Content-Type': 'application/json'}, method='POST')
+        with urlopen(req, timeout=8) as resp:
+            if resp.status == 200:
+                job.status = 'PRINTED'
+                job.printed_at = datetime.now(timezone.utc)
+                db.session.commit()
+                return jsonify({'ok': True, 'job_id': job.id})
+            raise RuntimeError(resp.read().decode())
+    except URLError:
+        err_msg = 'Print agent not running.'
+    except Exception as exc:
+        err_msg = str(exc)
+
+    job.status = 'FAILED'
+    job.error_msg = err_msg
+    db.session.commit()
+
+    socketio.emit('print:failed', {
+        'job_id':    job.id,
+        'ticket_id': ticket_id,
+        'type':      'REPRINT',
+        'error':     err_msg,
+    }, room='manager')
+
+    return jsonify({'ok': False, 'job_id': job.id, 'error': err_msg}), 500

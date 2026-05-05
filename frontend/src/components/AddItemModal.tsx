@@ -126,7 +126,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-40 p-2 sm:p-4">
+    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-[60] p-2 sm:p-4">
       <div className="bg-slate-800 rounded-2xl w-full max-w-lg max-h-[92dvh] flex flex-col shadow-2xl border border-slate-600">
         <div className="flex items-center justify-between p-4 border-b border-slate-700 shrink-0">
           <h2 className="font-bold text-lg">Agregar Artículo</h2>

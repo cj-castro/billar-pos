@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useFloorStore } from '../stores/floorStore'
 import { useQueryClient } from '@tanstack/react-query'
 import client from '../api/client'
@@ -26,6 +26,11 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
   const navigate = useNavigate()
   useEscKey(onClose)
   const qc = useQueryClient()
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
 
   const available = resources.filter(
     (r) => r.code !== currentResourceCode && r.is_active !== false
@@ -74,7 +79,7 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
       result.toType === 'POOL_TABLE' ? '🎱 Mesa de Billar' :
       result.toType === 'REGULAR_TABLE' ? '🪑 Mesa Regular' : '🍺 Asiento de Bar'
     return (
-      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4">
         <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-green-700 shadow-2xl shadow-green-900/40">
           <div className="bg-green-700/30 rounded-t-2xl p-6 text-center border-b border-green-700">
             <div className="text-5xl mb-3">✅</div>
@@ -137,8 +142,8 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col border border-slate-600 shadow-xl">
+    <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
+      <div className="bg-slate-800 rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[92dvh] flex flex-col border border-slate-600 shadow-xl">
         {/* Header */}
         <div className="p-5 border-b border-slate-700">
           <div className="flex items-start justify-between">
@@ -153,7 +158,7 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
         </div>
 
         {/* Resource groups */}
-        <div className="overflow-y-auto p-4 space-y-5 flex-1">
+        <div className="overflow-y-auto p-4 space-y-5 flex-1 overscroll-contain">
           {poolTables.length > 0 && (
             <div>
               <div className="text-xs text-slate-400 uppercase tracking-widest mb-2 font-semibold">🎱 Mesas de Billar</div>

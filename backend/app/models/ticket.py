@@ -135,6 +135,7 @@ class TicketLineItem(db.Model):
     notes = db.Column(db.Text)
     sort_order = db.Column(db.Integer, default=0)
     cost_snapshot_cents = db.Column(db.Integer, nullable=True)
+    needs_reprint = db.Column(db.Boolean, default=False, nullable=False)
 
     menu_item = db.relationship('MenuItem')
     modifiers = db.relationship('LineItemModifier', backref='line_item', cascade='all,delete-orphan')
@@ -155,6 +156,7 @@ class TicketLineItem(db.Model):
             'voided_at': self.voided_at.isoformat() if self.voided_at else None,
             'void_reason': self.void_reason,
             'notes': self.notes,
+            'needs_reprint': bool(self.needs_reprint),
             'modifiers': [m.to_dict() for m in self.modifiers]
         }
 

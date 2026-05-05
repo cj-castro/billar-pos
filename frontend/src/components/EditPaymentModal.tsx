@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import client from '../api/client'
 import toast from 'react-hot-toast'
 import { useEscKey } from '../hooks/useEscKey'
@@ -14,6 +14,11 @@ const toCents = (pesoStr: string) => Math.round(parseFloat(pesoStr || '0') * 100
 
 export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
   useEscKey(onClose)
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
 
   // PIN + reason
   const [pin, setPin] = useState('')
@@ -129,8 +134,8 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
   )
 
   return (
-    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-2xl w-full max-w-md border border-slate-600 shadow-xl max-h-[92vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
+      <div className="bg-slate-800 rounded-t-2xl sm:rounded-2xl w-full max-w-md border border-slate-600 shadow-xl max-h-[92dvh] flex flex-col">
         <div className="p-5 border-b border-slate-700">
           <h2 className="text-lg font-bold">✏️ Editar Pago — Ticket Cerrado</h2>
           <p className="text-xs text-slate-400 mt-1">
@@ -142,7 +147,7 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
           </p>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
           {/* PIN */}
           <div>
             <label className="text-xs text-slate-400 block mb-1">PIN de Gerente *</label>

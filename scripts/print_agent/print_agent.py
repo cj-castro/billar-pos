@@ -10,8 +10,10 @@ import os
 import logging
 import struct
 import tempfile
+import time
 from collections import Counter
 from datetime import datetime
+from typing import Optional
 from flask import Flask, request, jsonify
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -20,12 +22,39 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ---------------------------------------------------------------------------
-# Configuration — edit PRINTER_NAME to match your Windows printer name,
-# or leave blank to use the default printer.
+# Configuration
+#   PRINTER_NAME         — default printer (receipts, bar chits, reprints)
+#                          Leave blank to auto-detect.
+#   KITCHEN_PRINTER_NAME — printer for kitchen chits only
+#                          Leave blank to fall back to PRINTER_NAME.
+#   PRINT_PORT           — HTTP port (default 9191)
 # ---------------------------------------------------------------------------
-PRINTER_NAME = os.environ.get('PRINTER_NAME', '')   # e.g. "POS-58" or "RONGTA POS58"
+PRINTER_NAME         = os.environ.get('PRINTER_NAME', '')          # e.g. "La Barra"
+KITCHEN_PRINTER_NAME = os.environ.get('KITCHEN_PRINTER_NAME', '')  # e.g. "Cocina Comandas"
 PORT = int(os.environ.get('PRINT_PORT', 9191))
 CHARS = 32          # POS-58 characters per line (normal font)
+
+# ---------------------------------------------------------------------------
+# Idempotency: track recently-printed job_ids to avoid duplicate prints.
+# TTL of 60 s covers accidental double-taps and mobile retry storms.
+# ---------------------------------------------------------------------------
+_DEDUP_TTL = 60.0   # seconds
+_printed_jobs: dict[str, float] = {}   # job_id → unix timestamp
+
+def _dedup_check(job_id: Optional[str]) -> bool:
+    """Return True if job_id was already printed within the TTL window."""
+    if not job_id:
+        return False
+    now = time.time()
+    # Evict stale entries to keep the dict small
+    stale = [k for k, ts in _printed_jobs.items() if now - ts > _DEDUP_TTL]
+    for k in stale:
+        del _printed_jobs[k]
+    return job_id in _printed_jobs
+
+def _dedup_record(job_id: Optional[str]):
+    if job_id:
+        _printed_jobs[job_id] = time.time()
 
 # ---------------------------------------------------------------------------
 # ESC/POS helpers
@@ -356,11 +385,20 @@ def fmt_date(iso):
 # ---------------------------------------------------------------------------
 # Receipt formatter
 # ---------------------------------------------------------------------------
-def format_receipt(data: dict, unpaid: bool = False) -> bytes:
+def format_receipt(data: dict, unpaid: bool = False, reprint: bool = False) -> bytes:
     buf = bytearray()
 
     buf += cmd_init()
     buf += cmd_codepage()
+
+    # ---- Reprint banner (shown before main header) ----
+    if reprint:
+        buf += cmd_align(1)
+        buf += cmd_bold(True)
+        buf += enc('*** REIMPRESION ***') + LF
+        buf += cmd_bold(False)
+        buf += enc(datetime.now().strftime('%d/%m/%Y %H:%M')) + LF
+        buf += divider('=')
 
     # ---- Header ----
     buf += cmd_align(1)
@@ -546,7 +584,14 @@ def format_receipt(data: dict, unpaid: bool = False) -> bytes:
 # ---------------------------------------------------------------------------
 # Windows printing
 # ---------------------------------------------------------------------------
-def get_printer_name():
+def get_printer_name(kind: str = 'receipt') -> str:
+    """
+    Return the Windows printer name to use.
+    kind='kitchen'  → KITCHEN_PRINTER_NAME (falls back to default if not set)
+    kind='receipt'  → PRINTER_NAME (auto-detects if not set)
+    """
+    if kind == 'kitchen' and KITCHEN_PRINTER_NAME:
+        return KITCHEN_PRINTER_NAME
     if PRINTER_NAME:
         return PRINTER_NAME
     try:
@@ -565,12 +610,12 @@ def get_printer_name():
         log.warning(f'Could not enumerate printers: {e}')
         return ''
 
-def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False) -> bool:
-    """Send raw ESC/POS bytes to the Windows printer, or HTML receipt on Mac/Linux dev."""
+def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False, kind: str = 'receipt') -> bool:
+    """Send raw ESC/POS bytes to the correct Windows printer, or HTML preview on Mac/Linux."""
     import sys
     if sys.platform != 'win32':
         return print_html_dev(data or {}, unpaid=unpaid)
-    printer_name = get_printer_name()
+    printer_name = get_printer_name(kind=kind)
     if not printer_name:
         log.error('No printer found')
         return False
@@ -587,10 +632,10 @@ def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False) -> bool
                 win32print.EndDocPrinter(handle)
         finally:
             win32print.ClosePrinter(handle)
-        log.info(f'Printed {len(raw_bytes)} bytes to "{printer_name}"')
+        log.info(f'Printed {len(raw_bytes)} bytes to "{printer_name}" (kind={kind})')
         return True
     except Exception as e:
-        log.error(f'Print error: {e}')
+        log.error(f'Print error on "{printer_name}": {e}')
         return False
 
 # ---------------------------------------------------------------------------
@@ -598,14 +643,116 @@ def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False) -> bool
 # ---------------------------------------------------------------------------
 @app.route('/health')
 def health():
-    return jsonify({'status': 'ok', 'printer': get_printer_name()})
+    return jsonify({
+        'status':           'ok',
+        'printer':          get_printer_name('receipt'),
+        'kitchen_printer':  get_printer_name('kitchen'),
+    })
 
 @app.route('/print', methods=['POST'])
 def print_receipt():
-    data   = request.get_json(force=True)
-    unpaid = data.pop('unpaid', False)
-    raw    = format_receipt(data, unpaid=unpaid)
-    ok     = print_raw(raw, data=data, unpaid=unpaid)
+    data    = request.get_json(force=True)
+    job_id  = data.get('job_id')
+    unpaid  = data.pop('unpaid', False)
+    reprint = data.pop('reprint', False)
+
+    if _dedup_check(job_id):
+        log.info(f'Dedup hit for job_id={job_id} — skipping duplicate print')
+        return jsonify({'ok': True, 'duplicate': True})
+
+    raw = format_receipt(data, unpaid=unpaid, reprint=reprint)
+    ok  = print_raw(raw, data=data, unpaid=unpaid)
+    if ok:
+        _dedup_record(job_id)
+    return jsonify({'ok': ok}), (200 if ok else 500)
+
+
+def format_chit(data: dict) -> bytes:
+    """Format a kitchen or bar command chit (no prices, large & legible)."""
+    from datetime import datetime as _dt
+    queue_type   = data.get('type', 'KITCHEN')
+    heading      = 'COCINA' if queue_type == 'KITCHEN' else 'BARRA'
+    resource     = str(data.get('resource_code', '?')).upper()
+    items        = data.get('items', [])
+    sent_at_raw  = data.get('sent_at', '')
+
+    # Parse timestamp → HH:MM
+    try:
+        from datetime import timezone
+        sent_dt = _dt.fromisoformat(sent_at_raw.replace('Z', '+00:00'))
+        time_str = sent_dt.astimezone().strftime('%H:%M')
+    except Exception:
+        time_str = _dt.now().strftime('%H:%M')
+
+    raw = bytearray()
+    raw += cmd_init()
+    raw += cmd_codepage()
+
+    # Header: centred, double-size type
+    raw += cmd_align(1)
+    raw += cmd_double(True)
+    raw += enc(f'[ {heading} ]') + LF
+    raw += cmd_double(False)
+    raw += divider('=')
+
+    # Table code: bold + centred
+    raw += cmd_bold(True)
+    raw += cmd_double(True)
+    raw += enc(f'MESA: {resource}') + LF
+    raw += cmd_double(False)
+    raw += cmd_bold(False)
+    raw += divider()
+
+    # Items
+    raw += cmd_align(0)
+    for it in items:
+        qty   = it.get('quantity', 1)
+        name  = it.get('name', '')
+        mods  = it.get('modifiers', [])
+        notes = it.get('notes', '')
+
+        raw += cmd_bold(True)
+        raw += enc(f'{qty}x  {name}') + LF
+        raw += cmd_bold(False)
+
+        for m in mods:
+            mn = m.get('name', '')
+            mc = m.get('count', 1)
+            label = f'{mn} x{mc}' if mc > 1 else mn
+            raw += enc(f'   -> {label}') + LF
+
+        if notes:
+            raw += cmd_bold(True)
+            raw += enc(f'   * {notes}') + LF
+            raw += cmd_bold(False)
+
+    raw += divider()
+    raw += cmd_align(1)
+    raw += enc(f'{heading} - {time_str}') + LF
+    raw += cmd_feed(3)
+    raw += cmd_cut()
+
+    return bytes(raw)
+
+
+@app.route('/chit', methods=['POST'])
+def print_chit():
+    """Print a kitchen/bar command chit (no prices).
+    KITCHEN → KITCHEN_PRINTER_NAME  (cocina)
+    BAR     → PRINTER_NAME          (la barra)
+    """
+    data      = request.get_json(force=True)
+    job_id    = data.get('job_id')
+    chit_kind = 'kitchen' if data.get('type', '').upper() == 'KITCHEN' else 'receipt'
+
+    if _dedup_check(job_id):
+        log.info(f'Dedup hit for chit job_id={job_id} — skipping duplicate print')
+        return jsonify({'ok': True, 'duplicate': True})
+
+    raw = format_chit(data)
+    ok  = print_raw(raw, kind=chit_kind)
+    if ok:
+        _dedup_record(job_id)
     return jsonify({'ok': ok}), (200 if ok else 500)
 
 @app.route('/printers')

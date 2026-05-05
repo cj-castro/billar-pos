@@ -53,11 +53,25 @@ foreach ($a in $adapters) {
     Write-Host "  $($adapterInfo.Name) - $($a.IPAddress)  [$kind]" -ForegroundColor White
 }
 
-# Prefer DHCP physical adapter (that's the real router connection), then static physical, then fallback
-$preferred = $physicalAdapters | Where-Object {
-    (Get-NetIPInterface -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue).Dhcp -eq 'Enabled'
-} | Select-Object -First 1
-
+# Prefer STATIC physical adapter (that's the real router connection), then DHCP physical, then fallback
+# Priority order:
+#   1. "Wi-Fi" (built-in wireless) — most common name for the main adapter
+#   2. "Ethernet" (built-in wired)
+#   3. Any physical adapter with a private LAN IP (excluding USB/external adapters when possible)
+$preferred = $physicalAdapters | Where-Object { $_.InterfaceAlias -eq 'Wi-Fi' } | Select-Object -First 1
+if (-not $preferred) {
+    $preferred = $physicalAdapters | Where-Object { $_.InterfaceAlias -eq 'Ethernet' } | Select-Object -First 1
+}
+if (-not $preferred) {
+    # Any private LAN subnet — avoid picking USB external adapters first
+    $preferred = $physicalAdapters | Where-Object {
+        $_.IPAddress -match '^192\.168\.' -or $_.IPAddress -match '^10\.' -or
+        $_.IPAddress -match '^172\.(1[6-9]|2[0-9]|3[01])\.'
+    } | Where-Object {
+        $adp = Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue
+        ($adp.Name + ' ' + $adp.InterfaceDescription) -notmatch 'USB|External'
+    } | Select-Object -First 1
+}
 if (-not $preferred) { $preferred = $physicalAdapters | Select-Object -First 1 }
 if ($preferred) { $lanIP = $preferred.IPAddress }
 
@@ -152,13 +166,16 @@ if ($setNow -eq 'y') {
 # ── Final access card ────────────────────────────────────────────────────────
 if ($lanIP) {
     $finalIP = $lanIP
-    # Re-read in case set_ip.ps1 changed the IP — exclude virtual adapters
-    $newIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+    # Re-read in case set_ip.ps1 changed the IP — use same priority order as above
+    $reread = Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
         $_.IPAddress -notmatch '^127\.' -and $_.IPAddress -notmatch '^169\.254'
     } | Where-Object {
         $adp = Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue
         ($adp.Name + ' ' + $adp.InterfaceDescription) -notmatch 'vEthernet|Loopback|Virtual|WSL|Hyper-V|VirtualBox|VMware|Bluetooth|TAP|Tunnel'
-    } | Select-Object -First 1).IPAddress
+    }
+    $newIP = ($reread | Where-Object { $_.InterfaceAlias -eq 'Wi-Fi' } | Select-Object -First 1).IPAddress
+    if (-not $newIP) { $newIP = ($reread | Where-Object { $_.InterfaceAlias -eq 'Ethernet' } | Select-Object -First 1).IPAddress }
+    if (-not $newIP) { $newIP = ($reread | Select-Object -First 1).IPAddress }
     if ($newIP) { $finalIP = $newIP }
 
     Write-Host ""

@@ -21,6 +21,14 @@ $Script    = Join-Path $AgentDir "print_agent.py"
 $ServiceName = "BilliardBarPrintAgent"
 $NssmExe   = $null
 
+# ---------------------------------------------------------------------------
+# PRINTER CONFIGURATION
+#   Edit these two names to match exactly what Windows shows in
+#   Settings > Bluetooth & devices > Printers & scanners
+# ---------------------------------------------------------------------------
+$PrinterName        = "La Barra"        # receipts, bar chits, reprints
+$KitchenPrinterName = "Cocina Comandas" # kitchen chits only
+
 Write-Host "`n=== Bola 8 Print Agent - Windows Service Installer ===" -ForegroundColor Cyan
 Write-Host "   Service will start at BOOT - no login required.`n"
 
@@ -122,6 +130,10 @@ if ($existing) {
 & $NssmExe set $ServiceName Start SERVICE_AUTO_START  # start at boot
 & $NssmExe set $ServiceName ObjectName LocalSystem    # run as SYSTEM (has printer access)
 
+# Printer environment variables
+& $NssmExe set $ServiceName AppEnvironmentExtra "PRINTER_NAME=$PrinterName" "KITCHEN_PRINTER_NAME=$KitchenPrinterName"
+Write-Host "   Printer routing: receipts/bar → '$PrinterName' | kitchen → '$KitchenPrinterName'" -ForegroundColor Cyan
+
 # Restart policy: restart on failure after 5s, up to 3 times
 & $NssmExe set $ServiceName AppExit Default Restart
 & $NssmExe set $ServiceName AppRestartDelay 5000
@@ -155,7 +167,9 @@ if ($svc -and $svc.Status -eq "Running") {
 
 try {
     $r = Invoke-RestMethod -Uri "http://localhost:9191/health" -TimeoutSec 8
-    Write-Host "   Health check: status=$($r.status) printer='$($r.printer)'" -ForegroundColor Green
+    Write-Host "   Health check OK:" -ForegroundColor Green
+    Write-Host "     Receipt/Bar printer : $($r.printer)" -ForegroundColor Green
+    Write-Host "     Kitchen printer     : $($r.kitchen_printer)" -ForegroundColor Green
     Write-Host "`n   Run .\scripts\test-print-agent.ps1 to verify printers + LAN access." -ForegroundColor Cyan
 } catch {
     Write-Host "   Health check failed - wait 10s and retry: Invoke-RestMethod http://localhost:9191/health" -ForegroundColor Yellow

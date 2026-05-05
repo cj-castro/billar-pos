@@ -55,6 +55,16 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
   const [floatingName, setFloatingName] = useState('')
   const [floatingEntryId, setFloatingEntryId] = useState<string | null>(null)
 
+  const anyModalOpen = showAdd || !!assigningId || showFloating || !!transferingId
+  useEffect(() => {
+    if (anyModalOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [anyModalOpen])
+
   const { data: waiting = [], refetch } = useQuery<WaitingEntry[]>({
     queryKey: ['waiting-list'],
     queryFn: () => client.get('/waiting-list').then(r => r.data),
@@ -263,10 +273,10 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
 
       {/* Add Modal */}
       {showAdd && (
-        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
-            <div className="p-5 border-b border-slate-700"><h2 className="text-lg font-bold">Agregar a Lista de Espera</h2></div>
-            <div className="p-5 space-y-4">
+        <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
+          <div className="bg-slate-800 rounded-t-2xl sm:rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl max-h-[92dvh] flex flex-col">
+            <div className="p-5 border-b border-slate-700 shrink-0"><h2 className="text-lg font-bold">Agregar a Lista de Espera</h2></div>
+            <div className="p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Nombre *</label>
                 <input value={newEntry.party_name} onChange={e => setNewEntry({...newEntry, party_name: e.target.value})}
@@ -305,16 +315,16 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
       {assigningId && (() => {
         const entry = waiting.find(e => e.id === assigningId)
         return (
-          <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl max-h-[90vh] flex flex-col">
-              <div className="p-4 border-b border-slate-700">
+          <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
+            <div className="bg-slate-800 rounded-t-2xl sm:rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl max-h-[92dvh] flex flex-col">
+              <div className="p-4 border-b border-slate-700 shrink-0">
                 <h2 className="text-lg font-bold">Asignar Mesa</h2>
                 <p className="text-slate-300 text-sm mt-0.5">
                   <span className="font-bold text-yellow-400">{entry?.party_name}</span>
                   {entry?.party_size ? ` · ${entry.party_size} personas` : ''}
                 </p>
               </div>
-              <div className="p-4 space-y-4 overflow-y-auto flex-1">
+              <div className="p-4 space-y-4 overflow-y-auto flex-1 overscroll-contain">
                 {availableRegular.length > 0 && (
                   <div>
                     <p className="text-xs text-slate-400 uppercase font-semibold mb-2">🪑 Mesas disponibles</p>
@@ -374,8 +384,8 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
 
       {/* Floating Table Modal */}
       {showFloating && (
-        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
+        <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
+          <div className="bg-slate-800 rounded-t-2xl sm:rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
             <div className="p-5 border-b border-slate-700">
               <h2 className="text-lg font-bold">🪑 Mesa Temporal</h2>
               <p className="text-slate-400 text-sm mt-1">
@@ -414,9 +424,9 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
       {transferingId && (() => {
         const entry = waiting.find(e => e.id === transferingId)
         return (
-          <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl max-h-[90vh] flex flex-col">
-              <div className="p-4 border-b border-slate-700">
+          <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
+            <div className="bg-slate-800 rounded-t-2xl sm:rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl max-h-[92dvh] flex flex-col">
+              <div className="p-4 border-b border-slate-700 shrink-0">
                 <h2 className="text-lg font-bold">🎱 Transferir a Mesa de Pool</h2>
                 <p className="text-slate-300 text-sm mt-0.5">
                   <span className="font-bold text-yellow-400">{entry?.party_name}</span>
@@ -426,7 +436,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
                 </p>
                 <p className="text-slate-500 text-xs mt-1">Se libera la mesa actual y se abre el timer de pool.</p>
               </div>
-              <div className="p-4 overflow-y-auto flex-1">
+              <div className="p-4 overflow-y-auto flex-1 overscroll-contain">
                 {availablePool.length > 0 ? (
                   <div>
                     <p className="text-xs text-slate-400 uppercase font-semibold mb-3">Mesas de pool disponibles</p>

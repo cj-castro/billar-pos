@@ -13,6 +13,11 @@ interface Props {
 export default function ManagerPinDialog({ action, onConfirm, onCancel }: Props) {
   const [pin, setPin] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
   const [shake, setShake] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const { t } = useTranslation()
@@ -58,12 +63,12 @@ export default function ManagerPinDialog({ action, onConfirm, onCancel }: Props)
   const digits = ['1','2','3','4','5','6','7','8','9','','0','⌫']
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
       <div
         ref={containerRef}
         tabIndex={-1}
         outline-none
-        className={`bg-slate-800 rounded-2xl p-6 w-full max-w-xs shadow-2xl border border-slate-600 outline-none ${shake ? 'animate-shake' : ''}`}
+        className={`bg-slate-800 rounded-t-2xl sm:rounded-2xl p-6 w-full max-w-xs shadow-2xl border border-slate-600 outline-none ${shake ? 'animate-shake' : ''}`}
       >
         <div className="flex items-center gap-2 mb-4">
           <span className="text-2xl">🔒</span>

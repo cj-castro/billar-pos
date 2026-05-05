@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef } from 'react'
 import { io, Socket } from 'socket.io-client'
+import toast from 'react-hot-toast'
 import { useAuthStore } from '../stores/authStore'
 import { useFloorStore } from '../stores/floorStore'
 import { useQueryClient } from '@tanstack/react-query'
@@ -44,6 +45,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       // Refresh all data on every (re)connect — events missed during a disconnect
       // (e.g. iOS backgrounding) are never replayed, so we need to re-sync.
       refreshAll()
+      qc.invalidateQueries({ queryKey: ['kitchen-queue'] })
+      qc.invalidateQueries({ queryKey: ['bar-queue'] })
+      qc.invalidateQueries({ queryKey: ['queue-counts'] })
     })
 
     socket.on('floor:update', () => {
@@ -58,6 +62,36 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     // Waiting list updated by any user action
     socket.on('waiting:update', () => {
       qc.invalidateQueries({ queryKey: ['waiting-list'] })
+    })
+
+    // Kitchen and bar queue events — handled globally so queue pages
+    // receive updates even when their local socket ref is stale.
+    socket.on('kitchen:update', () => {
+      qc.invalidateQueries({ queryKey: ['kitchen-queue'] })
+      qc.invalidateQueries({ queryKey: ['queue-counts'] })
+    })
+    socket.on('kitchen:item_update', () => {
+      qc.invalidateQueries({ queryKey: ['kitchen-queue'] })
+      qc.invalidateQueries({ queryKey: ['queue-counts'] })
+    })
+    socket.on('bar:update', () => {
+      qc.invalidateQueries({ queryKey: ['bar-queue'] })
+      qc.invalidateQueries({ queryKey: ['queue-counts'] })
+    })
+    socket.on('bar:item_update', () => {
+      qc.invalidateQueries({ queryKey: ['bar-queue'] })
+      qc.invalidateQueries({ queryKey: ['queue-counts'] })
+    })
+
+    // Print failure notifications — managers/admins only
+    socket.on('print:failed', (payload: { job_id: string; ticket_id?: string; type: string; error: string }) => {
+      if (user.role === 'MANAGER' || user.role === 'ADMIN') {
+        const label = payload.type === 'CHIT' ? 'Comanda' : 'Recibo'
+        toast.error(`⚠️ ${label} no impreso — ${payload.error}`, {
+          id:       payload.job_id,
+          duration: 10_000,
+        })
+      }
     })
 
     return () => {

@@ -98,14 +98,18 @@ function Get-BestStaticIP {
     $gwParts = $Gateway -split '\.'
     $subnet  = "$($gwParts[0]).$($gwParts[1]).$($gwParts[2])"
 
+    # Get all IPs already assigned to ANY local adapter (don't suggest these)
+    $localIPs = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue).IPAddress
+
     # Candidates: low-end addresses unlikely to be in typical DHCP pools (routers usually hand out .100-.200)
     $candidates = @(10, 5, 20, 15, 25, 30, 8, 9, 11, 12)
 
     foreach ($last in $candidates) {
         $ip = "$subnet.$last"
-        if ($ip -eq $Gateway) { continue }
-        if ($ip -eq $CurrentIP) { continue }
-        # Quick ping check - skip if address already in use
+        if ($ip -eq $Gateway)    { continue }
+        if ($ip -eq $CurrentIP)  { continue }
+        if ($localIPs -contains $ip) { continue }  # already used by another local adapter
+        # Quick ping check - skip if address already in use on the network
         $ping = Test-Connection -ComputerName $ip -Count 1 -Quiet -ErrorAction SilentlyContinue
         if (-not $ping) { return $ip }
     }
