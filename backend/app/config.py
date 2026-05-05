@@ -5,6 +5,10 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'postgresql://billiard:billiard@localhost:5432/billiardbar')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_pre_ping': True,
+        'pool_recycle': 300,
+    }
     JWT_SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
     JWT_REFRESH_SECRET_KEY = os.environ.get('JWT_REFRESH_SECRET', 'dev-refresh-secret')
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=int(os.environ.get('JWT_ACCESS_HOURS', 8)))

@@ -1,8 +1,8 @@
-<#
+﻿<#
 .SYNOPSIS
-    Set static IP on Windows and optionally enable external access (dry‑run supported).
+    Set static IP on Windows and optionally enable external access (dry-run supported).
 .DESCRIPTION
-    This script configures a static IPv4 address with a dry‑run mode that shows proposed changes.
+    This script configures a static IPv4 address with a dry-run mode that shows proposed changes.
     After applying, it offers ngrok or port forwarding instructions for external access.
 .NOTES
     Run as Administrator. Requires internet for ngrok download.
@@ -40,7 +40,7 @@ function Get-NetworkInfo {
     
     return @{
         AdapterName    = $adapterName
-        CurrentIP      = if ($ipConfig) { $ipConfig.IPAddress } else $null
+        CurrentIP      = if ($ipConfig) { $ipConfig.IPAddress } else { $null }
         CurrentGateway = $currentGateway
         CurrentDNS     = $currentDNS
         PrefixLength   = $subnetMask
@@ -50,11 +50,18 @@ function Get-NetworkInfo {
 
 function Test-IPInSubnet {
     param($IP, $Gateway, $PrefixLen)
-    $ipInt = ([System.Net.IPAddress]$IP).GetAddressBytes()
-    $gwInt = ([System.Net.IPAddress]$Gateway).GetAddressBytes()
-    $maskBytes = [System.Net.IPAddress]::new([UInt32](([UInt32]::MaxValue) -shl (32 - $PrefixLen))).GetAddressBytes()
+    $ipBytes = ([System.Net.IPAddress]$IP).GetAddressBytes()
+    $gwBytes = ([System.Net.IPAddress]$Gateway).GetAddressBytes()
+    # Build mask bytes directly — avoids UInt32 byte-order bug on little-endian Windows
+    $mask = [byte[]]::new(4)
     for ($i = 0; $i -lt 4; $i++) {
-        if (($ipInt[$i] -band $maskBytes[$i]) -ne ($gwInt[$i] -band $maskBytes[$i])) {
+        $bits = $PrefixLen - ($i * 8)
+        if ($bits -ge 8)     { $mask[$i] = 255 }
+        elseif ($bits -le 0) { $mask[$i] = 0   }
+        else                 { $mask[$i] = [byte](256 - [Math]::Pow(2, 8 - $bits)) }
+    }
+    for ($i = 0; $i -lt 4; $i++) {
+        if (($ipBytes[$i] -band $mask[$i]) -ne ($gwBytes[$i] -band $mask[$i])) {
             return $false
         }
     }
@@ -75,65 +82,89 @@ function Show-DryRun {
     Write-Host "DHCP on adapter currently: $($current.DHCPEnabled)" -ForegroundColor Gray
     
     if (-not (Test-IPInSubnet -IP $proposed.IP -Gateway $proposed.Gateway -PrefixLen $proposed.PrefixLength)) {
-        Write-Host "⚠️  WARNING: Proposed IP and gateway are NOT in the same subnet!" -ForegroundColor Red
+        Write-Host "--  WARNING: Proposed IP and gateway are NOT in the same subnet!" -ForegroundColor Red
     }
     
     $confirm = Read-Host "`nApply these changes? (y/n)"
     return ($confirm -eq 'y')
 }
 
-# ========== Main Script ==========
-Write-Host "=== Static IP Configuration & External Access Helper (with Dry Run) ===" -ForegroundColor Green
+# ========== Auto-select best static IP ==========
+function Get-BestStaticIP {
+    param($Gateway, $PrefixLen, $CurrentIP)
 
-# Ask for dry run preference
-$dryRun = (Read-Host "Do you want to do a dry run first? (y/n)") -eq 'y'
+    if (-not $Gateway) { return $null }
+
+    $gwParts = $Gateway -split '\.'
+    $subnet  = "$($gwParts[0]).$($gwParts[1]).$($gwParts[2])"
+
+    # Candidates: low-end addresses unlikely to be in typical DHCP pools (routers usually hand out .100-.200)
+    $candidates = @(10, 5, 20, 15, 25, 30, 8, 9, 11, 12)
+
+    foreach ($last in $candidates) {
+        $ip = "$subnet.$last"
+        if ($ip -eq $Gateway) { continue }
+        if ($ip -eq $CurrentIP) { continue }
+        # Quick ping check - skip if address already in use
+        $ping = Test-Connection -ComputerName $ip -Count 1 -Quiet -ErrorAction SilentlyContinue
+        if (-not $ping) { return $ip }
+    }
+    # Fallback: just use .10
+    return "$subnet.10"
+}
+
+# ========== Main Script ==========
+Write-Host "=== Static IP Configuration for Bola 8 POS ===" -ForegroundColor Green
 
 # 1. Gather current network info
 $net = Get-NetworkInfo
-$adapter = $net.AdapterName
+$adapter        = $net.AdapterName
 $defaultGateway = $net.CurrentGateway
-$defaultPrefix = $net.PrefixLength
+$defaultPrefix  = $net.PrefixLength
 
 Write-Host "`nCurrent network settings for '$adapter':" -ForegroundColor Yellow
 if ($net.CurrentIP) { Write-Host "  IP (current): $($net.CurrentIP)" }
-else { Write-Host "  IP (current): DHCP (no static IP assigned)" }
-if ($defaultGateway) { Write-Host "  Gateway: $defaultGateway" }
-Write-Host "  Subnet prefix length: $defaultPrefix (255.255.255.0)" 
-Write-Host "  DNS: $($net.CurrentDNS)"
+else                 { Write-Host "  IP (current): DHCP" }
+if ($defaultGateway) { Write-Host "  Gateway     : $defaultGateway" }
+Write-Host "  Prefix      : /$defaultPrefix"
+Write-Host "  DNS         : $($net.CurrentDNS)"
 
-# 2. Ask for static IP values (build proposal)
-Write-Host "`n--- Proposed Static IP Configuration ---" -ForegroundColor Cyan
-do {
-    $staticIP = Read-Host "Enter static IP (e.g., 192.168.1.100)"
-    if (-not ([System.Net.IPAddress]::TryParse($staticIP, [ref]$null))) {
-        Write-Host "Invalid IP address." -ForegroundColor Red
-        continue
-    }
-    if (-not $defaultGateway) {
-        $defaultGateway = Read-Host "Enter default gateway (e.g., 192.168.1.1)"
-    }
-    $prefix = Read-Host "Enter subnet prefix length (default $defaultPrefix)" 
-    if ([string]::IsNullOrWhiteSpace($prefix)) { $prefix = $defaultPrefix }
-    $prefix = [int]$prefix
-    
-    if (-not (Test-IPInSubnet -IP $staticIP -Gateway $defaultGateway -PrefixLen $prefix)) {
-        Write-Host "Warning: IP and gateway are not in the same subnet!" -ForegroundColor Red
-        $proceed = Read-Host "Continue anyway? (y/n)"
-    } else { $proceed = 'y' }
-} until ($proceed -eq 'y')
+# 2. Auto-detect gateway if missing (derive from current DHCP IP)
+if (-not $defaultGateway -and $net.CurrentIP) {
+    $parts = $net.CurrentIP -split '\.'
+    $defaultGateway = "$($parts[0]).$($parts[1]).$($parts[2]).1"
+    Write-Host "  Gateway not found via route table - assuming $defaultGateway" -ForegroundColor Yellow
+}
 
-$dnsServers = @()
-do {
-    $dnsInput = Read-Host "Enter DNS servers (comma separated, e.g., $($defaultGateway),8.8.8.8)"
-    $dnsServers = $dnsInput -split ',' | ForEach-Object { $_.Trim() }
-    $valid = $true
-    foreach ($d in $dnsServers) {
-        if (-not [System.Net.IPAddress]::TryParse($d, [ref]$null)) {
-            Write-Host "Invalid DNS: $d" -ForegroundColor Red
-            $valid = $false
-        }
+# 3. Pick best static IP automatically
+Write-Host "`nScanning subnet for a free address..." -ForegroundColor Cyan
+$bestIP = Get-BestStaticIP -Gateway $defaultGateway -PrefixLen $defaultPrefix -CurrentIP $net.CurrentIP
+
+if ($bestIP) {
+    Write-Host "  Recommended IP: $bestIP (free, low address, outside typical DHCP range)" -ForegroundColor Green
+} else {
+    $gwParts = $defaultGateway -split '\.'
+    $bestIP  = "$($gwParts[0]).$($gwParts[1]).$($gwParts[2]).10"
+    Write-Host "  Could not scan subnet - defaulting to $bestIP" -ForegroundColor Yellow
+}
+
+# 4. Confirm or override
+Write-Host ""
+$override = Read-Host "Use $bestIP as the static IP? (press Enter to accept, or type a different IP)"
+if (-not [string]::IsNullOrWhiteSpace($override)) {
+    if ([System.Net.IPAddress]::TryParse($override, [ref]$null)) {
+        $bestIP = $override
+        Write-Host "  Using $bestIP" -ForegroundColor Cyan
+    } else {
+        Write-Host "  Invalid IP - using recommended $bestIP" -ForegroundColor Yellow
     }
-} until ($valid -and $dnsServers.Count -gt 0)
+}
+$staticIP = $bestIP
+$prefix   = $defaultPrefix
+
+# 5. DNS - use gateway + Google as fallback
+$dnsServers = @($defaultGateway, "8.8.8.8")
+Write-Host "  DNS: $($dnsServers -join ', ') (gateway + Google)" -ForegroundColor Gray
 
 $proposed = @{
     IP           = $staticIP
@@ -142,11 +173,15 @@ $proposed = @{
     DNS          = $dnsServers
 }
 
+# Ask for dry run preference
+Write-Host ""
+$dryRun = (Read-Host "Show proposed config before applying? (y/n)") -eq 'y'
+
 # 3. Dry run handling
 if ($dryRun) {
     $apply = Show-DryRun -current $net -proposed $proposed
     if (-not $apply) {
-        Write-Host "Dry run – no changes made. Exiting." -ForegroundColor Gray
+        Write-Host "Dry run - no changes made. Exiting." -ForegroundColor Gray
         exit 0
     }
     Write-Host "Proceeding with applying configuration..." -ForegroundColor Green
@@ -163,8 +198,8 @@ try {
     New-NetIPAddress -InterfaceAlias $adapter -IPAddress $staticIP -PrefixLength $prefix -DefaultGateway $defaultGateway -ErrorAction Stop
     Set-DnsClientServerAddress -InterfaceAlias $adapter -ServerAddresses $dnsServers -ErrorAction Stop
     
-    Write-Host "✓ Static IP set to $staticIP/$prefix, gateway $defaultGateway" -ForegroundColor Green
-    Write-Host "✓ DNS set to $($dnsServers -join ', ')" -ForegroundColor Green
+    Write-Host "- Static IP set to $staticIP/$prefix, gateway $defaultGateway" -ForegroundColor Green
+    Write-Host "- DNS set to $($dnsServers -join ', ')" -ForegroundColor Green
 } catch {
     Write-Host "Failed to apply static IP: $_" -ForegroundColor Red
     exit 1
@@ -174,14 +209,14 @@ try {
 Write-Host "`n--- Verification ---" -ForegroundColor Cyan
 Start-Sleep -Seconds 2
 if (Test-Connection -ComputerName $defaultGateway -Count 1 -Quiet) {
-    Write-Host "✓ Gateway ping successful" -ForegroundColor Green
+    Write-Host "- Gateway ping successful" -ForegroundColor Green
 } else {
-    Write-Host "✗ Gateway unreachable. Check IP/subnet." -ForegroundColor Red
+    Write-Host "- Gateway unreachable. Check IP/subnet." -ForegroundColor Red
 }
 if (Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet) {
-    Write-Host "✓ Internet connectivity confirmed" -ForegroundColor Green
+    Write-Host "- Internet connectivity confirmed" -ForegroundColor Green
 } else {
-    Write-Host "✗ No internet access. Check DNS or router." -ForegroundColor Red
+    Write-Host "- No internet access. Check DNS or router." -ForegroundColor Red
 }
 
 # ========== External Access Options ==========
@@ -212,7 +247,7 @@ if ($method -eq '1') {
         }
     }
     
-    Write-Host "`n⚠️  For persistent tunnels, sign up at https://ngrok.com and add your authtoken." -ForegroundColor Yellow
+    Write-Host "`n--  For persistent tunnels, sign up at https://ngrok.com and add your authtoken." -ForegroundColor Yellow
     $setToken = Read-Host "Do you have an authtoken? Enter now (or press Enter to skip)"
     if ($setToken) {
         & ngrok config add-authtoken $setToken
@@ -220,8 +255,8 @@ if ($method -eq '1') {
     
     Write-Host "`nStarting ngrok tunnel to localhost:$servicePort ..." -ForegroundColor Green
     Write-Host "A new window will open showing the public URL (e.g., https://xxxx.ngrok.io)." -ForegroundColor Cyan
-    Start-Process -NoNewWindow -FilePath "ngrok" -ArgumentList "tcp $servicePort" -WindowStyle Normal
-    Write-Host "`n✅ Tunnel running. Access your PC from anywhere using that URL (TCP tunnel)." -ForegroundColor Green
+    Start-Process -FilePath "ngrok" -ArgumentList "tcp $servicePort" -WindowStyle Normal
+    Write-Host "`n- Tunnel running. Access your PC from anywhere using that URL (TCP tunnel)." -ForegroundColor Green
     Write-Host "To stop, close the ngrok window or press Ctrl+C there." 
 }
 elseif ($method -eq '2') {
@@ -231,20 +266,17 @@ elseif ($method -eq '2') {
     Write-Host "2. Log in (admin credentials often on router sticker)."
     Write-Host "3. Find 'Port Forwarding' (or Virtual Server / NAT)."
     Write-Host "4. Create a rule with:" -ForegroundColor Yellow
-    Write-Host "   • External port: [choose any, e.g., $localPort or a different one]" 
-    Write-Host "   • Internal IP: $staticIP"
-    Write-Host "   • Internal port: $localPort"
-    Write-Host "   • Protocol: TCP (or both UDP/TCP if needed)"
+    Write-Host "   - External port: [choose any, e.g., $localPort or a different one]" 
+    Write-Host "   - Internal IP: $staticIP"
+    Write-Host "   - Internal port: $localPort"
+    Write-Host "   - Protocol: TCP (or both UDP/TCP if needed)"
     Write-Host "5. Save and reboot router if required."
     Write-Host "6. Find your public IP: curl ifconfig.me or visit 'whatismyip.com'."
-    Write-Host "`n✅ Then connect from outside using: <public IP>:<external port>" -ForegroundColor Green
-    Write-Host "⚠️  Your public IP may change. Use Dynamic DNS (e.g., DuckDNS, No-IP)." -ForegroundColor Yellow
+    Write-Host "`n- Then connect from outside using: <public IP>:<external port>" -ForegroundColor Green
+    Write-Host "--  Your public IP may change. Use Dynamic DNS (e.g., DuckDNS, No-IP)." -ForegroundColor Yellow
 }
 else {
     Write-Host "Invalid choice. Skipping external access setup." -ForegroundColor Red
 }
 
 Write-Host "`n=== Script completed ===" -ForegroundColor Green
-
-
-revisar graficas, debe dar el total de las ventas del dia, y esta mostrando mas

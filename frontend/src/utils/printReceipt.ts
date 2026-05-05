@@ -140,8 +140,8 @@ export function printReceipt(ticket: ReceiptTicket, livePoolCents?: number, unpa
     const subLines = multiVariant
       ? item.variants.map((v) => {
           const modNames = (v.modifiers ?? []).map(m => m.name).filter(Boolean)
-          const label = [...modNames, v.notes ? `(${v.notes})` : ''].filter(Boolean).join(', ') || '—'
-          return `<div class="mod">&nbsp;&nbsp;${v.quantity > 1 ? `${v.quantity}x ` : ''}<span style="text-transform:capitalize">${label}</span></div>`
+          const label = [...modNames, v.notes ? `(${v.notes})` : ''].filter(Boolean).join(', ') || 'sin modificadores'
+          return `<div class="mod">&nbsp;&nbsp;${v.quantity}x <span style="text-transform:capitalize">${label}</span></div>`
         }).join('')
       : (() => {
           const [v] = item.variants

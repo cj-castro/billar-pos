@@ -81,6 +81,7 @@ class InventoryItem(db.Model):
                                     db.ForeignKey('inventory_items.id', ondelete='SET NULL'))
 
     is_active           = db.Column(db.Boolean, nullable=False, default=True)
+    purchase_cost_cents = db.Column(db.Integer)                 # last paid cost per purchase unit
     created_at          = db.Column(db.DateTime(timezone=True),
                                     default=lambda: datetime.now(timezone.utc))
     updated_at          = db.Column(db.DateTime(timezone=True),
@@ -108,6 +109,7 @@ class InventoryItem(db.Model):
             'unit_cost_cents':     self.unit_cost_cents,
             'purchase_unit_key':   self.purchase_unit_key,
             'purchase_pack_size':  float(self.purchase_pack_size),
+            'purchase_cost_cents': self.purchase_cost_cents,
             'shots_per_bottle':    self.shots_per_bottle,
             'yields_item_id':      self.yields_item_id,
             'is_active':           self.is_active,

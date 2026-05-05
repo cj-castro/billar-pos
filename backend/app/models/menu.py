@@ -93,7 +93,7 @@ class Modifier(db.Model):
         rules = [
             {'inventory_item_id': r.inventory_item_id,
              'inventory_item_name': r.inventory_item.name if r.inventory_item else None,
-             'inventory_item_unit': r.inventory_item.unit if r.inventory_item else None,
+             'inventory_item_unit': r.inventory_item.base_unit_key if r.inventory_item else None,
              'quantity': r.quantity}
             for r in self.inventory_rules.all()
         ]

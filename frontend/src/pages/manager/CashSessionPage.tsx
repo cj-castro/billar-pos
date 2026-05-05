@@ -214,6 +214,18 @@ export default function CashSessionPage() {
     }
   }
 
+  const [printingTicket, setPrintingTicket] = useState<string | null>(null)
+
+  const handleThermalPrint = async (ticketId: string) => {
+    setPrintingTicket(ticketId)
+    try {
+      await client.post(`/tickets/${ticketId}/print`)
+      toast.success('Enviado a impresora térmica')
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'No se pudo imprimir')
+    } finally { setPrintingTicket(null) }
+  }
+
   const handlePrintReconciliation = () => {
     if (!s) return
     const dateStr = status?.session?.date || new Date().toLocaleDateString()
@@ -320,7 +332,7 @@ export default function CashSessionPage() {
                   <div className="bg-slate-800 rounded-xl p-4">
                     <div className="text-xs text-slate-400 mb-1">Expected Cash in Register</div>
                     <div className="text-xl font-bold text-sky-400">{cents(s.expected_cash_cents)}</div>
-                    <div className="text-xs text-slate-500 mt-1">Fund {cents(s.opening_fund_cents)} + cash sales + tips − expenses</div>
+                    <div className="text-xs text-slate-500 mt-1">Fondo + ventas efectivo + propinas − gastos − pago propinas a staff</div>
                   </div>
                 </div>
 
@@ -365,16 +377,19 @@ export default function CashSessionPage() {
                       )}
                       {s.total_tips_cents > 0 && (
                         <>
+                          {s.cash_tips_cents > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">💵 Propinas efectivo recibidas</span>
+                              <span className="font-mono text-amber-300">+{cents(s.cash_tips_cents)}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between">
-                            <span className="text-slate-400">💵 Propinas efectivo</span>
-                            <span className="font-mono text-amber-300">+{cents(s.cash_tips_cents)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">💳 Propinas tarjeta</span>
-                            <span className="font-mono text-amber-200">+{cents(s.card_tips_cents)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">📤 Pago propinas (efectivo + tarjeta) a staff</span>
+                            <span className="text-slate-400">
+                              📤 Propinas pagadas a staff
+                              {s.card_tips_cents > 0 && (
+                                <span className="text-slate-500 text-xs"> (incl. {cents(s.card_tips_cents)} propinas tarjeta)</span>
+                              )}
+                            </span>
                             <span className="font-mono text-red-400">-{cents(s.tip_payout_cents)}</span>
                           </div>
                         </>
@@ -517,6 +532,13 @@ export default function CashSessionPage() {
                             )}
                           </div>
                           <div className="flex flex-col gap-1">
+                            <button
+                              onClick={() => handleThermalPrint(t.id)}
+                              disabled={printingTicket === t.id}
+                              title="Reimprimir ticket en impresora térmica"
+                              className="text-xs bg-slate-600 hover:bg-slate-500 px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
+                              {printingTicket === t.id ? '…' : '🧾 Imprimir'}
+                            </button>
                             <button
                               onClick={() => setEditingPaymentTicket(t)}
                               title="Editar método de pago / propina sin reabrir el ticket"

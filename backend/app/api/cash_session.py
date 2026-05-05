@@ -198,13 +198,18 @@ def _ticket_summary(t: Ticket):
 
 
 def _build_summary(session: CashSession, tip_cfg=None):
-    """Compute reconciliation numbers for a cash session."""
+    """Compute reconciliation numbers for a cash session.
+
+    Tickets are attributed to the session in which they were OPENED,
+    not when they were closed — so a ticket opened at 11 pm Sunday
+    and closed at 1 am Monday belongs to Sunday's session.
+    """
     tickets = Ticket.query.filter(
         Ticket.status == 'CLOSED',
-        Ticket.closed_at >= session.opened_at,
+        Ticket.opened_at >= session.opened_at,
     )
     if session.closed_at:
-        tickets = tickets.filter(Ticket.closed_at <= session.closed_at)
+        tickets = tickets.filter(Ticket.opened_at <= session.closed_at)
     tickets = tickets.all()
 
     cash_tickets = [t for t in tickets if t.payment_type == 'CASH']

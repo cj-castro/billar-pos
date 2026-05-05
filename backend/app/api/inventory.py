@@ -286,6 +286,11 @@ def update_inventory_item(item_id):
             return jsonify({'error': 'INVALID_UNIT',
                             'message': f"Unit '{data['base_unit_key']}' not in catalog"}), 422
         item.base_unit_key = data['base_unit_key']
+    if 'purchase_cost_cents' in data:
+        item.purchase_cost_cents = int(data['purchase_cost_cents']) if data['purchase_cost_cents'] is not None else None
+    if 'purchase_cost_pesos' in data:
+        pesos = data['purchase_cost_pesos']
+        item.purchase_cost_cents = round(float(pesos) * 100) if pesos is not None else None
     if 'purchase_unit_key' in data:
         pu = data['purchase_unit_key'] or None
         if pu and not UnitCatalog.query.get(pu):

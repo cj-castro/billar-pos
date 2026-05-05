@@ -280,9 +280,10 @@ def restock_drinks(
         quantity_delta, cost_per_base,
     )
 
-    item.stock_quantity  = _d(item.stock_quantity) + quantity_delta
-    item.unit_cost_cents = new_wac
-    item.updated_at      = _now()
+    item.stock_quantity      = _d(item.stock_quantity) + quantity_delta
+    item.unit_cost_cents     = new_wac
+    item.purchase_cost_cents = unit_cost_per_purchase_unit_cents
+    item.updated_at          = _now()
 
     _write_movement(
         item, 'RESTOCK', quantity_delta, performed_by,

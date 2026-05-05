@@ -126,14 +126,14 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-40 p-4">
-      <div className="bg-slate-800 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl border border-slate-600">
-        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-40 p-2 sm:p-4">
+      <div className="bg-slate-800 rounded-2xl w-full max-w-lg max-h-[92dvh] flex flex-col shadow-2xl border border-slate-600">
+        <div className="flex items-center justify-between p-4 border-b border-slate-700 shrink-0">
           <h2 className="font-bold text-lg">Agregar Artículo</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl">&times;</button>
         </div>
 
-        <div className="overflow-y-auto flex-1 p-4">
+        <div className="overflow-y-scroll flex-1 p-3 sm:p-4 overscroll-contain">
           {/* Low-stock global warning banner */}
           {lowStockNames.length > 0 && (
             <div className="mb-3 bg-amber-900/40 border border-amber-700 rounded-xl px-3 py-2 text-xs text-amber-300">
@@ -142,11 +142,11 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
           )}
 
           {step === 'category' && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2">
               {(categories || []).map((cat: any) => (
                 <button key={cat.id} onClick={() => { setSelectedCategory(cat); setStep('items') }}
-                  className="bg-slate-700 hover:bg-slate-600 rounded-xl p-4 text-left">
-                  <div className="font-semibold">{cat.name}</div>
+                  className="bg-slate-700 active:bg-slate-600 rounded-xl p-3 text-left min-h-[56px]">
+                  <div className="font-semibold text-sm">{cat.name}</div>
                   <div className="text-xs text-slate-400">{cat.routing}</div>
                 </button>
               ))}

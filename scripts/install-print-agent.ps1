@@ -1,4 +1,4 @@
-$BaseDir  = "C:\Users\bola8lacalma\Desktop\POS\billiards"
+﻿$BaseDir  = "C:\Users\bola8lacalma\Desktop\POS\billiards"
 $AgentDir = "$BaseDir\scripts\print_agent"
 $VenvPy   = "$AgentDir\venv\Scripts\python.exe"
 $Script   = "$AgentDir\print_agent.py"
@@ -43,10 +43,21 @@ Write-Host "Task registered." -ForegroundColor Green
 Start-ScheduledTask -TaskName $TaskName
 Start-Sleep -Seconds 3
 
+# Open Windows Firewall port 9191 so iOS/Android devices on the same LAN can print
+$ruleName = "BilliardBarPrintAgent"
+$existing = netsh advfirewall firewall show rule name="$ruleName" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    netsh advfirewall firewall add rule name="$ruleName" dir=in action=allow protocol=TCP localport=9191 | Out-Null
+    Write-Host "Firewall rule added (port 9191 open for LAN devices)" -ForegroundColor Green
+} else {
+    Write-Host "Firewall rule already exists (port 9191)" -ForegroundColor Gray
+}
+
 try {
     $r = Invoke-WebRequest -Uri "http://localhost:9191/health" -TimeoutSec 5 -UseBasicParsing
     Write-Host "Agent running!" -ForegroundColor Green
     Write-Host $r.Content
+    Write-Host "`nRun test-print-agent.ps1 to verify printers and LAN access." -ForegroundColor Cyan
 } catch {
     Write-Host "Check: http://localhost:9191/health" -ForegroundColor Yellow
 }

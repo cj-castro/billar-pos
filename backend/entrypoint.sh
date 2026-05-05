@@ -11,5 +11,10 @@ python seed.py
 echo "Starting Gunicorn..."
 exec gunicorn --worker-class eventlet -w 1 \
      --bind 0.0.0.0:5000 \
+     --timeout 120 \
+     --graceful-timeout 30 \
+     --max-requests 500 \
+     --max-requests-jitter 50 \
+     --worker-connections 1000 \
      --log-file=- --access-logfile=- \
      wsgi:app

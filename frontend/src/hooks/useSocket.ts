@@ -19,7 +19,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     const socket = io('/', { transports: ['websocket', 'polling'] })
     socketRef.current = socket
 
-    socket.on('connect', () => {
+    const joinRooms = () => {
       socket.emit('join', { room: 'floor' })
       if (user.role === 'KITCHEN_STAFF' || user.role === 'MANAGER' || user.role === 'ADMIN') {
         socket.emit('join', { room: 'kitchen' })
@@ -27,6 +27,23 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       if (user.role === 'BAR_STAFF' || user.role === 'MANAGER' || user.role === 'ADMIN') {
         socket.emit('join', { room: 'bar' })
       }
+    }
+
+    const refreshAll = () => {
+      client.get('/resources').then((r) => {
+        setResources(r.data)
+        qc.setQueryData(['resources'], r.data)
+      })
+      qc.invalidateQueries({ queryKey: ['tickets-reopened'] })
+      qc.invalidateQueries({ queryKey: ['tickets-pending-payment'] })
+      qc.invalidateQueries({ queryKey: ['waiting-list'] })
+    }
+
+    socket.on('connect', () => {
+      joinRooms()
+      // Refresh all data on every (re)connect — events missed during a disconnect
+      // (e.g. iOS backgrounding) are never replayed, so we need to re-sync.
+      refreshAll()
     })
 
     socket.on('floor:update', () => {

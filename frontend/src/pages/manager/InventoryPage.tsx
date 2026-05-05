@@ -26,6 +26,7 @@ interface InventoryItem {
   unit_cost_cents: number
   purchase_unit_key: string | null
   purchase_pack_size: number
+  purchase_cost_cents: number | null
   shots_per_bottle: number | null
   yields_item_id: string | null
   is_active: boolean
@@ -68,6 +69,65 @@ function fmtQty(qty: number): string {
   return n % 1 === 0 ? String(Math.round(n)) : n.toFixed(2).replace(/\.?0+$/, '')
 }
 
+// ── SupplierSelect: dropdown + inline add-new ────────────────────────────────
+
+function SupplierSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const qc = useQueryClient()
+  const [adding, setAdding] = useState(false)
+  const [newName, setNewName] = useState('')
+
+  const { data: suppliers = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['suppliers'],
+    queryFn: () => client.get('/suppliers').then(r => r.data),
+    staleTime: 60_000,
+  })
+
+  async function handleSave() {
+    const name = newName.trim()
+    if (!name) return
+    try {
+      await client.post('/suppliers', { name })
+      await qc.invalidateQueries({ queryKey: ['suppliers'] })
+      onChange(name)
+      setAdding(false)
+      setNewName('')
+    } catch {
+      // show nothing — user can retry
+    }
+  }
+
+  return (
+    <div>
+      <select
+        value={adding ? '__add__' : (value || '')}
+        onChange={e => {
+          if (e.target.value === '__add__') { setAdding(true); setNewName('') }
+          else { onChange(e.target.value); setAdding(false) }
+        }}
+        className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+      >
+        <option value="">— sin proveedor —</option>
+        {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+        <option value="__add__">✚ Agregar proveedor...</option>
+      </select>
+      {adding && (
+        <div className="flex gap-1 mt-1">
+          <input
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') { setAdding(false); setNewName('') } }}
+            placeholder="Nombre del proveedor"
+            autoFocus
+            className="flex-1 bg-slate-700 border border-blue-500 rounded-lg px-3 py-1.5 text-sm"
+          />
+          <button onClick={handleSave} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-semibold">✓</button>
+          <button onClick={() => { setAdding(false); setNewName('') }} className="px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded-lg text-xs">✕</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Blank form states ─────────────────────────────────────────────────────────
 
 const BLANK_NEW = {
@@ -105,6 +165,7 @@ export default function InventoryPage() {
   const [openingBox, setOpeningBox] = useState<InventoryItem | null>(null)
   const [viewingMovements, setViewingMovements] = useState<InventoryItem | null>(null)
   const [showCatalog, setShowCatalog] = useState(false)
+  const [showSupplierCatalog, setShowSupplierCatalog] = useState(false)
   const [addToMenu, setAddToMenu] = useState<InventoryItem | null>(null)
   const [menuForm, setMenuForm] = useState({ category_id: '', price_cents: 0, requires_flavor: false })
 
@@ -163,10 +224,11 @@ export default function InventoryPage() {
     if (adjusting)        { setAdjusting(null); return }
     if (openingBottle)    { setOpeningBottle(null); return }
     if (openingBox)       { setOpeningBox(null); return }
-    if (showCatalog)      { setShowCatalog(false); return }
-    if (showNew)          { setShowNew(false); return }
-    if (addToMenu)        { setAddToMenu(null); return }
-  }, showNew || !!editing || !!restocking || !!adjusting || !!openingBottle || !!openingBox || !!viewingMovements || showCatalog || !!addToMenu)
+    if (showCatalog)         { setShowCatalog(false); return }
+    if (showSupplierCatalog) { setShowSupplierCatalog(false); return }
+    if (showNew)             { setShowNew(false); return }
+    if (addToMenu)           { setAddToMenu(null); return }
+  }, showNew || !!editing || !!restocking || !!adjusting || !!openingBottle || !!openingBox || !!viewingMovements || showCatalog || showSupplierCatalog || !!addToMenu)
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
@@ -285,6 +347,7 @@ export default function InventoryPage() {
         supplier: editForm.supplier?.trim() || null,
         purchase_unit_key: editForm.purchase_unit_key || null,
         purchase_pack_size: parseFloat(editForm.purchase_pack_size) || 1,
+        purchase_cost_cents: editForm.purchase_cost_pesos ? Math.round(parseFloat(editForm.purchase_cost_pesos) * 100) : null,
         shots_per_bottle: editForm.shots_per_bottle ? parseInt(editForm.shots_per_bottle) : null,
         yields_item_id: editForm.yields_item_id || null,
       }
@@ -424,12 +487,16 @@ export default function InventoryPage() {
       purchase_pack_size: String(item.purchase_pack_size),
       shots_per_bottle: item.shots_per_bottle ? String(item.shots_per_bottle) : '',
       yields_item_id: item.yields_item_id ?? '',
+      purchase_cost_pesos: item.purchase_cost_cents ? String((item.purchase_cost_cents / 100).toFixed(2)) : '',
     })
     setEditing(item)
   }
 
   const openRestock = (item: InventoryItem) => {
-    setRestockPurchaseQty(''); setRestockCostPesos('')
+    const lastCost = (item as any).purchase_cost_cents
+      ? String(((item as any).purchase_cost_cents / 100).toFixed(2))
+      : ''
+    setRestockPurchaseQty(''); setRestockCostPesos(lastCost)
     setRestockPackOverride(''); setRestockPortionCount('')
     setRestockTotalCostPesos(''); setRestockNote('')
     setRestocking(item)
@@ -472,6 +539,12 @@ export default function InventoryPage() {
               <button onClick={() => setShowCatalog(true)}
                 className="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300">
                 ⚙️ {t('inventory.unitCatalog')}
+              </button>
+            )}
+            {isAdmin && (
+              <button onClick={() => setShowSupplierCatalog(true)}
+                className="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300">
+                🏭 Proveedores
               </button>
             )}
             <button onClick={() => setShowNew(true)}
@@ -640,6 +713,7 @@ export default function InventoryPage() {
                     onChange={e => setRestockTotalCostPesos(e.target.value)}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
                     placeholder="0.00" />
+                  <p className="text-xs text-slate-500 mt-1">⚠ Verifica el precio actual antes de registrar.</p>
                 </div>
                 {restockPreview && (
                   <div className="bg-slate-700/50 rounded-lg p-3 text-sm space-y-1">
@@ -692,6 +766,7 @@ export default function InventoryPage() {
                     onChange={e => setRestockCostPesos(e.target.value)}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
                     placeholder="0.00" />
+                  <p className="text-xs text-slate-500 mt-1">⚠ Verifica el precio actual antes de registrar.</p>
                 </div>
 
                 {restockPreview && restockCostPesos && (
@@ -881,9 +956,7 @@ export default function InventoryPage() {
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">{t('inventory.supplier')}</label>
-                  <input value={newItem.supplier} onChange={e => setNewItem({ ...newItem, supplier: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
-                    placeholder="opcional" />
+                  <SupplierSelect value={newItem.supplier} onChange={v => setNewItem({ ...newItem, supplier: v })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -998,8 +1071,7 @@ export default function InventoryPage() {
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">{t('inventory.supplier')}</label>
-                  <input value={editForm.supplier} onChange={e => setEditForm({ ...editForm, supplier: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+                  <SupplierSelect value={editForm.supplier} onChange={v => setEditForm({ ...editForm, supplier: v })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1029,6 +1101,16 @@ export default function InventoryPage() {
               </div>
               <UnitSelect label={t('inventory.purchaseUnit')} value={editForm.purchase_unit_key}
                 onChange={v => setEditForm({ ...editForm, purchase_unit_key: v })} />
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  Costo por {editForm.purchase_unit_key ? getUnitName(editForm.purchase_unit_key) : 'unidad de compra'} ($)
+                </label>
+                <input type="number" min={0} step="0.01" value={editForm.purchase_cost_pesos}
+                  onChange={e => setEditForm({ ...editForm, purchase_cost_pesos: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                  placeholder="0.00" />
+                <p className="text-xs text-slate-500 mt-1">Precio de compra de referencia — se pre-llena en Reabastecer.</p>
+              </div>
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Tipo de artículo</label>
                 <select value={editForm.item_type} onChange={e => setEditForm({ ...editForm, item_type: e.target.value })}
@@ -1118,7 +1200,14 @@ export default function InventoryPage() {
                       return (
                         <tr key={m.id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
                           <td className="py-2 text-xs text-slate-400 whitespace-nowrap pr-2">
-                            {new Date(m.created_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
+                            {(() => {
+                              const d = new Date(m.created_at)
+                              if (!m.created_at || d.getFullYear() < 2000) return '—'
+                              return d.toLocaleString('es-MX', {
+                                day: '2-digit', month: 'short', year: '2-digit',
+                                hour: '2-digit', minute: '2-digit', hour12: true,
+                              })
+                            })()}
                           </td>
                           <td className={`py-2 text-xs font-medium whitespace-nowrap pr-2 ${EVENT_TYPE_COLORS[m.event_type] ?? 'text-slate-300'}`}>
                             {evLabel}
@@ -1206,6 +1295,9 @@ export default function InventoryPage() {
 
       {/* ── Unit Catalog Modal (Admin) ────────────────────────────────────── */}
       {showCatalog && <UnitCatalogModal onClose={() => setShowCatalog(false)} isAdmin={isAdmin} units={units} getUnitName={getUnitName} />}
+
+      {/* ── Supplier Catalog Modal (Admin) ───────────────────────────────── */}
+      {showSupplierCatalog && <SupplierCatalogModal onClose={() => setShowSupplierCatalog(false)} />}
     </div>
   )
 }
@@ -1339,6 +1431,155 @@ function UnitCatalogModal({ onClose, isAdmin, units, getUnitName }: {
                 + Nueva Unidad
               </button>
             )
+          )}
+        </div>
+
+        <div className="p-4 border-t border-slate-700">
+          <button onClick={onClose} className="w-full py-2 border border-slate-600 rounded-lg text-sm">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Supplier Catalog Modal ────────────────────────────────────────────────────
+
+function SupplierCatalogModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient()
+  type SupplierRow = { id: string; name: string; contact_phone: string | null; is_active: boolean }
+  type DirtyRow = { name: string; contact_phone: string }
+
+  const [dirtyRows, setDirtyRows] = useState<Record<string, DirtyRow>>({})
+  const [saving, setSaving] = useState<string | null>(null)
+  const [showAdd, setShowAdd] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newPhone, setNewPhone] = useState('')
+  const [adding, setAdding] = useState(false)
+
+  // Fetch active suppliers (catalog view only shows active ones)
+  const { data: suppliers = [] } = useQuery<SupplierRow[]>({
+    queryKey: ['suppliers'],
+    queryFn: () => client.get('/suppliers').then(r => r.data),
+  })
+
+  const getRow = (s: SupplierRow): DirtyRow =>
+    dirtyRows[s.id] ?? { name: s.name, contact_phone: s.contact_phone ?? '' }
+  const isDirty = (s: SupplierRow) => !!dirtyRows[s.id]
+
+  const patch = (id: string, field: keyof DirtyRow, value: string) => {
+    const base = suppliers.find(s => s.id === id)
+    setDirtyRows(prev => {
+      const current = prev[id] ?? { name: base?.name ?? '', contact_phone: base?.contact_phone ?? '' }
+      return { ...prev, [id]: { ...current, [field]: value } }
+    })
+  }
+
+  const saveRow = async (id: string) => {
+    const data = dirtyRows[id]
+    if (!data) return
+    setSaving(id)
+    try {
+      await client.patch(`/suppliers/${id}`, data)
+      await qc.invalidateQueries({ queryKey: ['suppliers'] })
+      setDirtyRows(prev => { const n = { ...prev }; delete n[id]; return n })
+      toast.success('Proveedor actualizado')
+    } catch (err: any) { toast.error(err.response?.data?.error || 'Error') }
+    finally { setSaving(null) }
+  }
+
+  const deleteRow = async (id: string, name: string) => {
+    if (!confirm(`¿Eliminar proveedor "${name}"?`)) return
+    try {
+      await client.delete(`/suppliers/${id}`)
+      await qc.invalidateQueries({ queryKey: ['suppliers'] })
+      toast.success('Proveedor eliminado')
+    } catch { toast.error('Error al eliminar') }
+  }
+
+  const addSupplier = async () => {
+    if (!newName.trim()) return toast.error('El nombre es requerido')
+    setAdding(true)
+    try {
+      await client.post('/suppliers', { name: newName.trim(), contact_phone: newPhone.trim() || null })
+      await qc.invalidateQueries({ queryKey: ['suppliers'] })
+      toast.success('Proveedor creado')
+      setShowAdd(false); setNewName(''); setNewPhone('')
+    } catch (err: any) { toast.error(err.response?.data?.error || 'Error') }
+    finally { setAdding(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+      <div className="bg-slate-800 rounded-2xl w-full max-w-lg border border-slate-600 shadow-xl flex flex-col max-h-[85dvh]">
+        <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+          <h2 className="text-lg font-bold">🏭 Catálogo de Proveedores</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+        </div>
+
+        <div className="overflow-y-scroll flex-1 p-4 space-y-2">
+          <div className="grid grid-cols-[1fr_130px_50px_36px] gap-2 text-xs text-slate-400 px-2 pb-1">
+            <span>Nombre</span><span>Teléfono</span><span></span><span></span>
+          </div>
+
+          {suppliers.map(s => {
+            const row = getRow(s)
+            return (
+              <div key={s.id} className={`grid grid-cols-[1fr_130px_50px_36px] gap-2 items-center rounded-lg px-2 py-1.5 ${isDirty(s) ? 'bg-slate-700/70' : 'bg-slate-700/30'}`}>
+                <input
+                  value={row.name}
+                  onChange={e => patch(s.id, 'name', e.target.value)}
+                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm w-full"
+                />
+                <input
+                  value={row.contact_phone}
+                  onChange={e => patch(s.id, 'contact_phone', e.target.value)}
+                  placeholder="tel. opcional"
+                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm w-full"
+                />
+                <button
+                  disabled={!isDirty(s) || saving === s.id}
+                  onClick={() => saveRow(s.id)}
+                  className="bg-sky-700 hover:bg-sky-600 rounded px-2 py-1 text-xs font-bold disabled:opacity-30">
+                  {saving === s.id ? '…' : '✓'}
+                </button>
+                <button
+                  onClick={() => deleteRow(s.id, s.name)}
+                  className="bg-red-900/60 hover:bg-red-800 rounded px-2 py-1 text-xs text-red-300">
+                  🗑
+                </button>
+              </div>
+            )
+          })}
+
+          {suppliers.length === 0 && (
+            <div className="text-center text-slate-500 py-6 text-sm">Sin proveedores registrados</div>
+          )}
+
+          {showAdd ? (
+            <div className="bg-slate-700/50 rounded-xl border border-slate-600 p-4 space-y-3 mt-2">
+              <p className="text-xs text-slate-400 font-semibold">Nuevo Proveedor</p>
+              <div className="grid grid-cols-2 gap-2">
+                <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSupplier()}
+                  placeholder="Nombre *" autoFocus
+                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm" />
+                <input value={newPhone} onChange={e => setNewPhone(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSupplier()}
+                  placeholder="Teléfono (opcional)"
+                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm" />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setShowAdd(false); setNewName(''); setNewPhone('') }}
+                  className="flex-1 py-1.5 border border-slate-600 rounded text-sm">Cancelar</button>
+                <button onClick={addSupplier} disabled={adding}
+                  className="flex-1 py-1.5 bg-sky-600 hover:bg-sky-500 rounded text-sm font-bold disabled:opacity-50">
+                  {adding ? 'Creando…' : 'Crear'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowAdd(true)}
+              className="w-full py-2 border border-dashed border-slate-600 rounded-xl text-slate-400 hover:text-white hover:border-slate-400 text-sm mt-2">
+              + Nuevo Proveedor
+            </button>
           )}
         </div>
 

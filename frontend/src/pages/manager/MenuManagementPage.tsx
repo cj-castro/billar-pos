@@ -21,6 +21,7 @@ export default function MenuManagementPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [newItem, setNewItem] = useState({ ...BLANK_ITEM })
   const [saving, setSaving] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   // Confirmation dialog for deactivate
   const [confirmDeactivate, setConfirmDeactivate] = useState<any>(null)
   // Recipe management
@@ -240,8 +241,23 @@ export default function MenuManagementPage() {
           </div>
         </div>
 
+        {/* Search bar */}
+        <div className="mb-4">
+          <input
+            type="text"
+            placeholder="🔍 Buscar artículo por nombre..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-sky-500"
+          />
+        </div>
+
         {categories.map((cat: any) => {
-          const catItems = items.filter((i: any) => i.category_id === cat.id)
+          const q = searchQuery.toLowerCase().trim()
+          const catItems = (items as any[]).filter((i: any) =>
+            i.category_id === cat.id && (!q || i.name.toLowerCase().includes(q))
+          )
+          if (q && catItems.length === 0) return null
           return (
             <div key={cat.id} className="mb-8">
               <div className="flex items-center gap-3 mb-3">

@@ -107,6 +107,7 @@ export default function TicketPage() {
   const [wlName, setWlName] = useState('')
   const [wlSize, setWlSize] = useState(1)
   const [wlJoining, setWlJoining] = useState(false)
+  const [printingThermal, setPrintingThermal] = useState(false)
 
   // Close modals with Escape
   useEscKey(() => {
@@ -142,6 +143,17 @@ export default function TicketPage() {
     }
     setShowPinForVoid(null)
     setVoidQtyPicker(null)
+  }
+
+  const thermalPrint = async (ticketId: string) => {
+    setPrintingThermal(true)
+    try {
+      await client.post(`/tickets/${ticketId}/print`)
+      toast.success('Enviado a impresora térmica')
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'No se pudo imprimir'
+      toast.error(msg)
+    } finally { setPrintingThermal(false) }
   }
 
   const handleApplyDiscount = async (managerId: string) => {
@@ -314,12 +326,22 @@ export default function TicketPage() {
                 <div className="text-xs text-slate-400">{t('ticket.poolTime')}</div>
               </div>
             )}
-            <button
-              onClick={() => printTicket(ticket)}
-              className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 px-3 py-1.5 rounded-lg text-sm font-semibold"
-            >
-              🖨️ Imprimir
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => printTicket(ticket)}
+                className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 px-3 py-1.5 rounded-lg text-sm font-semibold"
+              >
+                🖨️ Imprimir
+              </button>
+              <button
+                onClick={() => thermalPrint(ticket.id)}
+                disabled={printingThermal}
+                className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 px-3 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50"
+                title="Enviar a impresora térmica"
+              >
+                🧾 Térmica
+              </button>
+            </div>
           </div>
         </div>
 
@@ -588,6 +610,13 @@ export default function TicketPage() {
               className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-base flex items-center justify-center gap-2"
             >
               🖨️ {t('ticket.closed.printReceipt')}
+            </button>
+            <button
+              onClick={() => thermalPrint(ticket.id)}
+              disabled={printingThermal}
+              className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              🧾 {printingThermal ? 'Enviando…' : 'Impresora Térmica'}
             </button>
             {(useAuthStore.getState().user?.role === 'MANAGER' || useAuthStore.getState().user?.role === 'ADMIN') && (
               <button
@@ -1008,6 +1037,13 @@ export default function TicketPage() {
                 className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-base flex items-center justify-center gap-2"
               >
                 🖨️ {t('ticket.closed.printReceipt')}
+              </button>
+              <button
+                onClick={() => thermalPrint(closedTicket.id)}
+                disabled={printingThermal}
+                className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                🧾 {printingThermal ? 'Enviando…' : 'Impresora Térmica'}
               </button>
               <button
                 onClick={() => navigate('/floor')}

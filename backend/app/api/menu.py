@@ -317,7 +317,7 @@ def set_modifier_inventory_rules(modifier_id):
     mod_dict['inventory_rules'] = [
         {'inventory_item_id': r.inventory_item_id,
          'inventory_item_name': r.inventory_item.name,
-         'inventory_item_unit': r.inventory_item.unit,
+         'inventory_item_unit': r.inventory_item.base_unit_key,
          'quantity': r.quantity}
         for r in ModifierInventoryRule.query.filter_by(modifier_id=modifier_id).all()
     ]

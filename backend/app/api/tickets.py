@@ -58,6 +58,10 @@ def _close_linked_waiting_entry(ticket_id: str, user_id: str, terminal_status: s
     Returns True if a row was updated. Caller is responsible for committing
     and emitting `waiting:update`.
     """
+    # Only touch entries that are still active. Including 'ASSIGNED' here
+    # caused historical entries to be rewritten (e.g. cancel of a follow-up
+    # ticket flipped ASSIGNED→CANCELLED on a fulfilled party). Once an entry
+    # reaches a terminal state it must be immutable.
     wl = (WaitingListEntry.query
           .with_for_update()
           .filter(
@@ -65,7 +69,7 @@ def _close_linked_waiting_entry(ticket_id: str, user_id: str, terminal_status: s
                   WaitingListEntry.floor_ticket_id == ticket_id,
                   WaitingListEntry.assigned_ticket_id == ticket_id,
               ),
-              WaitingListEntry.status.in_(('WAITING', 'SEATED', 'ASSIGNED')),
+              WaitingListEntry.status.in_(('WAITING', 'SEATED')),
           )
           .first())
     if not wl:
@@ -365,10 +369,13 @@ def transfer_ticket(ticket_id):
                     if ticket.resource_id else None)
     new_resource = Resource.query.with_for_update().get_or_404(target_resource_id)
 
-    # Check target availability for pool tables
-    if new_resource.type == 'POOL_TABLE' and new_resource.status == 'IN_USE':
-        return jsonify({'error': 'POOL_TABLE_OCCUPIED',
-                        'message': f'{new_resource.code} is already in use'}), 409
+    # Reject if target is already occupied (any resource type — pool, regular,
+    # or bar seat). Previously only POOL_TABLE was checked, allowing a transfer
+    # onto an occupied floor table to silently create two OPEN tickets sharing
+    # the same resource_id. The floor view then showed only the newest one.
+    if new_resource.status == 'IN_USE':
+        return jsonify({'error': 'RESOURCE_OCCUPIED',
+                        'message': f'{new_resource.code} ya está en uso'}), 409
 
     # Stop timer if leaving pool table — flush so recalculate_totals sees the charge
     if old_resource and old_resource.type == 'POOL_TABLE':
@@ -479,6 +486,9 @@ def close_ticket(ticket_id):
         return jsonify({'error': 'INVALID_PAYMENT_TYPE_2'}), 422
 
     ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    if ticket.status == 'CLOSED':
+        # Mobile retry after network timeout — ticket was already closed successfully.
+        return jsonify(ticket.to_dict()), 200
     if ticket.status != 'OPEN':
         return jsonify({'error': 'TICKET_NOT_OPEN'}), 409
 
@@ -802,6 +812,31 @@ def reopen_ticket(ticket_id):
     if ticket.status == 'OPEN':
         return jsonify({'error': 'ALREADY_OPEN'}), 409
 
+    # Re-occupy the resource. Without this, the resource stays AVAILABLE
+    # while the ticket goes back to OPEN, which (a) lets a second ticket be
+    # opened on the same resource (the older one then disappears from the
+    # floor view) and (b) makes the reopened ticket eligible for the
+    # ghost-cleanup sweep, which would auto-close it again.
+    resource = None
+    if ticket.resource_id:
+        resource = Resource.query.with_for_update().get(ticket.resource_id)
+        if resource is None or not resource.is_active:
+            return jsonify({
+                'error': 'RESOURCE_UNAVAILABLE',
+                'message': 'La mesa original ya no está disponible. Asigna una mesa nueva al reabrir.',
+            }), 409
+        other_open = Ticket.query.filter(
+            Ticket.resource_id == ticket.resource_id,
+            Ticket.status == 'OPEN',
+            Ticket.id != ticket.id,
+        ).first()
+        if other_open:
+            return jsonify({
+                'error': 'RESOURCE_OCCUPIED',
+                'message': f'{resource.code} ya tiene un ticket abierto',
+                'ticket_id': other_open.id,
+            }), 409
+
     before = {'status': ticket.status}
     ticket.status = 'OPEN'
     ticket.was_reopened = True
@@ -813,6 +848,9 @@ def reopen_ticket(ticket_id):
     ticket.tendered_cents = None
     ticket.tip_cents = 0
     ticket.version += 1
+
+    if resource is not None:
+        resource.status = 'IN_USE'
 
     audit_svc.log(user_id, 'TICKET_REOPEN', 'ticket', ticket_id, before=before, after={'status': 'OPEN'})
     db.session.commit()
@@ -976,12 +1014,36 @@ def clean_ghost_tickets():
     data = request.get_json() or {}
     reason = (data.get('reason') or 'Auto-limpieza de cuentas fantasma').strip()
 
+    # A ticket is a true ghost only if its resource is already free, no
+    # payment was requested, it wasn't reopened (reopened tabs deliberately
+    # stay OPEN even though their resource may have briefly been AVAILABLE
+    # before the F-1 fix), and it carries no real work — zero non-voided
+    # line items AND zero pool timer sessions. Without these guards a
+    # manager pressing "Limpiar fantasmas" right after reopening a tab
+    # would silently force-close it with payment_type='CASH' and corrupt
+    # the day's revenue.
+    has_active_item = (
+        db.session.query(TicketLineItem.id)
+        .filter(
+            TicketLineItem.ticket_id == Ticket.id,
+            TicketLineItem.status != 'VOIDED',
+        )
+        .exists()
+    )
+    has_timer_session = (
+        db.session.query(PoolTimerSession.id)
+        .filter(PoolTimerSession.ticket_id == Ticket.id)
+        .exists()
+    )
     ghosts = (Ticket.query
               .join(Resource, Resource.id == Ticket.resource_id)
               .filter(
                   Ticket.status == 'OPEN',
                   Resource.status == 'AVAILABLE',
                   Ticket.payment_requested.is_(False),
+                  Ticket.was_reopened.isnot(True),
+                  ~has_active_item,
+                  ~has_timer_session,
               )
               .with_for_update()
               .all())

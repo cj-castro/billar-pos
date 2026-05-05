@@ -23,6 +23,7 @@ export default function FloorMapPage() {
   const [showAddTable, setShowAddTable] = useState(false)
   const [newTable, setNewTable] = useState({ code: '', name: '', type: 'REGULAR_TABLE' })
   const [addingTable, setAddingTable] = useState(false)
+  const [reprintingId, setReprintingId] = useState<string | null>(null)
 
   const { data, refetch } = useQuery({
     queryKey: ['resources'],
@@ -286,13 +287,21 @@ export default function FloorMapPage() {
                   <div className="flex gap-1 mt-3">
                     <button
                       onClick={async () => {
+                        if (reprintingId === t.id) return
+                        setReprintingId(t.id)
                         try {
                           await client.post(`/tickets/${t.id}/print?unpaid=true`)
                           toast.success('Impreso ✓')
-                        } catch { toast.error('No se pudo reimprimir') }
+                        } catch (err: any) {
+                          const msg = err?.response?.data?.error || 'Agente de impresión no disponible'
+                          toast.error(`No se pudo imprimir: ${msg}`)
+                        } finally {
+                          setReprintingId(null)
+                        }
                       }}
-                      className="flex-1 py-1.5 bg-amber-700 hover:bg-amber-600 rounded-lg text-xs font-semibold"
-                    >🖨️ Reimprimir</button>
+                      disabled={reprintingId === t.id}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${reprintingId === t.id ? 'bg-amber-900 text-amber-500 cursor-not-allowed' : 'bg-amber-700 hover:bg-amber-600'}`}
+                    >{reprintingId === t.id ? '⏳ Imprimiendo…' : '🖨️ Reimprimir'}</button>
                     <button
                       onClick={() => navigate(`/ticket/${t.id}`)}
                       className="flex-1 py-1.5 bg-green-700 hover:bg-green-600 rounded-lg text-xs font-semibold"

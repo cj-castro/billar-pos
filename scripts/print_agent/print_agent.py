@@ -10,6 +10,7 @@ import os
 import logging
 import struct
 import tempfile
+from collections import Counter
 from datetime import datetime
 from flask import Flask, request, jsonify
 
@@ -60,6 +61,282 @@ def center_line(text, width=CHARS):
 
 def left_line(text, width=CHARS):
     return enc(text[:width].ljust(width)) + LF
+
+def wrap_lines(text, width=CHARS, indent=''):
+    """Split text at ', ' boundaries to fit width; continuation lines use indent."""
+    words = text.split(', ')
+    current = ''
+    lines = []
+    for word in words:
+        candidate = current + (', ' if current else '') + word
+        if len(candidate) > width and current:
+            lines.append(enc(current[:width]) + LF)
+            current = indent + word
+        else:
+            current = candidate
+    if current:
+        lines.append(enc(current[:width]) + LF)
+    return b''.join(lines) if lines else enc(text[:width]) + LF
+
+def _get_logo_b64() -> str:
+    """Load logo base64 from the frontend source file."""
+    try:
+        import re, os
+        logo_path = os.path.join(os.path.dirname(__file__),
+                                 '..', '..', 'frontend', 'src', 'utils', 'logoBase64.ts')
+        content = open(os.path.normpath(logo_path)).read()
+        m = re.search(r"LOGO_BASE64 = '(data:[^']+)'", content)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return ''
+
+
+def _group_modifiers(mods: list) -> list:
+    seen: dict = {}
+    for m in mods:
+        n = m.get('name', '')
+        if n:
+            seen[n] = seen.get(n, 0) + 1
+    return [{'name': n, 'count': c} for n, c in seen.items()]
+
+
+def _group_line_items(items: list) -> list:
+    grouped: dict = {}
+    for item in items:
+        base_key = f"{item.get('menu_item_name')}::{item.get('unit_price_cents', 0)}"
+        mod_key  = '|'.join(sorted(m.get('name', '') for m in (item.get('modifiers') or [])))
+        var_key  = f"{mod_key}::{item.get('notes') or ''}"
+        if base_key not in grouped:
+            grouped[base_key] = {
+                'name': item.get('menu_item_name') or 'Item',
+                'quantity': 0,
+                'unit_price_cents': item.get('unit_price_cents', 0),
+                'variants': {},
+                'status': item.get('status', ''),
+            }
+        g = grouped[base_key]
+        g['quantity'] += item.get('quantity', 1)
+        if var_key not in g['variants']:
+            g['variants'][var_key] = {
+                'modifiers': item.get('modifiers') or [],
+                'notes': item.get('notes') or '',
+                'quantity': 0,
+            }
+        g['variants'][var_key]['quantity'] += item.get('quantity', 1)
+    # flatten variants dict → list
+    for g in grouped.values():
+        g['variants'] = list(g['variants'].values())
+    return list(grouped.values())
+
+
+def format_receipt_html(data: dict, unpaid: bool = False) -> str:
+    """Generate the same styled HTML receipt as the frontend printReceipt.ts."""
+    import html as _html
+
+    logo = _get_logo_b64()
+    ticket_id = (data.get('id') or '')[-6:].upper()
+    resource  = data.get('resource_code') or ''
+    date_str  = fmt_date(data.get('closed_at') or data.get('opened_at') or '')
+
+    items = [i for i in (data.get('line_items') or []) if i.get('status') != 'VOIDED']
+    grouped = _group_line_items(items)
+
+    item_rows_html = ''
+    for g in grouped:
+        variants = g['variants']
+        multi = len(variants) > 1
+        base_price = g['unit_price_cents']
+        line_total = sum(
+            v['quantity'] * (base_price + sum(m.get('price_cents', 0) for m in v['modifiers']))
+            for v in variants
+        )
+        name_esc = _html.escape(g['name'])
+        item_rows_html += f'''
+      <div class="item-row">
+        <span class="item-name">{g["quantity"]}x {name_esc}</span>
+        <span class="item-price">{fmt_cents(line_total)}</span>
+      </div>'''
+        if multi:
+            for v in variants:
+                mod_names = [m.get('name', '') for m in v['modifiers'] if m.get('name', '')]
+                label = ', '.join(mod_names) or 'sin modificadores'
+                if v['notes']:
+                    label += f' ({v["notes"]})'
+                item_rows_html += f'<div class="mod">&nbsp;&nbsp;{v["quantity"]}x {_html.escape(label)}</div>'
+        else:
+            v = variants[0]
+            for mc in _group_modifiers(v['modifiers']):
+                label = f'{mc["name"]} ×{mc["count"]}' if mc['count'] > 1 else mc['name']
+                item_rows_html += f'<div class="mod">&nbsp;&nbsp;+ {_html.escape(label)}</div>'
+            if v['notes']:
+                item_rows_html += f'<div class="mod">&nbsp;&nbsp;<em>{_html.escape(v["notes"])}</em></div>'
+
+    # Timer sessions
+    timer_rows_html = ''
+    timer_sessions = [s for s in (data.get('timer_sessions') or [])
+                      if (s.get('charge_cents') or 0) > 0 or (not s.get('end_time') and s.get('start_time'))]
+    for s in timer_sessions:
+        charge = s.get('charge_cents', 0)
+        dur    = s.get('duration_seconds', 0)
+        mode   = (s.get('billing_mode') or '').replace('_', ' ')
+        rc     = s.get('resource_code', '')
+        live   = '' if s.get('end_time') else ' · RUNNING'
+        timer_rows_html += f'''
+      <div class="item-row">
+        <span class="item-name">🎱 Pool Time ({_html.escape(rc)})<br>
+          <small>{fmt_dur(dur)} · {_html.escape(mode)}{live}</small>
+        </span>
+        <span class="item-price">{fmt_cents(charge)}</span>
+      </div>'''
+
+    sub       = data.get('subtotal_cents', 0)
+    disc      = data.get('discount_cents', 0) or 0
+    disc_pct  = data.get('manual_discount_pct', 0) or 0
+    pool_c    = data.get('pool_time_cents', 0) or 0
+    tip       = data.get('tip_cents', 0) or 0
+    live_total = sub + pool_c - disc
+    grand_total = live_total + tip
+
+    disc_line = ''
+    if disc > 0:
+        pct_str = f' ({disc_pct}%)' if disc_pct else ''
+        disc_line = f'<div class="total-row" style="color:#16a34a"><span>Discount{pct_str}</span><span>-{fmt_cents(disc)}</span></div>'
+    pool_line = f'<div class="total-row"><span>Pool Time</span><span>{fmt_cents(pool_c)}</span></div>' if pool_c > 0 else ''
+    tip_line  = ''
+    if tip > 0:
+        tip_line = f'''<div class="total-row"><span>Tip</span><span>{fmt_cents(tip)}</span></div>
+      <div class="total-row grand"><span>TOTAL + TIP</span><span>{fmt_cents(grand_total)}</span></div>'''
+
+    # Payment section or unpaid notice
+    if unpaid:
+        tip_rows = ''.join(
+            f'<tr><td>{p}%</td><td class="amt">{fmt_cents(round(live_total*p/100))}</td>'
+            f'<td class="amt">{fmt_cents(live_total + round(live_total*p/100))}</td></tr>'
+            for p in [10, 15, 18, 20]
+        )
+        payment_section = f'''
+      <div class="divider"></div>
+      <div class="section-title" style="text-align:center">Sugerencia de Propina</div>
+      <table class="tip-table">
+        <thead><tr><th>%</th><th>Propina</th><th>Total</th></tr></thead>
+        <tbody>{tip_rows}</tbody>
+      </table>
+      <div class="divider"></div>
+      <div class="unpaid-notice">⚠ CUENTA NO PAGADA ⚠</div>'''
+    else:
+        pt  = data.get('payment_type', '')
+        pt2 = data.get('payment_type_2')
+        tc  = data.get('tendered_cents') or 0
+        tc2 = data.get('tendered_cents_2') or 0
+        chg = data.get('change_due') or max(0, tc - live_total)
+        if pt2:
+            cash = tc  if pt  == 'CASH' else tc2
+            card = tc2 if pt  == 'CASH' else tc
+            pay_lines = (f'<div class="total-row"><span>💵 Efectivo</span><span>{fmt_cents(cash)}</span></div>'
+                         f'<div class="total-row"><span>💳 Tarjeta</span><span>{fmt_cents(card)}</span></div>')
+        elif pt == 'CASH' and tc > 0:
+            chg_line = f'<div class="total-row"><span>Cambio</span><span>{fmt_cents(chg)}</span></div>' if chg > 0 else ''
+            pay_lines = f'<div class="total-row"><span>Recibido</span><span>{fmt_cents(tc)}</span></div>{chg_line}'
+        else:
+            pay_lines = ''
+        payment_section = f'''
+      {pay_lines}
+      <div class="center"><div class="payment-badge">{_html.escape(pt)}</div></div>'''
+
+    logo_img = f'<img src="{logo}" class="logo" alt="Bola 8" />' if logo else ''
+
+    return f'''<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Receipt #{ticket_id}</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    @page {{ size: 48mm auto; margin: 1mm; }}
+    body {{
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 11px;
+      font-weight: bold;
+      width: 46mm;
+      color: #000;
+      padding: 1mm;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }}
+    .center {{ text-align: center; }}
+    .logo {{ width: 16mm; height: 16mm; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto 2mm; }}
+    .venue-name {{ font-size: 14px; font-weight: 900; letter-spacing: 1px; }}
+    .venue-sub {{ font-size: 10px; font-weight: bold; color: #000; margin-top: 1mm; }}
+    .divider {{ border-top: 1.5px dashed #000; margin: 2mm 0; }}
+    .divider-solid {{ border-top: 2px solid #000; margin: 2mm 0; }}
+    .meta {{ font-size: 10px; font-weight: bold; margin-bottom: 1mm; }}
+    .meta span {{ font-weight: 900; }}
+    .section-title {{ font-size: 10px; text-transform: uppercase; font-weight: 900; margin-bottom: 1mm; }}
+    .item-row {{ display: flex; justify-content: space-between; margin-bottom: 1.5mm; font-weight: bold; }}
+    .item-name {{ flex: 1; padding-right: 2mm; }}
+    .item-price {{ white-space: nowrap; font-weight: 900; }}
+    .mod {{ font-size: 10px; font-weight: bold; color: #000; margin-bottom: 0.5mm; }}
+    .total-row {{ display: flex; justify-content: space-between; margin-bottom: 1mm; font-size: 11px; font-weight: bold; }}
+    .total-row.grand {{ font-size: 14px; font-weight: 900; margin-top: 1mm; }}
+    .footer {{ text-align: center; font-size: 10px; font-weight: bold; color: #000; margin-top: 3mm; }}
+    .ticket-num {{ font-size: 13px; font-weight: 900; letter-spacing: 2px; }}
+    .payment-badge {{ display: inline-block; border: 2px solid #000; padding: 0.5mm 2mm; font-weight: 900; font-size: 11px; margin-top: 1mm; }}
+    .unpaid-notice {{ text-align: center; font-size: 13px; font-weight: 900; border: 3px solid #000; padding: 2mm; margin-top: 3mm; letter-spacing: 0.5px; }}
+    .tip-table {{ width: 100%; border-collapse: collapse; margin-top: 2mm; font-size: 11px; }}
+    .tip-table th {{ font-size: 10px; font-weight: 900; text-align: center; padding: 0.5mm 1mm; border-bottom: 2px solid #000; }}
+    .tip-table td {{ text-align: center; padding: 1mm; border-bottom: 1px solid #888; font-weight: bold; }}
+    .tip-table td.amt {{ font-weight: 900; font-size: 12px; }}
+  </style>
+</head>
+<body>
+  <div class="center">
+    {logo_img}
+    <div class="venue-name">BOLA 8 POOL CLUB</div>
+    <div class="venue-sub">Pool · Food · Drinks</div>
+    <div class="divider"></div>
+    <div class="ticket-num">#{ticket_id}</div>
+  </div>
+  <div class="divider"></div>
+  <div class="meta">Table: <span>{_html.escape(resource)}</span></div>
+  <div class="meta">Date: <span>{_html.escape(date_str)}</span></div>
+  <div class="divider"></div>
+  <div class="section-title">Items</div>
+  {item_rows_html}
+  {'<div class="divider"></div>' + timer_rows_html if timer_rows_html else ''}
+  <div class="divider-solid"></div>
+  <div class="total-row"><span>Subtotal</span><span>{fmt_cents(sub)}</span></div>
+  {disc_line}
+  {pool_line}
+  <div class="total-row grand"><span>TOTAL</span><span>{fmt_cents(live_total)}</span></div>
+  {tip_line}
+  <div class="divider"></div>
+  {payment_section}
+  <div class="divider"></div>
+  <div class="footer">Thank you for visiting!<br>Come back soon 🎱</div>
+</body>
+</html>'''
+
+
+def print_html_dev(data: dict, unpaid: bool = False) -> bool:
+    """Mac/Linux dev fallback: render receipt as HTML and open in browser."""
+    try:
+        html = format_receipt_html(data, unpaid=unpaid)
+        path = tempfile.mktemp(suffix='_receipt.html')
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(html)
+        log.info(f'Dev mode: receipt HTML saved to {path}')
+        import subprocess, sys
+        if sys.platform == 'darwin':
+            subprocess.Popen(['open', path])
+        elif sys.platform.startswith('linux'):
+            subprocess.Popen(['xdg-open', path])
+        return True
+    except Exception as e:
+        log.error(f'HTML render error: {e}')
+        return False
+
 
 def fmt_cents(cents):
     return f'${cents/100:.2f}'
@@ -144,14 +421,16 @@ def format_receipt(data: dict, unpaid: bool = False) -> bytes:
             )
             buf += two_col(f'{bg["qty"]}x {bg["name"]}', fmt_cents(total))
             if multi:
-                # Show each flavor/variant as a sub-line (name only, price rolled in)
+                # Show each flavor/variant as a sub-line; compact repeated modifier names
                 for v in variants:
-                    mod_names = [m.get('name','') for m in v['mods'] if m.get('name')]
-                    note_part = f'({v["notes"]})' if v['notes'] else ''
-                    label_parts = [p for p in mod_names + [note_part] if p]
-                    label = ', '.join(label_parts) or '—'
-                    prefix = f'  {v["qty"]}x ' if v['qty'] > 1 else '  '
-                    buf += left_line(f'{prefix}{label}')
+                    mod_counts = Counter(m.get('name', '') for m in v['mods'] if m.get('name', ''))
+                    parts = [f'{cnt}x {name}' if cnt > 1 else name
+                             for name, cnt in mod_counts.items()]
+                    if v['notes']:
+                        parts.append(f'({v["notes"]})')
+                    prefix = f'  {v["qty"]}x ' if bg['qty'] > 1 else '  '
+                    label = ', '.join(parts) or 'sin modificadores'
+                    buf += wrap_lines(f'{prefix}{label}', indent=' ' * len(prefix))
             else:
                 # Single variant: show modifier names only, NO price (rolled into total above)
                 v = variants[0]
@@ -286,8 +565,11 @@ def get_printer_name():
         log.warning(f'Could not enumerate printers: {e}')
         return ''
 
-def print_raw(raw_bytes: bytes) -> bool:
-    """Send raw ESC/POS bytes to the Windows printer."""
+def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False) -> bool:
+    """Send raw ESC/POS bytes to the Windows printer, or HTML receipt on Mac/Linux dev."""
+    import sys
+    if sys.platform != 'win32':
+        return print_html_dev(data or {}, unpaid=unpaid)
     printer_name = get_printer_name()
     if not printer_name:
         log.error('No printer found')
@@ -307,13 +589,6 @@ def print_raw(raw_bytes: bytes) -> bool:
             win32print.ClosePrinter(handle)
         log.info(f'Printed {len(raw_bytes)} bytes to "{printer_name}"')
         return True
-    except ImportError:
-        # Fallback: dump to temp file (for testing on non-Windows)
-        tmp = tempfile.mktemp(suffix='.bin')
-        with open(tmp, 'wb') as f:
-            f.write(raw_bytes)
-        log.warning(f'pywin32 not available — saved receipt to {tmp}')
-        return True
     except Exception as e:
         log.error(f'Print error: {e}')
         return False
@@ -330,7 +605,7 @@ def print_receipt():
     data   = request.get_json(force=True)
     unpaid = data.pop('unpaid', False)
     raw    = format_receipt(data, unpaid=unpaid)
-    ok     = print_raw(raw)
+    ok     = print_raw(raw, data=data, unpaid=unpaid)
     return jsonify({'ok': ok}), (200 if ok else 500)
 
 @app.route('/printers')

@@ -39,6 +39,7 @@ def create_app(config_class=Config):
     from .api.waiting_list import waiting_list_bp
     from .api.cash_session import cash_bp
     from .api.safe import safe_bp
+    from .api.suppliers import suppliers_bp
 
     app.register_blueprint(auth_bp,          url_prefix='/api/v1/auth')
     app.register_blueprint(resources_bp,     url_prefix='/api/v1/resources')
@@ -52,6 +53,7 @@ def create_app(config_class=Config):
     app.register_blueprint(waiting_list_bp,  url_prefix='/api/v1/waiting-list')
     app.register_blueprint(cash_bp,          url_prefix='/api/v1/cash')
     app.register_blueprint(safe_bp,          url_prefix='/api/v1/safe')
+    app.register_blueprint(suppliers_bp,     url_prefix='/api/v1/suppliers')
 
     from .sockets import events  # noqa: F401
 
@@ -97,6 +99,7 @@ def create_app(config_class=Config):
             UnitCatalog, InventoryItem, InventoryMovement, StockMovement,
             InsumoBase, MenuItemIngredient, ModifierInventoryRule, SaleItemCost,
             OpenCigaretteBox, Promotion, AuditLog, CashSession, Expense, TipDistributionConfig,
+            Supplier,
         )
         from .models.waiting_list import WaitingListEntry  # noqa: F401
 
@@ -263,6 +266,65 @@ def create_app(config_class=Config):
             END $$;
         """, 'uq_inventory_items_sku')
 
+        # ── STEP 11b: Ticket / waitlist integrity invariants (Tier-1 fixes) ───
+        # Enforce at the DB level the rules the application now also enforces:
+        #   - At most one OPEN ticket per resource_id
+        #   - An OPEN ticket must have a resource_id
+        #   - At most one active waiting-list entry per floor_ticket_id /
+        #     assigned_ticket_id (active = WAITING or SEATED)
+        # These are the structural backstops for findings F-1, F-3, F-8 and F-9.
+        run("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_tickets_open_per_resource
+            ON tickets (resource_id)
+            WHERE status = 'OPEN'
+        """, 'uq_tickets_open_per_resource')
+
+        run("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_waiting_list_floor_ticket_active
+            ON waiting_list (floor_ticket_id)
+            WHERE status IN ('WAITING', 'SEATED') AND floor_ticket_id IS NOT NULL
+        """, 'uq_waiting_list_floor_ticket_active')
+
+        run("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_waiting_list_assigned_ticket_active
+            ON waiting_list (assigned_ticket_id)
+            WHERE status IN ('WAITING', 'SEATED') AND assigned_ticket_id IS NOT NULL
+        """, 'uq_waiting_list_assigned_ticket_active')
+
+        run("""
+            DO $$
+            BEGIN
+              IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'chk_open_ticket_has_resource'
+                  AND conrelid = 'tickets'::regclass
+              ) THEN
+                ALTER TABLE tickets
+                  ADD CONSTRAINT chk_open_ticket_has_resource
+                  CHECK ((status <> 'OPEN') OR (resource_id IS NOT NULL))
+                  NOT VALID;
+                ALTER TABLE tickets VALIDATE CONSTRAINT chk_open_ticket_has_resource;
+              END IF;
+            END $$;
+        """, 'chk_open_ticket_has_resource')
+
+        # ── STEP 11c: Repair waitlist entries silently flipped ASSIGNED→CANCELLED
+        # by the old _close_linked_waiting_entry filter. Restores any entry whose
+        # latest WAITLIST_CLEAR_ON_TICKET_END audit row shows the bad transition
+        # and which is still CANCELLED. Idempotent (no-op once repaired).
+        run("""
+            UPDATE waiting_list w
+               SET status = 'ASSIGNED'
+             WHERE w.status = 'CANCELLED'
+               AND EXISTS (
+                 SELECT 1 FROM audit_log a
+                  WHERE a.entity_id = w.id
+                    AND a.action = 'WAITLIST_CLEAR_ON_TICKET_END'
+                    AND a.before_state->>'status' = 'ASSIGNED'
+                    AND a.after_state->>'status' = 'CANCELLED'
+               )
+        """, 'repair waitlist ASSIGNED→CANCELLED rewrites')
+
         db.session.commit()
 
         # ── STEP 12: Seed unit_catalog ────────────────────────────────────────
@@ -428,6 +490,21 @@ def create_app(config_class=Config):
             print('  + TipDistributionConfig default row created')
 
         print('✅ Database tables created / schema updated (inventory v2).')
+
+        # ── STEP 19: Suppliers table index (table itself created by db.create_all) ─
+        run(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_suppliers_name "
+            "ON suppliers (lower(name)) WHERE is_active = TRUE",
+            'uq_suppliers_name'
+        )
+
+        # ── STEP 20: Fix duplicate sort_order on menu categories ──────────────
+        db.session.execute(db.text(
+            "UPDATE menu_categories SET sort_order = 35 "
+            "WHERE name = 'Cubetas de Cerveza' AND sort_order = 3"
+        ))
+        db.session.commit()
+        print("STEP 20: menu_categories sort_order conflict fixed")
 
     # ── CLI: seed-beer ────────────────────────────────────────────────────────
     @app.cli.command('seed-beer')
