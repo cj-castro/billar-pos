@@ -5,6 +5,7 @@ import NavBar from '../components/NavBar'
 import client from '../api/client'
 import toast from 'react-hot-toast'
 import { formatDistanceToNow } from 'date-fns'
+import { useKDSAlert } from '../hooks/useKDSAlert'
 
 const STATUS_ORDER = ['SENT', 'IN_PROGRESS', 'READY']
 const NEXT_STATUS: Record<string, string> = { SENT: 'IN_PROGRESS', IN_PROGRESS: 'READY', READY: 'SERVED' }
@@ -40,7 +41,7 @@ function QueueCard({ item, status, onStatusChange, onPrint }: {
   const showPrintBtn = (status === 'SENT' || item.needs_reprint) && !!onPrint
 
   return (
-    <div className={`bg-slate-800 rounded-2xl border ${cfg.border} overflow-hidden shadow-lg`}>
+    <div className={`bg-slate-800 rounded-2xl border ${cfg.border} overflow-hidden shadow-lg ${status === 'SENT' ? 'animate-pulse shadow-amber-500/20 shadow-lg' : ''}`}>
       <div className={`flex items-center justify-between px-4 py-2.5 ${cfg.headerBg} border-b ${cfg.border}`}>
         <span className="font-black text-xl tracking-widest text-white">{item.resource_code}</span>
         <div className="flex items-center gap-2">
@@ -133,6 +134,16 @@ export default function KitchenQueuePage() {
     staleTime: 0,
   })
 
+  // KDS sound alert — plays while there are waiting orders
+  const { data: kdsSound } = useQuery({
+    queryKey: ['settings', 'kds_sound_enabled'],
+    queryFn: () => client.get('/settings/kds_sound_enabled').then((r) => r.data.value === 'true'),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  })
+  const sentCount = (items as any[]).filter((i: any) => i.status === 'SENT').length
+  useKDSAlert(sentCount, kdsSound ?? true)
+
   // Auto-clear READY items every 10 minutes
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -157,7 +168,7 @@ export default function KitchenQueuePage() {
   const handlePrint = async (itemId: string) => {
     try {
       await client.post(`/queue/${itemId}/print`)
-      toast.success('Imprimiendo orden...')
+      toast.success('✅ Comanda enviada a imprimir')
     } catch {
       toast.error('Error al imprimir')
     }

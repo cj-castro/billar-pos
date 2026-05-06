@@ -19,4 +19,5 @@ from .cash_session import CashSession, Expense, TipDistributionConfig
 from .waiting_list import WaitingListEntry
 from .supplier import Supplier
 from .print_job import PrintJob
+from .setting import Setting
 

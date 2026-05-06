@@ -160,7 +160,7 @@ def _group_line_items(items: list) -> list:
     return list(grouped.values())
 
 
-def format_receipt_html(data: dict, unpaid: bool = False) -> str:
+def format_receipt_html(data: dict, unpaid: bool = False, reprint: bool = False) -> str:
     """Generate the same styled HTML receipt as the frontend printReceipt.ts."""
     import html as _html
 
@@ -317,9 +317,11 @@ def format_receipt_html(data: dict, unpaid: bool = False) -> str:
     .tip-table th {{ font-size: 10px; font-weight: 900; text-align: center; padding: 0.5mm 1mm; border-bottom: 2px solid #000; }}
     .tip-table td {{ text-align: center; padding: 1mm; border-bottom: 1px solid #888; font-weight: bold; }}
     .tip-table td.amt {{ font-weight: 900; font-size: 12px; }}
+    .reprint-banner {{ text-align: center; font-size: 11px; font-weight: 900; border: 2px dashed #000; padding: 1mm 2mm; margin-bottom: 2mm; letter-spacing: 0.5px; }}
   </style>
 </head>
 <body>
+  {f'<div class="reprint-banner">★ REIMPRESIÓN ★<br><span style="font-size:9px;font-weight:bold">{datetime.now().strftime("%d/%m/%Y %H:%M")}</span></div>' if reprint else ''}
   <div class="center">
     {logo_img}
     <div class="venue-name">BOLA 8 POOL CLUB</div>
@@ -364,6 +366,54 @@ def print_html_dev(data: dict, unpaid: bool = False) -> bool:
         return True
     except Exception as e:
         log.error(f'HTML render error: {e}')
+        return False
+
+
+def print_receipt_html(data: dict, unpaid: bool = False, reprint: bool = False, kind: str = 'receipt') -> bool:
+    """Print HTML receipt to the named Windows printer via ShellExecute printto.
+    On Mac/Linux falls back to browser preview (dev mode)."""
+    if sys.platform != 'win32':
+        return print_html_dev(data, unpaid=unpaid)
+
+    printer_name = get_printer_name(kind=kind)
+    if not printer_name:
+        log.error('No printer found for receipt')
+        return False
+
+    tmp_path = None
+    try:
+        import win32api
+        html = format_receipt_html(data, unpaid=unpaid, reprint=reprint)
+        fd, tmp_path = tempfile.mkstemp(suffix='.html')
+        os.close(fd)
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            f.write(html)
+
+        result = win32api.ShellExecute(0, 'printto', tmp_path, f'"{printer_name}"', '.', 0)
+        if result <= 32:
+            raise OSError(f'ShellExecute printto failed (code {result})')
+
+        log.info(f'HTML receipt queued for "{printer_name}"')
+
+        # Clean up temp file after browser has had time to spool the job
+        def _cleanup(path: str) -> None:
+            import time as _t
+            _t.sleep(30)
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
+        import threading
+        threading.Thread(target=_cleanup, args=(tmp_path,), daemon=True).start()
+        return True
+
+    except Exception as e:
+        log.error(f'HTML print error on "{printer_name}": {e}')
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
         return False
 
 
@@ -660,8 +710,7 @@ def print_receipt():
         log.info(f'Dedup hit for job_id={job_id} — skipping duplicate print')
         return jsonify({'ok': True, 'duplicate': True})
 
-    raw = format_receipt(data, unpaid=unpaid, reprint=reprint)
-    ok  = print_raw(raw, data=data, unpaid=unpaid)
+    ok = print_receipt_html(data, unpaid=unpaid, reprint=reprint)
     if ok:
         _dedup_record(job_id)
     return jsonify({'ok': ok}), (200 if ok else 500)

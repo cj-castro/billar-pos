@@ -40,6 +40,7 @@ def create_app(config_class=Config):
     from .api.cash_session import cash_bp
     from .api.safe import safe_bp
     from .api.suppliers import suppliers_bp
+    from .api.settings import settings_bp
 
     app.register_blueprint(auth_bp,          url_prefix='/api/v1/auth')
     app.register_blueprint(resources_bp,     url_prefix='/api/v1/resources')
@@ -54,6 +55,7 @@ def create_app(config_class=Config):
     app.register_blueprint(cash_bp,          url_prefix='/api/v1/cash')
     app.register_blueprint(safe_bp,          url_prefix='/api/v1/safe')
     app.register_blueprint(suppliers_bp,     url_prefix='/api/v1/suppliers')
+    app.register_blueprint(settings_bp,      url_prefix='/api/v1/settings')
 
     from .sockets import events  # noqa: F401
 

@@ -94,6 +94,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
+    // Settings changed — invalidate the relevant setting query on all clients
+    socket.on('settings:changed', ({ key }: { key: string; value: string }) => {
+      qc.invalidateQueries({ queryKey: ['settings', key] })
+    })
+
     return () => {
       socket.disconnect()
       socketRef.current = null
