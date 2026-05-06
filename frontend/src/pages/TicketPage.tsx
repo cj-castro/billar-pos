@@ -110,6 +110,7 @@ export default function TicketPage() {
   const [printingThermal, setPrintingThermal] = useState(false)
   const [showPinForReprint, setShowPinForReprint] = useState<string | null>(null) // ticketId
   const [reprintBannerKey, setReprintBannerKey] = useState(0)
+  const [voidingTimer, setVoidingTimer] = useState(false)
 
   // Close modals with Escape
   useEscKey(() => {
@@ -126,7 +127,7 @@ export default function TicketPage() {
     refetchInterval: 10_000,
   })
 
-  const activeTimer = ticket?.timer_sessions?.find((s: any) => !s.end_time)
+  const activeTimer = ticket?.timer_sessions?.find((s: any) => !s.end_time && s.status !== 'CANCELLED')
   const elapsed = useTimer(activeTimer?.start_time)
 
   if (!ticket) return <div className="p-8 text-center text-slate-400">{t('common.loading')}</div>
@@ -202,6 +203,26 @@ export default function TicketPage() {
     setPendingDiscountPct(null)
   }
 
+  const handleVoidTimer = async () => {
+    if (!confirm('¿Cancelar el tiempo de mesa sin cargo? El jugador no será cobrado.')) return
+    setVoidingTimer(true)
+    try {
+      const res = await client.post(`/tickets/${id}/void-timer`)
+      if (res.data.ticket_closed) {
+        toast.success('⏹ Mesa cancelada — sin cargo. Ticket cerrado.')
+        qc.invalidateQueries({ queryKey: ['resources'] })
+        navigate('/floor')
+      } else {
+        toast.success('⏹ Tiempo cancelado — ticket convertido a venta rápida.')
+        refetch()
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'No se pudo cancelar el tiempo')
+    } finally {
+      setVoidingTimer(false)
+    }
+  }
+
   const handleSaveName = async () => {
     try {
       await client.patch(`/tickets/${id}/customer-name`, { customer_name: nameInput })
@@ -210,6 +231,25 @@ export default function TicketPage() {
       setEditingName(false)
     } catch {
       toast.error('No se pudo guardar el nombre')
+    }
+  }
+
+  const handleCloseDelivery = async () => {
+    if (!confirm('¿Cerrar orden Rappi como ya pagada externamente?')) return
+    setClosingLoading(true)
+    try {
+      const res = await client.post(`/tickets/${id}/close`, {
+        payment_type: 'EXTERNAL',
+        tendered_cents: ticket.total_cents,
+        tip_cents: 0,
+      })
+      setClosedTicket(res.data)
+      qc.invalidateQueries({ queryKey: ['resources'] })
+      qc.invalidateQueries({ queryKey: ['tickets-pending-payment'] })
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'No se pudo cerrar la orden')
+    } finally {
+      setClosingLoading(false)
     }
   }
 
@@ -274,6 +314,7 @@ export default function TicketPage() {
   const isPoolTable = (ticket.timer_sessions ?? []).length > 0
     || ticket.resource_code?.startsWith('BT')
     || ticket.resource_code?.startsWith('PT')  // legacy codes pre-2026-04-27 rename
+  const isManager = ['MANAGER', 'ADMIN'].includes(useAuthStore.getState().user?.role ?? '')
 
   const handleJoinWaitlist = async () => {
     setWlJoining(true)
@@ -348,6 +389,20 @@ export default function TicketPage() {
                 <span className="text-yellow-300 text-xs font-semibold">{ticket.waiting_list_entry.party_name}</span>
                 {ticket.waiting_list_entry.party_size > 1 && (
                   <span className="text-yellow-600 text-xs">· {ticket.waiting_list_entry.party_size}p</span>
+                )}
+              </div>
+            )}
+            {/* Ticket type badges */}
+            {ticket.ticket_type === 'EXPRESS' && (
+              <div className="mt-1 inline-flex items-center gap-1 bg-sky-900/50 border border-sky-700 rounded-full px-3 py-0.5">
+                <span className="text-sky-400 text-xs font-semibold">⚡ VENTA RÁPIDA</span>
+              </div>
+            )}
+            {ticket.ticket_type === 'DELIVERY' && (
+              <div className="mt-1 inline-flex items-center gap-1 bg-orange-900/50 border border-orange-700 rounded-full px-3 py-0.5">
+                <span className="text-orange-400 text-xs font-semibold">🛵 RAPPI</span>
+                {ticket.rappi_order_id && (
+                  <span className="text-orange-300 text-xs font-mono">#{ticket.rappi_order_id}</span>
                 )}
               </div>
             )}
@@ -533,7 +588,7 @@ export default function TicketPage() {
             <div className="bg-slate-800 rounded-xl p-3 border border-slate-700">
               <div className="text-xs text-slate-400 mb-2 font-semibold">{t('ticket.discount_label')}</div>
               <div className="flex flex-wrap gap-2">
-                {[0, 5, 10, 15, 20, 25, 50, 100].map(pct => (
+                {[0, 5, 10, 15, 20, 25, 30, 50, 100].map(pct => (
                   <button
                     key={pct}
                     onClick={() => { setPendingDiscountPct(pct); setShowPinForDiscount(true) }}
@@ -581,7 +636,7 @@ export default function TicketPage() {
               🧾 {ticket.payment_requested ? 'Cuenta Solicitada' : 'Pedir Cuenta'}
             </button>
             {/* Close & Pay — only available once payment has been requested */}
-            {ticket.payment_requested && (
+            {ticket.payment_requested && ticket.ticket_type !== 'DELIVERY' && (
               <button
                 onClick={() => {
                   setSplitPayment(false); setPaymentType('CASH'); setPaymentType2('CARD')
@@ -594,8 +649,28 @@ export default function TicketPage() {
                 {t('ticket.closeAndPay')}
               </button>
             )}
+            {/* Rappi delivery: close as already-paid externally */}
+            {ticket.ticket_type === 'DELIVERY' && (
+              <button
+                onClick={handleCloseDelivery}
+                disabled={closingLoading}
+                className="w-full py-3 bg-orange-600 hover:bg-orange-500 rounded-xl font-bold text-lg disabled:opacity-50"
+              >
+                {closingLoading ? '⏳ Cerrando…' : '🛵 Cerrar Rappi (ya pagado)'}
+              </button>
+            )}
+            {/* Void timer (manager only) — cancel running timer with zero charge */}
+            {isManager && activeTimer && (
+              <button
+                onClick={handleVoidTimer}
+                disabled={voidingTimer}
+                className="w-full py-2.5 border border-red-600 text-red-400 hover:bg-red-900/30 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
+              >
+                {voidingTimer ? '⏳ Cancelando…' : '⏹ Cancelar tiempo de mesa (sin cargo)'}
+              </button>
+            )}
             {/* Cancel ticket — only when empty (no items, no pool time) */}
-            {openItems.length === 0 && (ticket.timer_sessions ?? []).length === 0 && (
+            {openItems.length === 0 && (ticket.timer_sessions ?? []).filter((s: any) => s.status !== 'CANCELLED').length === 0 && (
               <button
                 onClick={async () => {
                   if (!confirm('¿Cancelar ticket y liberar mesa? Esta acción no se puede deshacer.')) return
@@ -619,7 +694,7 @@ export default function TicketPage() {
           <div className="bg-slate-800 rounded-xl p-5 text-center space-y-3">
             <div className="text-green-400 font-bold text-xl">✓ {t('ticket.status.closed')}</div>
             <div className="text-slate-300">
-              {ticket.payment_type === 'CASH' ? '💵 Cash' : '💳 Card'} &nbsp;·&nbsp;
+              {ticket.payment_type === 'CASH' ? '💵 Efectivo' : ticket.payment_type === 'EXTERNAL' ? '🛵 Rappi (externo)' : '💳 Tarjeta'} &nbsp;·&nbsp;
               <span className="font-bold text-sky-400">{cents(ticket.total_cents)}</span>
             </div>
             {ticket.edited_after_close && (

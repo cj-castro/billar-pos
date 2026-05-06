@@ -13,7 +13,9 @@ class Ticket(db.Model):
     opened_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     closed_by = db.Column(db.String(36), db.ForeignKey('users.id'))
     closed_at = db.Column(db.DateTime(timezone=True))
-    payment_type = db.Column(db.String(10))  # CASH, CARD
+    ticket_type = db.Column(db.String(20), default='TABLE', nullable=False)  # TABLE, EXPRESS, DELIVERY
+    rappi_order_id = db.Column(db.String(100))   # required when ticket_type=DELIVERY
+    payment_type = db.Column(db.String(20))  # CASH, CARD, EXTERNAL
     tendered_cents = db.Column(db.Integer)
     tip_cents = db.Column(db.Integer, default=0)
     tip_source = db.Column(db.String(10))           # CASH, CARD, SPLIT
@@ -58,15 +60,21 @@ class Ticket(db.Model):
         pool_total = sum(
             (s.charge_cents or 0)
             for s in self.timer_sessions.all()
-            if s.charge_cents is not None
+            if s.charge_cents is not None and s.status != 'CANCELLED'
         )
-        self.pool_time_cents = pool_total
+        # A 100% manual discount covers the full visit — zero out pool time too
+        if (self.manual_discount_pct or 0) >= 100:
+            self.pool_time_cents = 0
+        else:
+            self.pool_time_cents = pool_total
 
         self.total_cents = max(0, self.subtotal_cents - self.discount_cents + self.pool_time_cents)
 
     def to_dict(self, include_items=True, include_timer=True):
         d = {
             'id': self.id,
+            'ticket_type': self.ticket_type or 'TABLE',
+            'rappi_order_id': self.rappi_order_id,
             'resource_id': self.resource_id,
             'resource_code': self.resource.code if self.resource else None,
             'status': self.status,
@@ -202,6 +210,9 @@ class PoolTimerSession(db.Model):
     resource_id = db.Column(db.String(36), db.ForeignKey('resources.id'), nullable=False)
     start_time = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     end_time = db.Column(db.DateTime(timezone=True))
+    status = db.Column(db.String(20), default='ACTIVE', nullable=False)  # ACTIVE, CANCELLED, COMPLETED
+    cancelled_at = db.Column(db.DateTime(timezone=True))
+    cancelled_by = db.Column(db.String(36), db.ForeignKey('users.id'))
     duration_seconds = db.Column(db.Integer)
     billing_mode = db.Column(db.String(20), nullable=False)
     rate_cents = db.Column(db.Integer, nullable=False)
@@ -218,6 +229,7 @@ class PoolTimerSession(db.Model):
             'ticket_id': self.ticket_id,
             'resource_id': self.resource_id,
             'resource_code': self.resource.code if self.resource else None,
+            'status': self.status or 'ACTIVE',
             'start_time': self.start_time.isoformat() if self.start_time else None,
             'end_time': self.end_time.isoformat() if self.end_time else None,
             'duration_seconds': self.duration_seconds,

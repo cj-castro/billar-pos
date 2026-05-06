@@ -3,7 +3,7 @@ import json
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 from datetime import datetime, timezone
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from sqlalchemy import or_
 from app.extensions import db, socketio
@@ -28,6 +28,60 @@ def _emit_floor_update():
     socketio.emit('floor:update', {}, room='floor')
 
 
+def _spawn_auto_print_chit(app, item_id: str, chit_payload: dict) -> None:
+    """Fire-and-forget: print a kitchen/bar chit when an order is placed.
+    Runs in a daemon thread — print failure NEVER blocks or fails the order."""
+    import threading
+
+    def _run() -> None:
+        with app.app_context():
+            from app.models.ticket import TicketLineItem
+            from app.models.print_job import PrintJob
+            from app.extensions import db as _db, socketio as _sio
+            import requests as _req
+
+            item = TicketLineItem.query.get(item_id)
+            if not item:
+                return
+
+            job = PrintJob(queue_item_id=item_id, type='CHIT', status='SENT')
+            _db.session.add(job)
+            _db.session.commit()
+
+            try:
+                r = _req.post(
+                    f'{PRINT_AGENT_URL}/chit',
+                    json={**chit_payload, 'job_id': job.id},
+                    timeout=8,
+                )
+                if r.ok:
+                    job.status = 'PRINTED'
+                    job.printed_at = datetime.now(timezone.utc)
+                    _db.session.commit()
+                else:
+                    raise RuntimeError(f'agent {r.status_code}: {r.text[:120]}')
+            except Exception as exc:
+                try:
+                    job.status = 'FAILED'
+                    job.error_msg = str(exc)
+                    item.needs_reprint = True
+                    _db.session.commit()
+                    routing = item.routing_dest.lower()
+                    _sio.emit(f'{routing}:item_update',
+                              {'item_id': item_id, 'needs_reprint': True},
+                              room=routing)
+                    _sio.emit('print:failed', {
+                        'job_id':        job.id,
+                        'queue_item_id': item_id,
+                        'type':          'CHIT',
+                        'error':         str(exc),
+                    }, room='manager')
+                except Exception:
+                    pass  # never raise from background thread
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def _stop_active_timer(ticket: Ticket, user_id: str) -> int:
     """Stop any running timer session, compute charge, return charge_cents."""
     session = PoolTimerSession.query.filter_by(
@@ -38,6 +92,7 @@ def _stop_active_timer(ticket: Ticket, user_id: str) -> int:
 
     now = datetime.now(timezone.utc)
     session.end_time = now
+    session.status = 'COMPLETED'
     result = billing.calculate_charge(
         session.start_time, now,
         session.billing_mode, session.rate_cents,
@@ -99,11 +154,33 @@ def open_ticket():
     user_id = get_jwt_identity()
     data = request.get_json()
     resource_id = data.get('resource_id')
+    ticket_type = data.get('ticket_type', 'TABLE')  # TABLE, EXPRESS, DELIVERY
+    rappi_order_id = (data.get('rappi_order_id') or '').strip() or None
+
+    if ticket_type not in ('TABLE', 'EXPRESS', 'DELIVERY'):
+        return jsonify({'error': 'INVALID_TICKET_TYPE'}), 422
+    if ticket_type == 'DELIVERY' and not rappi_order_id:
+        return jsonify({'error': 'RAPPI_ID_REQUIRED', 'message': 'Rappi order ID is required for delivery tickets'}), 422
 
     # Block ticket creation if bar has never been opened today (no open cash session)
     open_session = CashSession.query.filter_by(status='OPEN').first()
     if not open_session:
         return jsonify({'error': 'BAR_CLOSED', 'message': 'Bar is not open. Manager must open the cash session first.'}), 403
+
+    # EXPRESS and DELIVERY tickets: no resource required
+    if ticket_type in ('EXPRESS', 'DELIVERY'):
+        ticket = Ticket(
+            resource_id=None,
+            ticket_type=ticket_type,
+            rappi_order_id=rappi_order_id,
+            opened_by=user_id,
+            customer_name=data.get('customer_name', '').strip() or None,
+        )
+        db.session.add(ticket)
+        audit_svc.log(user_id, 'TICKET_OPEN', 'ticket', ticket.id,
+                      after={'ticket_type': ticket_type, 'rappi_order_id': rappi_order_id})
+        db.session.commit()
+        return jsonify(ticket.to_dict()), 201
 
     # Lock row and check availability for ALL resource types
     resource = Resource.query.with_for_update().get(resource_id)
@@ -113,7 +190,7 @@ def open_ticket():
         return jsonify({'error': 'RESOURCE_OCCUPIED',
                         'message': f'{resource.code} ya está en uso'}), 409
 
-    ticket = Ticket(resource_id=resource_id, opened_by=user_id,
+    ticket = Ticket(resource_id=resource_id, ticket_type='TABLE', opened_by=user_id,
                     customer_name=data.get('customer_name', '').strip() or None)
     db.session.add(ticket)
     db.session.flush()
@@ -132,7 +209,8 @@ def open_ticket():
             resource_id=resource_id,
             billing_mode=billing_mode,
             rate_cents=rate_cents,
-            promo_free_seconds=promo_free_seconds
+            promo_free_seconds=promo_free_seconds,
+            status='ACTIVE',
         )
         db.session.add(timer)
         audit_svc.log(user_id, 'TIMER_START', 'pool_timer', ticket.id)
@@ -278,6 +356,27 @@ def add_item(ticket_id):
     else:
         socketio.emit('kitchen:update', {}, room='kitchen')
     socketio.emit('ticket:updated', {'ticket_id': ticket_id, 'version': ticket.version}, room=f'ticket:{ticket_id}')
+
+    # Auto-print chit to kitchen/bar printer (non-blocking — runs in background)
+    mod_map: dict[str, int] = {}
+    for lim in line_item.modifiers:
+        n = lim.name_snapshot or '?'
+        mod_map[n] = mod_map.get(n, 0) + 1
+    _spawn_auto_print_chit(
+        current_app._get_current_object(),
+        line_item.id,
+        {
+            'type':          line_item.routing_dest,
+            'resource_code': ticket.resource.code if ticket.resource else '?',
+            'items': [{
+                'quantity':  line_item.quantity,
+                'name':      menu_item.name,
+                'modifiers': [{'name': k, 'count': v} for k, v in mod_map.items()],
+                'notes':     line_item.notes or '',
+            }],
+            'sent_at': datetime.now(timezone.utc).isoformat(),
+        }
+    )
     return jsonify(line_item.to_dict()), 201
 
 
@@ -481,12 +580,16 @@ def close_ticket(ticket_id):
     payment_type_2 = data.get('payment_type_2')    # optional second payment
     tendered_cents_2 = data.get('tendered_cents_2')
 
-    if payment_type not in ('CASH', 'CARD'):
+    if payment_type not in ('CASH', 'CARD', 'EXTERNAL'):
         return jsonify({'error': 'INVALID_PAYMENT_TYPE'}), 422
     if payment_type_2 and payment_type_2 not in ('CASH', 'CARD'):
         return jsonify({'error': 'INVALID_PAYMENT_TYPE_2'}), 422
 
     ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+
+    # EXTERNAL is only valid for DELIVERY tickets
+    if payment_type == 'EXTERNAL' and ticket.ticket_type != 'DELIVERY':
+        return jsonify({'error': 'EXTERNAL_PAYMENT_DELIVERY_ONLY'}), 422
     if ticket.status == 'CLOSED':
         # Mobile retry after network timeout — ticket was already closed successfully.
         return jsonify(ticket.to_dict()), 200
@@ -708,6 +811,78 @@ def cancel_ticket(ticket_id):
     return jsonify({'ok': True, 'message': 'Ticket cancelled and table freed'})
 
 
+@tickets_bp.route('/<ticket_id>/void-timer', methods=['POST'])
+@jwt_required()
+def void_timer(ticket_id):
+    """Manager-only: cancel a running pool timer with zero charge.
+    Use when a table was opened by mistake. Frees the table immediately."""
+    claims = get_jwt()
+    if claims.get('role') not in ('MANAGER', 'ADMIN'):
+        return jsonify({'error': 'FORBIDDEN'}), 403
+
+    user_id = get_jwt_identity()
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+
+    if ticket.status != 'OPEN':
+        return jsonify({'error': 'TICKET_NOT_OPEN'}), 409
+
+    # Find the active timer (end_time=None)
+    active_session = PoolTimerSession.query.filter_by(
+        ticket_id=ticket_id, end_time=None
+    ).first()
+    if not active_session:
+        return jsonify({'error': 'NO_ACTIVE_TIMER', 'message': 'No active timer found for this ticket'}), 404
+
+    now = datetime.now(timezone.utc)
+    active_session.end_time = now
+    active_session.status = 'CANCELLED'
+    active_session.charge_cents = 0
+    active_session.duration_seconds = max(0, int((now - active_session.start_time).total_seconds()))
+    active_session.cancelled_at = now
+    active_session.cancelled_by = user_id
+
+    voided_resource_id = ticket.resource_id
+
+    # Free the resource
+    if ticket.resource_id:
+        resource = Resource.query.get(ticket.resource_id)
+        if resource:
+            resource.status = 'AVAILABLE'
+
+    ticket.pool_time_cents = 0
+    ticket.recalculate_totals()
+    ticket.version += 1
+
+    # Detach ticket from the table so the partial unique index is released.
+    # If the ticket has no items (true "opened by mistake"), auto-close it.
+    # If it has items, convert to EXPRESS so it can still be served tableless.
+    has_items = ticket.line_items.filter(TicketLineItem.status != 'VOIDED').count() > 0
+    if has_items:
+        ticket.ticket_type = 'EXPRESS'
+        ticket.resource_id = None
+    else:
+        ticket.status = 'CLOSED'
+        ticket.payment_type = 'CASH'
+        ticket.tendered_cents = 0
+        ticket.closed_by = user_id
+        ticket.closed_at = now
+        ticket.resource_id = None  # must clear BEFORE commit due to check constraint
+
+    audit_svc.log(user_id, 'TIMER_VOID', 'pool_timer', active_session.id,
+                  after={'status': 'CANCELLED', 'charge_cents': 0,
+                         'resource_id': voided_resource_id,
+                         'ticket_closed': not has_items,
+                         'reason': 'Opened by mistake'})
+    db.session.commit()
+    _emit_floor_update()
+    socketio.emit('pool:timer_voided', {
+        'ticket_id': ticket_id,
+        'resource_id': voided_resource_id,
+        'session_id': active_session.id,
+        'ticket_closed': not has_items,
+    })
+    return jsonify({'ok': True, 'ticket_closed': not has_items, 'ticket': ticket.to_dict()})
+
 
 _EDITABLE_PAYMENT_FIELDS = {
     'payment_type', 'tendered_cents', 'tip_cents', 'tip_source',
@@ -759,7 +934,7 @@ def edit_payment(ticket_id):
         if old_val == new_val:
             continue
         # Field-specific validation
-        if field == 'payment_type' and new_val not in ('CASH', 'CARD'):
+        if field == 'payment_type' and new_val not in ('CASH', 'CARD', 'EXTERNAL'):
             return jsonify({'error': 'INVALID_PAYMENT_TYPE'}), 422
         if field == 'payment_type_2' and new_val not in (None, '', 'CASH', 'CARD'):
             return jsonify({'error': 'INVALID_PAYMENT_TYPE_2'}), 422
@@ -865,6 +1040,18 @@ def list_reopened_tickets():
     """Return all OPEN tickets that were previously closed and re-opened."""
     tickets = Ticket.query.filter_by(status='OPEN', was_reopened=True).order_by(Ticket.reopened_at.desc()).all()
     return jsonify([t.to_dict() for t in tickets])
+
+
+@tickets_bp.route('/active-express', methods=['GET'])
+@jwt_required()
+def list_active_express():
+    """Return all OPEN EXPRESS and DELIVERY tickets (no table assigned)."""
+    tickets = (Ticket.query
+               .filter(Ticket.status == 'OPEN',
+                       Ticket.ticket_type.in_(['EXPRESS', 'DELIVERY']))
+               .order_by(Ticket.opened_at.asc())
+               .all())
+    return jsonify([t.to_dict(include_items=False, include_timer=False) for t in tickets])
 
 
 @tickets_bp.route('/pending-payment', methods=['GET'])

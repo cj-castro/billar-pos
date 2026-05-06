@@ -509,7 +509,35 @@ def create_app(config_class=Config):
         db.session.commit()
         print("STEP 20: menu_categories sort_order conflict fixed")
 
-    # ── CLI: seed-beer ────────────────────────────────────────────────────────
+        # ── STEP 21: Express Sale / Rappi / Pool-cancel columns ───────────────
+        for stmt in [
+            # Ticket type discriminator (TABLE | EXPRESS | DELIVERY)
+            "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS ticket_type VARCHAR(20) NOT NULL DEFAULT 'TABLE'",
+            # Rappi order reference (required for DELIVERY tickets)
+            "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS rappi_order_id VARCHAR(100)",
+            # Widen payment_type to hold 'EXTERNAL' (was VARCHAR(10))
+            "ALTER TABLE tickets ALTER COLUMN payment_type TYPE VARCHAR(20)",
+            # Pool timer status for explicit cancellation (ACTIVE | CANCELLED | COMPLETED)
+            "ALTER TABLE pool_timer_sessions ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'",
+            "ALTER TABLE pool_timer_sessions ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE pool_timer_sessions ADD COLUMN IF NOT EXISTS cancelled_by VARCHAR(36)",
+            # Backfill existing completed sessions so status is consistent
+            "UPDATE pool_timer_sessions SET status = 'COMPLETED' WHERE end_time IS NOT NULL AND status = 'ACTIVE'",
+            # Replace the old "open ticket must have resource" constraint so that
+            # EXPRESS and DELIVERY tickets (which intentionally have no resource)
+            # can be created while still enforcing the rule for TABLE tickets.
+            "ALTER TABLE tickets DROP CONSTRAINT IF EXISTS chk_open_ticket_has_resource",
+            """ALTER TABLE tickets ADD CONSTRAINT chk_open_ticket_has_resource
+               CHECK (
+                 (status <> 'OPEN')
+                 OR (resource_id IS NOT NULL)
+                 OR (ticket_type IN ('EXPRESS', 'DELIVERY'))
+               )""",
+        ]:
+            run(stmt, 'step21')
+        print("STEP 21: express/rappi/void-timer columns added")
+
+
     @app.cli.command('seed-beer')
     def seed_beer():
         """Idempotently add beer brands, cocktail ingredients, and recipes."""

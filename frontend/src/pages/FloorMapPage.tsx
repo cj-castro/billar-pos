@@ -25,16 +25,27 @@ export default function FloorMapPage() {
   const [addingTable, setAddingTable] = useState(false)
   const [reprintingId, setReprintingId] = useState<string | null>(null)
 
+  // Express / Rappi sale state
+  const [showExpressModal, setShowExpressModal] = useState(false)
+  const [expressName, setExpressName] = useState('')
+  const [creatingExpress, setCreatingExpress] = useState(false)
+  const [showRappiModal, setShowRappiModal] = useState(false)
+  const [rappiOrderId, setRappiOrderId] = useState('')
+  const [rappiName, setRappiName] = useState('')
+  const [creatingRappi, setCreatingRappi] = useState(false)
+
   const { data, refetch } = useQuery({
     queryKey: ['resources'],
     queryFn: () => client.get('/resources').then((r) => r.data),
     refetchInterval: 8_000,
+    staleTime: 0,
   })
 
   const { data: cashStatus } = useQuery({
     queryKey: ['cash-status'],
     queryFn: () => client.get('/cash/status').then((r) => r.data),
     refetchInterval: 30_000,
+    staleTime: 0,
   })
   const barOpen = cashStatus?.open === true
 
@@ -42,12 +53,21 @@ export default function FloorMapPage() {
     queryKey: ['tickets-reopened'],
     queryFn: () => client.get('/tickets/reopened').then(r => r.data),
     refetchInterval: 15_000,
+    staleTime: 0,
   })
 
   const { data: pendingPaymentTickets = [] } = useQuery({
     queryKey: ['tickets-pending-payment'],
     queryFn: () => client.get('/tickets/pending-payment').then(r => r.data),
     refetchInterval: 10_000,
+    staleTime: 0,
+  })
+
+  const { data: activeExpressTickets = [] } = useQuery({
+    queryKey: ['tickets-active-express'],
+    queryFn: () => client.get('/tickets/active-express').then(r => r.data),
+    refetchInterval: 8_000,
+    staleTime: 0,
   })
 
   useEffect(() => {
@@ -160,6 +180,49 @@ export default function FloorMapPage() {
     }
   }
 
+  // ── Express Sale ──────────────────────────────────────────────────────────
+  const handleOpenExpress = async () => {
+    if (!barOpen) { toast.error('El bar está cerrado'); return }
+    setCreatingExpress(true)
+    try {
+      const res = await client.post('/tickets', {
+        ticket_type: 'EXPRESS',
+        customer_name: expressName.trim() || undefined,
+      })
+      setShowExpressModal(false)
+      setExpressName('')
+      qc.invalidateQueries({ queryKey: ['tickets-active-express'] })
+      navigate(`/ticket/${res.data.id}`)
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'No se pudo abrir la venta rápida')
+    } finally {
+      setCreatingExpress(false)
+    }
+  }
+
+  // ── Rappi / Delivery Order ─────────────────────────────────────────────────
+  const handleOpenRappi = async () => {
+    if (!barOpen) { toast.error('El bar está cerrado'); return }
+    if (!rappiOrderId.trim()) { toast.error('El ID de orden Rappi es requerido'); return }
+    setCreatingRappi(true)
+    try {
+      const res = await client.post('/tickets', {
+        ticket_type: 'DELIVERY',
+        rappi_order_id: rappiOrderId.trim(),
+        customer_name: rappiName.trim() || undefined,
+      })
+      setShowRappiModal(false)
+      setRappiOrderId('')
+      setRappiName('')
+      qc.invalidateQueries({ queryKey: ['tickets-active-express'] })
+      navigate(`/ticket/${res.data.id}`)
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'No se pudo crear la orden Rappi')
+    } finally {
+      setCreatingRappi(false)
+    }
+  }
+
   const poolTables = resources.filter((r) => r.type === 'POOL_TABLE')
   const regularTables = resources.filter((r) => r.type === 'REGULAR_TABLE')
   const barSeats = resources.filter((r) => r.type === 'BAR_SEAT')
@@ -257,7 +320,74 @@ export default function FloorMapPage() {
           </div>
         </div>
 
-        {/* Pending Payment / Cuenta Solicitada */}
+        {/* Quick Sale actions — Venta Rápida & Rappi */}
+        <div className="mb-4 flex flex-wrap gap-3">
+          <button
+            onClick={() => { setExpressName(''); setShowExpressModal(true) }}
+            disabled={!barOpen}
+            className="flex items-center gap-2 bg-sky-700 hover:bg-sky-600 disabled:opacity-40 px-5 py-3 rounded-xl font-semibold text-sm"
+          >
+            ⚡ Venta Rápida
+          </button>
+          <button
+            onClick={() => { setRappiOrderId(''); setRappiName(''); setShowRappiModal(true) }}
+            disabled={!barOpen}
+            className="flex items-center gap-2 bg-orange-700 hover:bg-orange-600 disabled:opacity-40 px-5 py-3 rounded-xl font-semibold text-sm"
+          >
+            🛵 Orden Rappi
+          </button>
+        </div>
+
+        {/* Active Express & Rappi tickets lane */}
+        {(activeExpressTickets as any[]).length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-lg font-bold text-sky-400 mb-3 uppercase tracking-wide flex items-center gap-2">
+              ⚡ Ventas Activas
+              <span className="bg-sky-800 text-sky-200 text-xs px-2 py-0.5 rounded-full">
+                {(activeExpressTickets as any[]).length}
+              </span>
+            </h2>
+            <div className="flex flex-wrap gap-3">
+              {(activeExpressTickets as any[]).map((t: any) => {
+                const isRappi = t.ticket_type === 'DELIVERY'
+                const elapsed = t.opened_at
+                  ? Math.floor((Date.now() - new Date(t.opened_at).getTime()) / 60000)
+                  : 0
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => navigate(`/ticket/${t.id}`)}
+                    className={`text-left rounded-2xl p-4 min-w-[160px] max-w-[200px] border-2 transition-colors ${
+                      isRappi
+                        ? 'bg-orange-900/40 border-orange-600 hover:bg-orange-900/70'
+                        : 'bg-sky-900/40 border-sky-600 hover:bg-sky-900/70'
+                    }`}
+                  >
+                    <div className={`text-xs font-semibold mb-1 ${isRappi ? 'text-orange-400' : 'text-sky-400'}`}>
+                      {isRappi ? '🛵 RAPPI' : '⚡ VENTA RÁPIDA'}
+                    </div>
+                    <div className="font-bold text-white text-sm truncate">
+                      {isRappi
+                        ? (t.rappi_order_id ? `#${t.rappi_order_id}` : 'Sin ID')
+                        : (t.customer_name || '(sin nombre)')}
+                    </div>
+                    {isRappi && t.customer_name && (
+                      <div className="text-xs text-orange-300 truncate">{t.customer_name}</div>
+                    )}
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-xs font-mono font-bold text-white">
+                        ${((t.total_cents || 0) / 100).toFixed(2)}
+                      </span>
+                      <span className="text-xs text-slate-400">
+                        {elapsed < 1 ? 'ahora' : `${elapsed}m`}
+                      </span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
         {(pendingPaymentTickets as any[]).length > 0 && (
           <div className="mb-6">
             <h2 className="text-lg font-bold text-amber-400 mb-3 uppercase tracking-wide flex items-center gap-2">
@@ -468,6 +598,87 @@ export default function FloorMapPage() {
           </div>
         </div>
       )}
-    </div>
+
+    {/* ── Express Sale Modal ─────────────────────────────────────────────────── */}
+    {showExpressModal && (
+      <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+        <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
+          <div className="p-5 border-b border-slate-700">
+            <h2 className="text-lg font-bold">⚡ Venta Rápida</h2>
+            <p className="text-slate-400 text-sm mt-1">Venta directa sin mesa. Nombre opcional.</p>
+          </div>
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Nombre del cliente (opcional)</label>
+              <input
+                value={expressName}
+                onChange={e => setExpressName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleOpenExpress()}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                placeholder="Cliente de paso…"
+                autoFocus
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 p-5 border-t border-slate-700">
+            <button
+              onClick={() => setShowExpressModal(false)}
+              className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700"
+            >Cancelar</button>
+            <button
+              onClick={handleOpenExpress}
+              disabled={creatingExpress}
+              className="flex-1 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold disabled:opacity-50"
+            >{creatingExpress ? 'Abriendo…' : 'Abrir Venta →'}</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ── Rappi Order Modal ──────────────────────────────────────────────────── */}
+    {showRappiModal && (
+      <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+        <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
+          <div className="p-5 border-b border-slate-700">
+            <h2 className="text-lg font-bold">🛵 Orden Rappi</h2>
+            <p className="text-slate-400 text-sm mt-1">Pedido a domicilio — ya pagado en plataforma.</p>
+          </div>
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">ID de Orden Rappi <span className="text-red-400">*</span></label>
+              <input
+                value={rappiOrderId}
+                onChange={e => setRappiOrderId(e.target.value)}
+                className="w-full bg-slate-700 border border-orange-600 rounded-lg px-3 py-2 font-mono"
+                placeholder="p.ej. 123456789"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Nombre / referencia (opcional)</label>
+              <input
+                value={rappiName}
+                onChange={e => setRappiName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleOpenRappi()}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                placeholder="Nombre del cliente…"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 p-5 border-t border-slate-700">
+            <button
+              onClick={() => setShowRappiModal(false)}
+              className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700"
+            >Cancelar</button>
+            <button
+              onClick={handleOpenRappi}
+              disabled={creatingRappi || !rappiOrderId.trim()}
+              className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-500 rounded-xl font-bold disabled:opacity-50"
+            >{creatingRappi ? 'Creando…' : 'Crear Orden →'}</button>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
   )
 }
