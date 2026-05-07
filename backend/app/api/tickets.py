@@ -1,7 +1,7 @@
 import os
 import json
 from urllib.request import urlopen, Request
-from urllib.error import URLError
+from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
@@ -1309,6 +1309,13 @@ def print_ticket(ticket_id):
                 return jsonify({'ok': True, 'job_id': job.id})
             err = resp.read().decode()
             raise RuntimeError(err)
+    except HTTPError as http_err:
+        # Print agent responded but with an error (e.g., formatting crash)
+        try:
+            body = http_err.read().decode()
+        except Exception:
+            body = str(http_err)
+        err_msg = f'Print agent error ({http_err.code}): {body}'
     except URLError:
         err_msg = 'Print agent not running. Start it on the Windows host.'
     except Exception as exc:
@@ -1365,6 +1372,12 @@ def reprint_ticket(ticket_id):
                 db.session.commit()
                 return jsonify({'ok': True, 'job_id': job.id})
             raise RuntimeError(resp.read().decode())
+    except HTTPError as http_err:
+        try:
+            body = http_err.read().decode()
+        except Exception:
+            body = str(http_err)
+        err_msg = f'Print agent error ({http_err.code}): {body}'
     except URLError:
         err_msg = 'Print agent not running.'
     except Exception as exc:

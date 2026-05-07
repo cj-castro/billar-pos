@@ -210,7 +210,7 @@ def format_receipt_html(data: dict, unpaid: bool = False, reprint: bool = False)
         charge = s.get('charge_cents', 0)
         dur    = s.get('duration_seconds', 0)
         mode   = (s.get('billing_mode') or '').replace('_', ' ')
-        rc     = s.get('resource_code', '')
+        rc     = s.get('resource_code') or ''
         live   = '' if s.get('end_time') else ' · RUNNING'
         timer_rows_html += f'''
       <div class="item-row">
@@ -255,8 +255,8 @@ def format_receipt_html(data: dict, unpaid: bool = False, reprint: bool = False)
       <div class="divider"></div>
       <div class="unpaid-notice">⚠ CUENTA NO PAGADA ⚠</div>'''
     else:
-        pt  = data.get('payment_type', '')
-        pt2 = data.get('payment_type_2')
+        pt  = data.get('payment_type') or ''
+        pt2 = data.get('payment_type_2') or None
         tc  = data.get('tendered_cents') or 0
         tc2 = data.get('tendered_cents_2') or 0
         chg = data.get('change_due') or max(0, tc - live_total)
@@ -268,11 +268,14 @@ def format_receipt_html(data: dict, unpaid: bool = False, reprint: bool = False)
         elif pt == 'CASH' and tc > 0:
             chg_line = f'<div class="total-row"><span>Cambio</span><span>{fmt_cents(chg)}</span></div>' if chg > 0 else ''
             pay_lines = f'<div class="total-row"><span>Recibido</span><span>{fmt_cents(tc)}</span></div>{chg_line}'
+        elif pt == 'EXTERNAL':
+            pay_lines = '<div class="total-row"><span>Pagado externamente</span><span>✓</span></div>'
         else:
             pay_lines = ''
+        badge = _html.escape(pt) if pt else '—'
         payment_section = f'''
       {pay_lines}
-      <div class="center"><div class="payment-badge">{_html.escape(pt)}</div></div>'''
+      <div class="center"><div class="payment-badge">{badge}</div></div>'''
 
     logo_img = f'<img src="{logo}" class="logo" alt="Bola 8" />' if logo else ''
 
@@ -369,52 +372,156 @@ def print_html_dev(data: dict, unpaid: bool = False) -> bool:
         return False
 
 
+def format_receipt_escpos(data: dict, unpaid: bool = False, reprint: bool = False) -> bytes:
+    """Format a full receipt as ESC/POS bytes for direct thermal printing."""
+    ticket_id   = (data.get('id') or '')[-6:].upper()
+    resource    = data.get('resource_code') or ''
+    date_str    = fmt_date(data.get('closed_at') or data.get('opened_at') or '')
+
+    items   = [i for i in (data.get('line_items') or []) if i.get('status') != 'VOIDED']
+    grouped = _group_line_items(items)
+
+    sub        = data.get('subtotal_cents', 0) or 0
+    disc       = data.get('discount_cents', 0) or 0
+    disc_pct   = data.get('manual_discount_pct', 0) or 0
+    pool_c     = data.get('pool_time_cents', 0) or 0
+    tip        = data.get('tip_cents', 0) or 0
+    live_total = sub + pool_c - disc
+    grand_total = live_total + tip
+
+    raw = bytearray()
+    raw += cmd_init()
+    raw += cmd_codepage()
+
+    # ── Header ──────────────────────────────────────────────────────────────
+    raw += cmd_align(1)
+    raw += cmd_bold(True)
+    raw += cmd_double(True)
+    raw += enc('BOLA 8') + LF
+    raw += cmd_double(False)
+    raw += cmd_bold(False)
+    if reprint:
+        raw += enc('--- REIMPRESION ---') + LF
+    if unpaid:
+        raw += cmd_bold(True)
+        raw += enc('** CUENTA **') + LF
+        raw += cmd_bold(False)
+    raw += divider('=')
+    raw += cmd_align(0)
+
+    # ── Ticket info ──────────────────────────────────────────────────────────
+    if resource:
+        raw += two_col(f'Ticket: #{ticket_id}', f'Mesa: {resource}')
+    else:
+        raw += left_line(f'Ticket: #{ticket_id}')
+    raw += left_line(f'Fecha:  {date_str}')
+    raw += divider()
+
+    # ── Line items ───────────────────────────────────────────────────────────
+    for g in grouped:
+        variants   = g['variants']
+        base_price = g['unit_price_cents']
+        line_total = sum(
+            v['quantity'] * (base_price + sum(m.get('price_cents', 0) for m in v['modifiers']))
+            for v in variants
+        )
+        raw += two_col(f'{g["quantity"]}x {g["name"]}', fmt_cents(line_total))
+        multi = len(variants) > 1
+        for v in variants:
+            mod_names = [m.get('name', '') for m in v['modifiers'] if m.get('name', '')]
+            label = ', '.join(mod_names)
+            if v.get('notes'):
+                label = (label + ' ' if label else '') + f'({v["notes"]})'
+            if label:
+                prefix = f'  {v["quantity"]}x ' if multi else '  + '
+                raw += wrap_lines(prefix + label, CHARS, '    ')
+
+    # ── Timer sessions ───────────────────────────────────────────────────────
+    timer_sessions = [s for s in (data.get('timer_sessions') or [])
+                      if (s.get('charge_cents') or 0) > 0 or (not s.get('end_time') and s.get('start_time'))]
+    for s in timer_sessions:
+        charge = s.get('charge_cents', 0) or 0
+        dur    = s.get('duration_seconds', 0) or 0
+        mode   = (s.get('billing_mode') or '').replace('_', ' ')
+        rc     = s.get('resource_code') or ''
+        live   = ' ACTIVO' if not s.get('end_time') else ''
+        rc_lbl = f'({rc}) ' if rc else ''
+        raw += two_col(f'Pool {rc_lbl}{fmt_dur(dur)}', fmt_cents(charge))
+        if mode or live:
+            raw += left_line(f'  {mode}{live}')
+
+    # ── Totals ───────────────────────────────────────────────────────────────
+    raw += divider()
+    if sub > 0:
+        raw += two_col('Subtotal:', fmt_cents(sub))
+    if disc > 0:
+        pct_str = f' ({disc_pct}%)' if disc_pct else ''
+        raw += two_col(f'Descuento{pct_str}:', f'-{fmt_cents(disc)}')
+    if pool_c > 0:
+        raw += two_col('Pool Time:', fmt_cents(pool_c))
+    if tip > 0:
+        raw += two_col('Propina:', fmt_cents(tip))
+    raw += divider('=')
+    raw += cmd_bold(True)
+    raw += two_col('TOTAL:', fmt_cents(grand_total))
+    raw += cmd_bold(False)
+    raw += divider('=')
+
+    # ── Payment / unpaid ─────────────────────────────────────────────────────
+    if unpaid:
+        raw += cmd_align(1)
+        raw += enc('- Sugerencia de Propina -') + LF
+        raw += cmd_align(0)
+        for p in [10, 15, 18, 20]:
+            tip_amt = round(live_total * p / 100)
+            raw += two_col(f'  {p}%  {fmt_cents(tip_amt)}', fmt_cents(live_total + tip_amt))
+        raw += divider()
+        raw += cmd_align(1)
+        raw += cmd_bold(True)
+        raw += enc('** CUENTA NO PAGADA **') + LF
+        raw += cmd_bold(False)
+        raw += cmd_align(0)
+    else:
+        pt  = data.get('payment_type') or ''
+        pt2 = data.get('payment_type_2') or None
+        tc  = data.get('tendered_cents') or 0
+        tc2 = data.get('tendered_cents_2') or 0
+        chg = data.get('change_due') or max(0, tc - live_total)
+        if pt2:
+            cash = tc  if pt == 'CASH' else tc2
+            card = tc2 if pt == 'CASH' else tc
+            raw += two_col('Efectivo:', fmt_cents(cash))
+            raw += two_col('Tarjeta:', fmt_cents(card))
+        elif pt == 'CASH' and tc > 0:
+            raw += two_col('Recibido:', fmt_cents(tc))
+            if chg > 0:
+                raw += two_col('Cambio:', fmt_cents(chg))
+        elif pt == 'EXTERNAL':
+            raw += left_line('Pagado externamente')
+        if pt:
+            raw += cmd_align(1)
+            raw += cmd_bold(True)
+            raw += enc(f'[ {pt} ]') + LF
+            raw += cmd_bold(False)
+            raw += cmd_align(0)
+
+    # ── Footer ───────────────────────────────────────────────────────────────
+    raw += divider()
+    raw += cmd_align(1)
+    raw += enc('Gracias por su visita!') + LF
+    raw += cmd_align(0)
+    raw += cmd_feed(3)
+    raw += cmd_cut()
+    return bytes(raw)
+
+
 def print_receipt_html(data: dict, unpaid: bool = False, reprint: bool = False, kind: str = 'receipt') -> bool:
-    """Print HTML receipt to the named Windows printer via ShellExecute printto.
-    On Mac/Linux falls back to browser preview (dev mode)."""
+    """Print receipt. On Windows uses ESC/POS via win32print (same as KDS chits).
+    On Mac/Linux falls back to HTML browser preview (dev mode)."""
     if sys.platform != 'win32':
         return print_html_dev(data, unpaid=unpaid)
-
-    printer_name = get_printer_name(kind=kind)
-    if not printer_name:
-        log.error('No printer found for receipt')
-        return False
-
-    tmp_path = None
-    try:
-        import win32api
-        html = format_receipt_html(data, unpaid=unpaid, reprint=reprint)
-        fd, tmp_path = tempfile.mkstemp(suffix='.html')
-        os.close(fd)
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            f.write(html)
-
-        result = win32api.ShellExecute(0, 'printto', tmp_path, f'"{printer_name}"', '.', 0)
-        if result <= 32:
-            raise OSError(f'ShellExecute printto failed (code {result})')
-
-        log.info(f'HTML receipt queued for "{printer_name}"')
-
-        # Clean up temp file after browser has had time to spool the job
-        def _cleanup(path: str) -> None:
-            import time as _t
-            _t.sleep(30)
-            try:
-                os.unlink(path)
-            except Exception:
-                pass
-        import threading
-        threading.Thread(target=_cleanup, args=(tmp_path,), daemon=True).start()
-        return True
-
-    except Exception as e:
-        log.error(f'HTML print error on "{printer_name}": {e}')
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-        return False
+    raw = format_receipt_escpos(data, unpaid=unpaid, reprint=reprint)
+    return print_raw(raw, data=data, unpaid=unpaid, kind=kind)
 
 
 def fmt_cents(cents):
@@ -545,7 +652,7 @@ def format_receipt(data: dict, unpaid: bool = False, reprint: bool = False) -> b
             charge    = s.get('charge_cents', 0)
             dur_secs  = s.get('duration_seconds', 0)
             mode      = (s.get('billing_mode') or '').replace('_', ' ')
-            resource  = s.get('resource_code', '')
+            resource  = s.get('resource_code') or ''
             # Live session
             if not s.get('end_time') and s.get('start_time'):
                 import time as _t
