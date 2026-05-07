@@ -107,6 +107,28 @@ def wrap_lines(text, width=CHARS, indent=''):
         lines.append(enc(current[:width]) + LF)
     return b''.join(lines) if lines else enc(text[:width]) + LF
 
+def three_col(c1, c2, c3, width=CHARS):
+    """Three-column row: left / center / right aligned."""
+    c1, c2, c3 = str(c1), str(c2), str(c3)
+    w1 = max(len(c1), 4)
+    w3 = max(len(c3), 6)
+    w2 = width - w1 - w3
+    line = c1.ljust(w1) + c2.center(max(w2, 1)) + c3.rjust(w3)
+    return enc(line[:width]) + LF
+
+def box_line(text, width=CHARS):
+    """Print text centered inside a box with padding rows and bold text (CP850 box chars)."""
+    inner  = width - 2
+    top    = b'\xda' + b'\xc4' * inner + b'\xbf' + b'\n'
+    pad    = b'\xb3' + b' ' * inner + b'\xb3' + b'\n'
+    mid    = (b'\xb3'
+              + cmd_bold(True)
+              + enc(text.center(inner)[:inner])
+              + cmd_bold(False)
+              + b'\xb3' + b'\n')
+    bottom = b'\xc0' + b'\xc4' * inner + b'\xd9' + b'\n'
+    return top + pad + mid + pad + bottom
+
 def _get_logo_b64() -> str:
     """Load logo base64 from the frontend source file."""
     try:
@@ -120,6 +142,56 @@ def _get_logo_b64() -> str:
     except Exception:
         pass
     return ''
+
+
+def _logo_escpos(max_width: int = 384) -> bytes:
+    """Convert the store logo PNG to ESC/POS raster image bytes (GS v 0).
+    Returns empty bytes if Pillow is unavailable or the logo can't be loaded."""
+    try:
+        import base64, io
+        from PIL import Image
+
+        data_url = _get_logo_b64()
+        if not data_url:
+            return b''
+
+        # Strip "data:image/...;base64," prefix
+        raw_b64 = data_url.split(',', 1)[1] if ',' in data_url else data_url
+        img = Image.open(io.BytesIO(base64.b64decode(raw_b64))).convert('RGBA')
+
+        # White background (flatten transparency)
+        bg = Image.new('RGBA', img.size, (255, 255, 255, 255))
+        bg.paste(img, mask=img.split()[3])
+        img = bg.convert('L')  # grayscale
+
+        # Scale to fit receipt width
+        if img.width > max_width:
+            img = img.resize((max_width, int(img.height * max_width / img.width)), Image.LANCZOS)
+
+        img = img.convert('1')  # 1-bit black/white
+        w, h = img.size
+        w_bytes = (w + 7) // 8  # bytes per row (8 pixels per byte)
+
+        # Build pixel data: 1=black dot, 0=white
+        pixel_data = bytearray()
+        for y in range(h):
+            for xb in range(w_bytes):
+                byte = 0
+                for bit in range(8):
+                    x = xb * 8 + bit
+                    if x < w and not img.getpixel((x, y)):  # 0 = black in mode '1'
+                        byte |= (0x80 >> bit)
+                pixel_data.append(byte)
+
+        # GS v 0  m xL xH yL yH  [data]   (m=0: normal density)
+        cmd = (b'\x1d\x76\x30\x00'
+               + bytes([w_bytes & 0xFF, (w_bytes >> 8) & 0xFF])
+               + bytes([h & 0xFF, (h >> 8) & 0xFF])
+               + bytes(pixel_data))
+        return cmd
+    except Exception as e:
+        log.warning(f'Logo ESC/POS conversion skipped: {e}')
+        return b''
 
 
 def _group_modifiers(mods: list) -> list:
@@ -393,31 +465,42 @@ def format_receipt_escpos(data: dict, unpaid: bool = False, reprint: bool = Fals
     raw += cmd_init()
     raw += cmd_codepage()
 
-    # ── Header ──────────────────────────────────────────────────────────────
+    # ── Logo ─────────────────────────────────────────────────────────────────
+    if not os.environ.get('DISABLE_LOGO'):
+        logo_bytes = _logo_escpos(max_width=CHARS * 12)
+        if logo_bytes:
+            raw += cmd_align(1)
+            raw += logo_bytes
+            raw += LF
+            raw += cmd_align(0)
+
+    # ── Header ───────────────────────────────────────────────────────────────
     raw += cmd_align(1)
     raw += cmd_bold(True)
     raw += cmd_double(True)
-    raw += enc('BOLA 8') + LF
+    raw += enc('BOLA 8 POOL CLUB') + LF
     raw += cmd_double(False)
     raw += cmd_bold(False)
+    raw += enc('Pool - Food - Drinks') + LF
     if reprint:
         raw += enc('--- REIMPRESION ---') + LF
-    if unpaid:
-        raw += cmd_bold(True)
-        raw += enc('** CUENTA **') + LF
-        raw += cmd_bold(False)
-    raw += divider('=')
+    raw += divider('.')
+    raw += enc(f'#{ticket_id}') + LF
+    raw += divider('.')
     raw += cmd_align(0)
 
     # ── Ticket info ──────────────────────────────────────────────────────────
     if resource:
-        raw += two_col(f'Ticket: #{ticket_id}', f'Mesa: {resource}')
-    else:
-        raw += left_line(f'Ticket: #{ticket_id}')
-    raw += left_line(f'Fecha:  {date_str}')
-    raw += divider()
+        raw += left_line(f'Table: {resource}')
+    raw += left_line(f'Date:  {date_str}')
+    raw += divider('.')
 
-    # ── Line items ───────────────────────────────────────────────────────────
+    # ── Items section header ─────────────────────────────────────────────────
+    raw += cmd_align(1)
+    raw += enc('ITEMS') + LF
+    raw += cmd_align(0)
+    raw += divider('.')
+
     for g in grouped:
         variants   = g['variants']
         base_price = g['unit_price_cents']
@@ -435,6 +518,7 @@ def format_receipt_escpos(data: dict, unpaid: bool = False, reprint: bool = Fals
             if label:
                 prefix = f'  {v["quantity"]}x ' if multi else '  + '
                 raw += wrap_lines(prefix + label, CHARS, '    ')
+        raw += LF  # breathing room between items
 
     # ── Timer sessions ───────────────────────────────────────────────────────
     timer_sessions = [s for s in (data.get('timer_sessions') or [])
@@ -445,42 +529,43 @@ def format_receipt_escpos(data: dict, unpaid: bool = False, reprint: bool = Fals
         mode   = (s.get('billing_mode') or '').replace('_', ' ')
         rc     = s.get('resource_code') or ''
         live   = ' ACTIVO' if not s.get('end_time') else ''
-        rc_lbl = f'({rc}) ' if rc else ''
-        raw += two_col(f'Pool {rc_lbl}{fmt_dur(dur)}', fmt_cents(charge))
-        if mode or live:
-            raw += left_line(f'  {mode}{live}')
+        rc_lbl = f'({rc})' if rc else ''
+        label  = f'Pool Time {rc_lbl}'.strip()
+        raw += two_col(label, fmt_cents(charge))
+        raw += left_line(f'  {fmt_dur(dur)} - {mode}{live}')
+        raw += LF  # breathing room between sessions
 
     # ── Totals ───────────────────────────────────────────────────────────────
-    raw += divider()
+    raw += divider('-')
     if sub > 0:
-        raw += two_col('Subtotal:', fmt_cents(sub))
+        raw += two_col('Subtotal', fmt_cents(sub))
     if disc > 0:
         pct_str = f' ({disc_pct}%)' if disc_pct else ''
-        raw += two_col(f'Descuento{pct_str}:', f'-{fmt_cents(disc)}')
+        raw += two_col(f'Descuento{pct_str}', f'-{fmt_cents(disc)}')
     if pool_c > 0:
-        raw += two_col('Pool Time:', fmt_cents(pool_c))
+        raw += two_col('Pool Time', fmt_cents(pool_c))
     if tip > 0:
-        raw += two_col('Propina:', fmt_cents(tip))
-    raw += divider('=')
+        raw += two_col('Propina', fmt_cents(tip))
     raw += cmd_bold(True)
-    raw += two_col('TOTAL:', fmt_cents(grand_total))
+    raw += two_col('TOTAL', fmt_cents(grand_total))
     raw += cmd_bold(False)
-    raw += divider('=')
+    raw += divider('.')
 
     # ── Payment / unpaid ─────────────────────────────────────────────────────
     if unpaid:
         raw += cmd_align(1)
-        raw += enc('- Sugerencia de Propina -') + LF
-        raw += cmd_align(0)
-        for p in [10, 15, 18, 20]:
-            tip_amt = round(live_total * p / 100)
-            raw += two_col(f'  {p}%  {fmt_cents(tip_amt)}', fmt_cents(live_total + tip_amt))
-        raw += divider()
-        raw += cmd_align(1)
         raw += cmd_bold(True)
-        raw += enc('** CUENTA NO PAGADA **') + LF
+        raw += enc('SUGERENCIA DE PROPINA') + LF
         raw += cmd_bold(False)
         raw += cmd_align(0)
+        raw += divider('.')
+        raw += three_col('%', 'Propina', 'Total')
+        raw += divider('.')
+        for p in [10, 15, 18, 20]:
+            tip_amt = round(live_total * p / 100)
+            raw += three_col(f'{p}%', fmt_cents(tip_amt), fmt_cents(live_total + tip_amt))
+            raw += divider('.')
+        raw += box_line('! CUENTA NO PAGADA !')
     else:
         pt  = data.get('payment_type') or ''
         pt2 = data.get('payment_type_2') or None
@@ -506,9 +591,10 @@ def format_receipt_escpos(data: dict, unpaid: bool = False, reprint: bool = Fals
             raw += cmd_align(0)
 
     # ── Footer ───────────────────────────────────────────────────────────────
-    raw += divider()
+    raw += divider('.')
     raw += cmd_align(1)
-    raw += enc('Gracias por su visita!') + LF
+    raw += enc('Thank you for visiting!') + LF
+    raw += enc('Come back soon') + LF
     raw += cmd_align(0)
     raw += cmd_feed(3)
     raw += cmd_cut()

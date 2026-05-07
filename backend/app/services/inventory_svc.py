@@ -482,7 +482,7 @@ def consume_for_line_item(line_item, performed_by: str):
     for d in deductions:
         item         = locked[d['inventory_item_id']]
         needed       = d['needed']
-        snapshot_wac = item.unit_cost_cents
+        snapshot_wac = item.unit_cost_cents or 0
         total_cost   = _round_cents(needed * snapshot_wac)
 
         item.stock_quantity = _d(item.stock_quantity) - needed
