@@ -305,7 +305,7 @@ def set_modifier_inventory_rules(modifier_id):
         inv = InventoryItem.query.get(r.get('inventory_item_id'))
         if not inv:
             continue
-        qty = max(1, int(r.get('quantity', 1)))
+        qty = max(0.001, float(r.get('quantity', 1) or 1))
         db.session.add(ModifierInventoryRule(
             modifier_id=modifier_id,
             inventory_item_id=inv.id,

@@ -29,6 +29,10 @@ export default function MenuManagementPage() {
   const [recipeItemFull, setRecipeItemFull] = useState<any>(null)
   const [recipeIngredients, setRecipeIngredients] = useState<any[]>([])
   const [addIngr, setAddIngr] = useState({ inventory_item_id: '', quantity: '1' })
+  // Modifier inventory rule editor
+  const [editingModifierId, setEditingModifierId] = useState<string | null>(null)
+  const [modRuleForm, setModRuleForm] = useState({ inventory_item_id: '', quantity: '1' })
+  const [savingRule, setSavingRule] = useState(false)
   // Category management
   const [showCatManager, setShowCatManager] = useState(false)
   const [editCat, setEditCat] = useState<any>(null)
@@ -220,6 +224,54 @@ export default function MenuManagementPage() {
       await client.delete(`/inventory/insumos-base/${ingId}`)
       setRecipeIngredients(prev => prev.filter(i => i.id !== ingId))
       toast.success('Insumo eliminado')
+    } catch { toast.error('Error') }
+  }
+
+  const handleSaveModifierRule = async (modifierId: string) => {
+    if (!modRuleForm.inventory_item_id) return toast.error('Selecciona un artículo de inventario')
+    const qty = parseFloat(modRuleForm.quantity)
+    if (!qty || qty <= 0) return toast.error('La cantidad debe ser mayor a 0')
+    setSavingRule(true)
+    try {
+      const res = await client.put(`/menu/modifiers/${modifierId}/inventory-rules`, {
+        rules: [{ inventory_item_id: modRuleForm.inventory_item_id, quantity: qty }]
+      })
+      setRecipeItemFull((prev: any) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          modifier_groups: prev.modifier_groups.map((g: any) => ({
+            ...g,
+            modifiers: g.modifiers.map((m: any) =>
+              m.id === modifierId ? { ...m, inventory_rules: res.data.inventory_rules || [] } : m
+            )
+          }))
+        }
+      })
+      setEditingModifierId(null)
+      toast.success('Regla guardada')
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Error al guardar')
+    } finally { setSavingRule(false) }
+  }
+
+  const handleClearModifierRule = async (modifierId: string) => {
+    if (!window.confirm('¿Quitar el vínculo de inventario para este modificador?')) return
+    try {
+      await client.put(`/menu/modifiers/${modifierId}/inventory-rules`, { rules: [] })
+      setRecipeItemFull((prev: any) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          modifier_groups: prev.modifier_groups.map((g: any) => ({
+            ...g,
+            modifiers: g.modifiers.map((m: any) =>
+              m.id === modifierId ? { ...m, inventory_rules: [] } : m
+            )
+          }))
+        }
+      })
+      toast.success('Vínculo eliminado')
     } catch { toast.error('Error') }
   }
 
@@ -427,25 +479,75 @@ export default function MenuManagementPage() {
               )}
 
               {/* ── Descuento por modificador ──────────────────────── */}
-              {recipeItemFull?.modifier_groups?.filter((g: any) =>
-                g.modifiers?.some((m: any) => m.inventory_rules?.length > 0)
-              ).map((group: any) => (
+              {recipeItemFull?.modifier_groups?.length > 0 && recipeItemFull.modifier_groups.map((group: any) => (
                 <div key={group.id} className="mb-4">
                   <p className="text-xs text-sky-400 font-semibold uppercase mb-2">
                     🎛 {group.name} — el mesero elige
                     {group.allow_multiple && <span className="ml-1 text-yellow-400">({group.max_selections} selecciones)</span>}
                   </p>
                   <div className="space-y-1.5">
-                    {group.modifiers?.filter((m: any) => m.inventory_rules?.length > 0).map((mod: any) => (
-                      <div key={mod.id} className="bg-slate-700/60 rounded-lg px-3 py-2 flex items-center justify-between">
-                        <span className="text-sm font-medium text-slate-200">Si se elige <span className="text-sky-300 font-semibold">{mod.name}</span>:</span>
-                        <div className="flex flex-col items-end gap-0.5">
-                          {mod.inventory_rules.map((r: any, i: number) => (
-                            <span key={i} className="text-xs text-emerald-300 font-mono">−{r.quantity} {r.inventory_item_unit} {r.inventory_item_name}</span>
-                          ))}
+                    {group.modifiers?.map((mod: any) => {
+                      const rule = mod.inventory_rules?.[0]
+                      const isEditing = editingModifierId === mod.id
+                      return (
+                        <div key={mod.id} className="bg-slate-700/60 rounded-lg px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium text-slate-200">{mod.name}</span>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {rule && !isEditing && (
+                                <>
+                                  <span className="text-xs text-emerald-300 font-mono">
+                                    −{parseFloat(rule.quantity)} {rule.inventory_item_unit} {rule.inventory_item_name}
+                                  </span>
+                                  <button onClick={() => {
+                                    setEditingModifierId(mod.id)
+                                    setModRuleForm({ inventory_item_id: rule.inventory_item_id, quantity: String(parseFloat(rule.quantity)) })
+                                  }} className="text-sky-400 hover:text-sky-300 text-xs px-1">✎</button>
+                                  <button onClick={() => handleClearModifierRule(mod.id)}
+                                    className="text-red-400 hover:text-red-300 text-xs px-1">✕</button>
+                                </>
+                              )}
+                              {!rule && !isEditing && (
+                                <button onClick={() => {
+                                  setEditingModifierId(mod.id)
+                                  setModRuleForm({ inventory_item_id: '', quantity: '1' })
+                                }} className="text-xs text-sky-500 hover:text-sky-400 border border-sky-700 rounded px-2 py-0.5">
+                                  + vincular
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          {isEditing && (
+                            <div className="mt-2 flex gap-2 flex-wrap items-center">
+                              <select
+                                value={modRuleForm.inventory_item_id}
+                                onChange={e => setModRuleForm({ ...modRuleForm, inventory_item_id: e.target.value })}
+                                className="flex-1 bg-slate-600 border border-slate-500 rounded px-2 py-1.5 text-xs min-w-0">
+                                <option value="">— artículo de inventario —</option>
+                                {(inventoryItems as any[]).map((inv: any) => (
+                                  <option key={inv.id} value={inv.id}>
+                                    {inv.name} ({inv.base_unit_key})
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="number" min={0.001} step={0.1}
+                                value={modRuleForm.quantity}
+                                onChange={e => setModRuleForm({ ...modRuleForm, quantity: e.target.value })}
+                                className="w-16 bg-slate-600 border border-slate-500 rounded px-2 py-1.5 text-xs text-center font-mono"
+                              />
+                              <span className="text-xs text-slate-400">
+                                {(inventoryItems as any[]).find((i: any) => i.id === modRuleForm.inventory_item_id)?.base_unit_key ?? 'unit'}
+                              </span>
+                              <button onClick={() => handleSaveModifierRule(mod.id)} disabled={savingRule}
+                                className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 px-2 py-1 rounded text-xs font-bold">✓</button>
+                              <button onClick={() => setEditingModifierId(null)}
+                                className="text-slate-400 hover:text-white px-2 py-1 rounded text-xs">✕</button>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                   <p className="text-xs text-slate-500 mt-1.5 pl-1">
                     Cada selección descuenta automáticamente el inventario correspondiente.

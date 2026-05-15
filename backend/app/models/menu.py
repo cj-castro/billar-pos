@@ -56,6 +56,9 @@ class ModifierGroup(db.Model):
     max_selections = db.Column(db.Integer, default=1)
     # When True, the same modifier can be selected multiple times (e.g., beer bucket picks)
     allow_multiple = db.Column(db.Boolean, default=False)
+    # When True, inventory rule qty is divided by the number of distinct modifiers selected
+    # from this group (e.g., 2 wing flavors each get half the sauce portion)
+    split_modifier_qty = db.Column(db.Boolean, default=False)
     modifiers = db.relationship('Modifier', backref='group', lazy='dynamic')
 
     def to_dict(self, include_inactive=False):
@@ -67,6 +70,7 @@ class ModifierGroup(db.Model):
             'min_selections': self.min_selections,
             'max_selections': self.max_selections,
             'allow_multiple': self.allow_multiple,
+            'split_modifier_qty': self.split_modifier_qty,
             'modifiers': [m.to_dict() for m in mods]
         }
 

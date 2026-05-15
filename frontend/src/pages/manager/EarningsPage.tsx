@@ -127,7 +127,7 @@ export default function EarningsPage() {
 
         {summary?.pool_cents > 0 && (
           <p className="text-xs text-slate-500 mb-4">
-            * Incluye {formatMXN(summary.pool_cents)} de tiempo de billar (sin costo de insumos).
+            * Barra incluye {formatMXN(summary.pool_cents)} de tiempo de billar (sin costo de insumos).
           </p>
         )}
 
@@ -150,9 +150,15 @@ export default function EarningsPage() {
               </thead>
               <tbody>
                 <tr className="border-b border-slate-700/50">
-                  <td className="px-4 py-3 text-slate-200">Ingresos por ventas de productos</td>
-                  <td className="px-4 py-3 text-right font-mono">{formatMXN(summary.ingresos_cents - summary.pool_cents)}</td>
+                  <td className="px-4 py-3 text-slate-200">Ventas Barra (caja + terminal)</td>
+                  <td className="px-4 py-3 text-right font-mono">{formatMXN(summary.ingresos_barra_cents - summary.pool_cents)}</td>
                 </tr>
+                {summary.ingresos_rappi_cents > 0 && (
+                  <tr className="border-b border-slate-700/50">
+                    <td className="px-4 py-3 text-slate-200">🛵 Ventas Rappi</td>
+                    <td className="px-4 py-3 text-right font-mono text-orange-300">{formatMXN(summary.ingresos_rappi_cents)}</td>
+                  </tr>
+                )}
                 {summary.pool_cents > 0 && (
                   <tr className="border-b border-slate-700/50">
                     <td className="px-4 py-3 text-slate-200">Ingresos por tiempo de billar</td>

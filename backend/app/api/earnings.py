@@ -42,7 +42,10 @@ def _int(v):
     return int(v)
 
 
-# Shared CTE used by all three sub-routes
+# Shared CTE used by all three sub-routes.
+# net_gross_cents: line revenue after proportional discount (ticket.discount_cents
+# is distributed across line items by their share of subtotal_cents).
+# Falls back to gross_cents when subtotal is zero (prevents division by zero).
 _RECIPE_CTE = """
 WITH recipe_cost AS (
     SELECT
@@ -60,7 +63,16 @@ line_costs AS (
         tli.item_name,
         tli.quantity,
         tli.unit_price_cents,
+        t.ticket_type,
         tli.quantity * tli.unit_price_cents             AS gross_cents,
+        COALESCE(
+            ROUND(
+                tli.quantity * tli.unit_price_cents
+                * (t.subtotal_cents - COALESCE(t.discount_cents, 0))::numeric
+                / NULLIF(t.subtotal_cents, 0)::numeric
+            ),
+            tli.quantity * tli.unit_price_cents
+        )                                               AS net_gross_cents,
         COALESCE(
             tli.cost_snapshot_cents,
             tli.quantity * rc.unit_cost_cents,
@@ -89,9 +101,13 @@ def earnings_summary():
 
     sql = text(_RECIPE_CTE + """
         SELECT
-            COALESCE(SUM(gross_cents), 0)           AS ingresos_cents,
+            COALESCE(SUM(net_gross_cents), 0)       AS ingresos_cents,
+            COALESCE(SUM(CASE WHEN ticket_type != 'DELIVERY' THEN net_gross_cents ELSE 0 END), 0)
+                                                    AS ingresos_barra_cents,
+            COALESCE(SUM(CASE WHEN ticket_type = 'DELIVERY'  THEN net_gross_cents ELSE 0 END), 0)
+                                                    AS ingresos_rappi_cents,
             COALESCE(SUM(cogs_cents), 0)            AS cogs_cents,
-            COALESCE(SUM(gross_cents - cogs_cents), 0) AS ganancia_cents,
+            COALESCE(SUM(net_gross_cents - cogs_cents), 0) AS ganancia_cents,
             array_agg(DISTINCT no_cost_item)
                 FILTER (WHERE no_cost_item IS NOT NULL) AS items_sin_costo
         FROM line_costs
@@ -110,7 +126,9 @@ def earnings_summary():
     row = db.session.execute(sql, {'from_dt': from_dt, 'to_dt': to_dt}).mappings().one()
     pool_row = db.session.execute(pool_sql, {'from_dt': from_dt, 'to_dt': to_dt}).mappings().one()
 
-    ingresos = _int(row['ingresos_cents']) + _int(pool_row['pool_cents'])
+    ingresos_rappi = _int(row['ingresos_rappi_cents'])
+    ingresos_barra = _int(row['ingresos_barra_cents']) + _int(pool_row['pool_cents'])
+    ingresos = ingresos_barra + ingresos_rappi
     cogs = _int(row['cogs_cents'])
     ganancia = ingresos - cogs
     margen = round((ganancia / ingresos * 100), 2) if ingresos > 0 else 0.0
@@ -120,6 +138,8 @@ def earnings_summary():
         'from': from_dt.astimezone(LOCAL_TZ).date().isoformat(),
         'to': to_dt.astimezone(LOCAL_TZ).date().isoformat(),
         'ingresos_cents': ingresos,
+        'ingresos_barra_cents': ingresos_barra,
+        'ingresos_rappi_cents': ingresos_rappi,
         'cogs_cents': cogs,
         'ganancia_cents': ganancia,
         'margen_pct': margen,
@@ -139,9 +159,9 @@ def earnings_by_category():
     sql = text(_RECIPE_CTE + """
         SELECT
             COALESCE(mc.name, '— Sin categoría')   AS category,
-            COALESCE(SUM(lc.gross_cents), 0)        AS ingresos_cents,
+            COALESCE(SUM(lc.net_gross_cents), 0)    AS ingresos_cents,
             COALESCE(SUM(lc.cogs_cents), 0)         AS cogs_cents,
-            COALESCE(SUM(lc.gross_cents - lc.cogs_cents), 0) AS ganancia_cents
+            COALESCE(SUM(lc.net_gross_cents - lc.cogs_cents), 0) AS ganancia_cents
         FROM line_costs lc
         LEFT JOIN menu_items mi ON mi.id = lc.menu_item_id
         LEFT JOIN menu_categories mc ON mc.id = mi.category_id
@@ -208,9 +228,9 @@ def earnings_by_staff():
         SELECT
             u.id                                        AS user_id,
             u.name                                      AS staff_name,
-            COALESCE(SUM(lc.gross_cents), 0)            AS ingresos_cents,
+            COALESCE(SUM(lc.net_gross_cents), 0)        AS ingresos_cents,
             COALESCE(SUM(lc.cogs_cents), 0)             AS cogs_cents,
-            COALESCE(SUM(lc.gross_cents - lc.cogs_cents), 0) AS ganancia_cents
+            COALESCE(SUM(lc.net_gross_cents - lc.cogs_cents), 0) AS ganancia_cents
         FROM line_costs lc
         JOIN tickets t ON t.id = lc.ticket_id
         JOIN users u ON u.id = t.opened_by

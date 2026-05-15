@@ -22,6 +22,7 @@ from app.models.inventory import (
     OpenCigaretteBox,
     UnitCatalog,
 )
+from app.models.menu import ModifierGroup
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -387,12 +388,35 @@ def check_stock_for_item(menu_item, modifiers_data: list, quantity: int = 1) -> 
         needed[ing.inventory_item_id] = needed.get(ing.inventory_item_id, Decimal(0)) + qty
 
     from app.models.menu import Modifier
+    # Build split factors: for groups with split_modifier_qty, divide qty by distinct modifier count
+    group_split: dict[str, Decimal] = {}
+    group_modifier_ids: dict[str, set] = {}
+    for mod_data in modifiers_data:
+        mod = Modifier.query.get(mod_data.get('modifier_id'))
+        if not mod:
+            continue
+        gid = mod.modifier_group_id
+        group_modifier_ids.setdefault(gid, set()).add(mod.id)
+    for mod_data in modifiers_data:
+        mod = Modifier.query.get(mod_data.get('modifier_id'))
+        if not mod:
+            continue
+        gid = mod.modifier_group_id
+        if gid not in group_split:
+            group = mod.group
+            if group and group.split_modifier_qty:
+                n = len(group_modifier_ids.get(gid, {1}))
+                group_split[gid] = Decimal(max(n, 1))
+            else:
+                group_split[gid] = Decimal(1)
+
     for mod_data in modifiers_data:
         mod = Modifier.query.get(mod_data.get('modifier_id'))
         if not mod:
             continue
         for rule in ModifierInventoryRule.query.filter_by(modifier_id=mod.id).all():
-            qty = _d(rule.quantity) * quantity
+            sf = group_split.get(mod.modifier_group_id, Decimal(1))
+            qty = _d(rule.quantity) / sf * quantity
             needed[rule.inventory_item_id] = (
                 needed.get(rule.inventory_item_id, Decimal(0)) + qty
             )
@@ -446,9 +470,19 @@ def consume_for_line_item(line_item, performed_by: str):
 
     for lim in line_item.modifiers:
         for rule in ModifierInventoryRule.query.filter_by(modifier_id=lim.modifier_id).all():
+            # Determine split factor: if the modifier group uses split_modifier_qty,
+            # divide the portion equally among the distinct flavors selected.
+            split_factor = Decimal(1)
+            group = lim.modifier.group if lim.modifier else None
+            if group and group.split_modifier_qty:
+                distinct_mod_ids = {m.modifier_id for m in line_item.modifiers
+                                    if m.modifier and m.modifier.modifier_group_id == group.id}
+                n = len(distinct_mod_ids)
+                if n > 1:
+                    split_factor = Decimal(n)
             deductions.append({
                 'inventory_item_id': rule.inventory_item_id,
-                'needed':            _d(rule.quantity) * line_item.quantity,
+                'needed':            _d(rule.quantity) / split_factor * line_item.quantity,
                 'insumos_base_id':   None,
             })
 
