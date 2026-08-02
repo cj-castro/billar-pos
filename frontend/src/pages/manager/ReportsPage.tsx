@@ -114,7 +114,7 @@ export default function ReportsPage() {
         {/* Category filter — only on Sales tab */}
         {tab === 'sales' && categories.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4 items-center">
-            <span className="text-xs text-slate-400 mr-1">Category:</span>
+            <span className="text-xs text-slate-400 mr-1">Categoría:</span>
             <button
               onClick={() => setCategoryFilter('ALL')}
               className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${categoryFilter === 'ALL' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
@@ -384,7 +384,7 @@ export default function ReportsPage() {
         {tab === 'modifiers' && modifiers && (
           <div className="bg-slate-800 rounded-xl overflow-hidden">
             <table className="w-full text-sm">
-              <thead><tr className="bg-slate-700"><th className="p-3 text-left">Modifier</th><th className="p-3 text-left">Group</th><th className="p-3 text-right">Uses</th></tr></thead>
+              <thead><tr className="bg-slate-700"><th className="p-3 text-left">Modificador</th><th className="p-3 text-left">Grupo</th><th className="p-3 text-right">Usos</th></tr></thead>
               <tbody>{(modifiers as any[]).map((r, i) => <tr key={i} className="border-t border-slate-700"><td className="p-3">{r.modifier_name}</td><td className="p-3 text-slate-400">{r.group_name}</td><td className="p-3 text-right">{r.usage_count}</td></tr>)}</tbody>
             </table>
           </div>
@@ -416,9 +416,9 @@ export default function ReportsPage() {
                       <th className="p-3 text-left">Categoría</th>
                       <th className="p-3 text-right">Cant</th>
                       <th className="p-3 text-right">Valor</th>
-                      <th className="p-3 text-left">Reason</th>
-                      <th className="p-3 text-left">Voided By</th>
-                      <th className="p-3 text-left">Time</th>
+                      <th className="p-3 text-left">Razón</th>
+                      <th className="p-3 text-left">Anulado por</th>
+                      <th className="p-3 text-left">Hora</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -452,7 +452,7 @@ export default function ReportsPage() {
         {tab === 'peak-hours' && (
           <div className="bg-slate-800 rounded-xl overflow-hidden">
             {(!peakHours || (peakHours as any[]).length === 0) ? (
-              <div className="p-8 text-center text-slate-500">No data in this period</div>
+              <div className="p-8 text-center text-slate-500">Sin datos en este período</div>
             ) : (() => {
               const rows = peakHours as any[]
               const maxRevenue = Math.max(...rows.map((r: any) => Number(r.revenue_cents) || 0), 1)
@@ -465,11 +465,11 @@ export default function ReportsPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-700">
-                      <th className="p-3 text-left">Hour</th>
+                      <th className="p-3 text-left">Hora</th>
                       <th className="p-3 text-right">Tickets</th>
-                      <th className="p-3 text-right">Revenue</th>
-                      <th className="p-3 text-right">Avg/Ticket</th>
-                      <th className="p-3 w-32">Activity</th>
+                      <th className="p-3 text-right">Ingresos</th>
+                      <th className="p-3 text-right">Prom/Ticket</th>
+                      <th className="p-3 w-32">Actividad</th>
                     </tr>
                   </thead>
                   <tbody>

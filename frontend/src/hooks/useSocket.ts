@@ -11,6 +11,7 @@ const SocketContext = createContext<Socket | null>(null)
 export function SocketProvider({ children }: { children: React.ReactNode }) {
   const socketRef = useRef<Socket | null>(null)
   const user = useAuthStore((s) => s.user)
+  const accessToken = useAuthStore((s) => s.accessToken)
   const setResources = useFloorStore((s) => s.setResources)
   const qc = useQueryClient()
 
@@ -27,6 +28,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
       if (user.role === 'BAR_STAFF' || user.role === 'MANAGER' || user.role === 'ADMIN') {
         socket.emit('join', { room: 'bar' })
+      }
+      // Manager room requires a token for authorization
+      if (user.role === 'MANAGER' || user.role === 'ADMIN') {
+        socket.emit('join', { room: 'manager', token: accessToken })
       }
     }
 

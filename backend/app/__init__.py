@@ -41,6 +41,7 @@ def create_app(config_class=Config):
     from .api.safe import safe_bp
     from .api.suppliers import suppliers_bp
     from .api.settings import settings_bp
+    from .api.promotions import promotions_bp
 
     app.register_blueprint(auth_bp,          url_prefix='/api/v1/auth')
     app.register_blueprint(resources_bp,     url_prefix='/api/v1/resources')
@@ -56,6 +57,7 @@ def create_app(config_class=Config):
     app.register_blueprint(safe_bp,          url_prefix='/api/v1/safe')
     app.register_blueprint(suppliers_bp,     url_prefix='/api/v1/suppliers')
     app.register_blueprint(settings_bp,      url_prefix='/api/v1/settings')
+    app.register_blueprint(promotions_bp,    url_prefix='/api/v1/promotions')
 
     from .sockets import events  # noqa: F401
 
@@ -64,12 +66,32 @@ def create_app(config_class=Config):
     def init_db():
         """Create/migrate all tables. Safe to run on every startup (idempotent)."""
         from sqlalchemy import text
+        from sqlalchemy.exc import ProgrammingError, OperationalError
+
+        # Phrases that indicate a no-op / already-applied migration (safe to skip)
+        _IDEMPOTENT_PHRASES = (
+            'already exists', 'does not exist', 'duplicate key', 'already has',
+        )
 
         def run(sql, label=''):
-            """Execute one SQL statement; rollback and warn on error (non-fatal)."""
+            """Execute one SQL statement with smart error handling.
+
+            Truly idempotent errors (already exists, does not exist) are swallowed
+            with a debug note. Structural errors (wrong type, constraint violation,
+            syntax error) are logged as warnings so ops can act on them. We never
+            raise here — a failed migration step must not crash the whole startup.
+            """
             try:
                 db.session.execute(text(sql))
                 db.session.commit()
+            except (ProgrammingError, OperationalError) as exc:
+                db.session.rollback()
+                msg = str(exc).lower()
+                tag = f' [{label}]' if label else ''
+                if any(p in msg for p in _IDEMPOTENT_PHRASES):
+                    print(f'  ✓ Already applied{tag}')
+                else:
+                    print(f'⚠️  Migration WARNING{tag}: {exc}')
             except Exception as exc:
                 db.session.rollback()
                 tag = f' [{label}]' if label else ''
@@ -104,6 +126,7 @@ def create_app(config_class=Config):
             Supplier, PrintJob,
         )
         from .models.waiting_list import WaitingListEntry  # noqa: F401
+        from .models.token_blocklist import TokenBlocklist  # noqa: F401
 
         # Creates new tables; skips existing ones (unit_catalog, insumos_base,
         # sale_item_costs, inventory_movements are created here on fresh installs).
@@ -328,6 +351,29 @@ def create_app(config_class=Config):
                )
         """, 'repair waitlist ASSIGNED→CANCELLED rewrites')
 
+        # ── STEP 11d: Performance indexes on hot query paths ──────────────────
+        for idx_sql, label in [
+            ("CREATE INDEX IF NOT EXISTS idx_tickets_status "
+             "ON tickets (status)",                                   'idx_tickets_status'),
+            ("CREATE INDEX IF NOT EXISTS idx_tickets_resource_status "
+             "ON tickets (resource_id, status)",                      'idx_tickets_resource_status'),
+            ("CREATE INDEX IF NOT EXISTS idx_tli_ticket_status "
+             "ON ticket_line_items (ticket_id, status)",              'idx_tli_ticket_status'),
+            ("CREATE INDEX IF NOT EXISTS idx_pts_ticket_endtime "
+             "ON pool_timer_sessions (ticket_id, end_time)",          'idx_pts_ticket_endtime'),
+            ("CREATE INDEX IF NOT EXISTS idx_audit_entity "
+             "ON audit_log (entity_type, entity_id)",                 'idx_audit_entity'),
+            ("CREATE INDEX IF NOT EXISTS idx_wl_status "
+             "ON waiting_list (status)",                              'idx_wl_status'),
+            ("CREATE UNIQUE INDEX IF NOT EXISTS uq_cash_sessions_open "
+             "ON cash_sessions (status) WHERE status = 'OPEN'",       'uq_cash_sessions_open'),
+            # token_blocklist.jti already has a unique index from the model definition;
+            # add a separate index for expired-row cleanup queries
+            ("CREATE INDEX IF NOT EXISTS idx_token_blocklist_created "
+             "ON token_blocklist (created_at)",                       'idx_token_blocklist_created'),
+        ]:
+            run(idx_sql, label)
+
         db.session.commit()
 
         # ── STEP 12: Seed unit_catalog ────────────────────────────────────────
@@ -536,6 +582,48 @@ def create_app(config_class=Config):
         ]:
             run(stmt, 'step21')
         print("STEP 21: express/rappi/void-timer columns added")
+
+        # ── STEP 22: Quantity promotions (BOGO / QTY_PERCENT_DISCOUNT) ────────
+        # Configuration columns for the quantity-driven promotion engine.
+        # Defaults match the model so pre-existing promotion rows keep their
+        # current behaviour (HAPPY_HOUR / ITEM_DISCOUNT ignore these columns).
+        for stmt in [
+            "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS eligible_item_ids TEXT",
+            "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS required_quantity INTEGER DEFAULT 2",
+            "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS free_quantity INTEGER DEFAULT 1",
+            "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS discounted_quantity INTEGER DEFAULT 1",
+            "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS max_applications_per_ticket INTEGER",
+            "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS is_stackable BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS combine_across_items BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 0",
+            # Quantity promos are recomputed per ticket, so these two lookups
+            # run on every item add / void.
+            "CREATE INDEX IF NOT EXISTS ix_line_item_promotions_ticket_id ON line_item_promotions (ticket_id)",
+            "CREATE INDEX IF NOT EXISTS ix_line_item_promotions_line_item_id ON line_item_promotions (line_item_id)",
+            "CREATE INDEX IF NOT EXISTS ix_promotions_active_type ON promotions (is_active, promo_type)",
+        ]:
+            run(stmt, 'step22')
+        print("STEP 22: quantity promotion columns added")
+
+        # ── STEP 23: Promotion confirmation + time-of-day window ──────────────
+        # requires_confirmation defaults to FALSE so every existing promotion
+        # keeps applying automatically. The time window itself reuses the
+        # happy_hour_start / happy_hour_end columns already on the table.
+        for stmt in [
+            "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS requires_confirmation BOOLEAN DEFAULT FALSE",
+            """CREATE TABLE IF NOT EXISTS ticket_promo_decisions (
+                   id           VARCHAR(36) PRIMARY KEY,
+                   ticket_id    VARCHAR(36) NOT NULL REFERENCES tickets(id),
+                   promotion_id VARCHAR(36) NOT NULL REFERENCES promotions(id),
+                   decision     VARCHAR(10) NOT NULL,
+                   decided_by   VARCHAR(36) REFERENCES users(id),
+                   decided_at   TIMESTAMPTZ DEFAULT NOW(),
+                   CONSTRAINT uq_ticket_promo_decision UNIQUE (ticket_id, promotion_id)
+               )""",
+            "CREATE INDEX IF NOT EXISTS ix_ticket_promo_decisions_ticket_id ON ticket_promo_decisions (ticket_id)",
+        ]:
+            run(stmt, 'step23')
+        print("STEP 23: promotion confirmation + time window added")
 
 
     @app.cli.command('seed-beer')

@@ -18,7 +18,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const res = await client.post('/auth/login', { username, password })
-      login(res.data.user, res.data.access_token)
+      login(res.data.user, res.data.access_token, res.data.refresh_token)
       const role = res.data.user.role
       if (role === 'KITCHEN_STAFF') navigate('/queue/kitchen')
       else if (role === 'BAR_STAFF') navigate('/queue/bar')

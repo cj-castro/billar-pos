@@ -15,6 +15,7 @@ import CashSessionPage from './pages/manager/CashSessionPage'
 import TableManagementPage from './pages/manager/TableManagementPage'
 import SettingsPage from './pages/manager/SettingsPage'
 import ModifiersPage from './pages/manager/ModifiersPage'
+import PromotionsPage from './pages/manager/PromotionsPage'
 import SafeCollectionsPage from './pages/manager/SafeCollectionsPage'
 import EarningsPage from './pages/manager/EarningsPage'
 import { SocketProvider } from './hooks/useSocket'
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="/manager/cash" element={<RequireAuth roles={['MANAGER','ADMIN']}><CashSessionPage /></RequireAuth>} />
         <Route path="/manager/settings" element={<RequireAuth roles={['MANAGER','ADMIN']}><SettingsPage /></RequireAuth>} />
         <Route path="/manager/modifiers" element={<RequireAuth roles={['MANAGER','ADMIN']}><ModifiersPage /></RequireAuth>} />
+        <Route path="/manager/promotions" element={<RequireAuth roles={['MANAGER','ADMIN']}><PromotionsPage /></RequireAuth>} />
         <Route path="/manager/safe" element={<RequireAuth roles={['ADMIN']}><SafeCollectionsPage /></RequireAuth>} />
         <Route path="/manager/earnings" element={<RequireAuth roles={['ADMIN']}><EarningsPage /></RequireAuth>} />
         <Route path="*" element={<Navigate to={user ? '/floor' : '/login'} replace />} />

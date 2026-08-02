@@ -13,6 +13,7 @@ export default function ManagerDashboard() {
     { to: '/manager/inventory', icon: '📦', label: t('manager.inventory'), desc: 'Stock levels & adjustments' },
     { to: '/manager/menu', icon: '🍽️', label: t('manager.menu'), desc: 'Artículos, precios, modificadores' },
     { to: '/manager/modifiers', icon: '🧩', label: 'Modificadores', desc: 'Grupos de sabores, salsas, extras' },
+    { to: '/manager/promotions', icon: '🏷️', label: 'Promociones', desc: '2x1 y descuentos por cantidad' },
     { to: '/manager/users', icon: '👥', label: t('manager.users'), desc: 'Manage staff accounts' },
     { to: '/manager/pool-config', icon: '🕒', label: t('manager.poolBilling'), desc: 'Rates, modes & free minutes' },
     { to: '/manager/tables', icon: '🗂', label: t('manager.tableSetup'), desc: 'Add/remove pool, floor & bar seats' },

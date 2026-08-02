@@ -227,25 +227,42 @@ def _build_summary(session: CashSession, tip_cfg=None):
         tip = t.tip_cents or 0
         tip_src = t.tip_source  # CASH, CARD, SPLIT, or None
         if t.payment_type_2:
-            # Split ticket — tendered_cents = cash portion, tendered_cents_2 = card portion
+            # Split ticket — tendered_cents = first method, tendered_cents_2 = second method.
+            # Correct approach: sale_per_method = tendered_per_method − tip_per_method
+            # (avoids the cross-ratio bug where total_cents and grand have different tip bases)
             t1 = t.tendered_cents or 0
             t2 = t.tendered_cents_2 or 0
-            grand = (t1 + t2) if (t1 + t2) > 0 else max(t.total_cents, 1)
-            if t.payment_type == 'CASH':
-                cash_sales += t1 * t.total_cents // grand
-                card_sales += t.total_cents - (t1 * t.total_cents // grand)
-            else:
-                card_sales += t1 * t.total_cents // grand
-                cash_sales += t.total_cents - (t1 * t.total_cents // grand)
-            # Tip source for split payments
+            first_is_cash = (t.payment_type == 'CASH')
+
+            # Determine how the tip was collected per method
             if tip_src == 'CASH':
-                cash_tips += tip
+                t1_tip = tip if first_is_cash else 0
+                t2_tip = 0 if first_is_cash else tip
             elif tip_src == 'CARD':
-                card_tips += tip
-            else:  # SPLIT or None — split proportionally
-                cash_frac = (t1 / grand) if grand > 0 else 0.5
-                cash_tips += round(tip * cash_frac)
-                card_tips += tip - round(tip * cash_frac)
+                t1_tip = 0 if first_is_cash else tip
+                t2_tip = tip if first_is_cash else 0
+            elif tip_src == 'SPLIT' and t.tip_cash_cents is not None:
+                t1_tip = (t.tip_cash_cents or 0) if first_is_cash else (t.tip_card_cents or 0)
+                t2_tip = tip - t1_tip
+            else:  # SPLIT proportional or None
+                grand = (t1 + t2) if (t1 + t2) > 0 else 1
+                t1_tip = round(tip * t1 / grand)
+                t2_tip = tip - t1_tip
+
+            # Sale = tendered − tip (clamped to avoid negative on rounding edge cases)
+            t1_sale = max(0, t1 - t1_tip)
+            t2_sale = max(0, t2 - t2_tip)
+
+            if first_is_cash:
+                cash_sales += t1_sale
+                card_sales += t2_sale
+                cash_tips  += t1_tip
+                card_tips  += t2_tip
+            else:
+                card_sales += t1_sale
+                cash_sales += t2_sale
+                card_tips  += t1_tip
+                cash_tips  += t2_tip
         elif t.payment_type == 'CASH':
             cash_sales += t.total_cents
             # Honor explicit tip_source if set, else default to payment type

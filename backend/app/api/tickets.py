@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from sqlalchemy import or_
-from app.extensions import db, socketio
+from app.extensions import db, socketio, limiter
 from app.models.resource import Resource, PoolTableConfig
 from app.models.ticket import (
     Ticket, TicketLineItem, LineItemModifier,
@@ -14,7 +14,8 @@ from app.models.ticket import (
 )
 from app.models.print_job import PrintJob
 from app.models.menu import MenuItem
-from app.models.inventory import InventoryItem
+from app.models.inventory import InventoryItem, SaleItemCost
+from app.models.promotion import Promotion, TicketPromoDecision
 from app.models.waiting_list import WaitingListEntry
 from app.services import audit_svc, billing, inventory_svc, promotion_svc
 from app.config import Config
@@ -30,8 +31,8 @@ def _emit_floor_update():
 
 def _spawn_auto_print_chit(app, item_id: str, chit_payload: dict) -> None:
     """Fire-and-forget: print a kitchen/bar chit when an order is placed.
-    Runs in a daemon thread — print failure NEVER blocks or fails the order."""
-    import threading
+    Runs in an eventlet greenlet via socketio.start_background_task — safe with
+    eventlet workers. Print failure NEVER blocks or fails the order."""
 
     def _run() -> None:
         with app.app_context():
@@ -77,9 +78,11 @@ def _spawn_auto_print_chit(app, item_id: str, chit_payload: dict) -> None:
                         'error':         str(exc),
                     }, room='manager')
                 except Exception:
-                    pass  # never raise from background thread
+                    pass  # never raise from background greenlet
 
-    threading.Thread(target=_run, daemon=True).start()
+    # Use socketio.start_background_task (eventlet-safe greenlet) instead of
+    # threading.Thread, which is incompatible with eventlet's cooperative scheduler.
+    socketio.start_background_task(_run)
 
 
 def _stop_active_timer(ticket: Ticket, user_id: str) -> int:
@@ -241,7 +244,67 @@ def open_ticket():
 @jwt_required()
 def get_ticket(ticket_id):
     ticket = Ticket.query.get_or_404(ticket_id)
-    return jsonify(ticket.to_dict())
+    d = ticket.to_dict()
+    # Promotions that qualify right now but need the waiter to confirm them.
+    if ticket.status == 'OPEN':
+        d['available_promotions'] = promotion_svc.preview_pending_quantity_promos(ticket)
+    else:
+        d['available_promotions'] = []
+    return jsonify(d)
+
+
+@tickets_bp.route('/<ticket_id>/promotions/<promotion_id>', methods=['POST'])
+@jwt_required()
+def decide_promotion(ticket_id, promotion_id):
+    """Accept or decline a promotion that requires confirmation.
+
+    ACCEPTED makes the engine apply it from now on; DECLINED suppresses it for
+    this ticket without prompting again. The decision can be changed later, so
+    a waiter who declines by mistake can still apply the promotion.
+    """
+    user_id = get_jwt_identity()
+    data = request.get_json() or {}
+    decision = (data.get('decision') or '').upper()
+    if decision not in ('ACCEPTED', 'DECLINED'):
+        return jsonify({'error': 'INVALID_DECISION',
+                        'message': 'decision must be ACCEPTED or DECLINED'}), 422
+
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    if ticket.status != 'OPEN':
+        return jsonify({'error': 'TICKET_CLOSED'}), 403
+
+    promo = Promotion.query.get(promotion_id)
+    if promo is None or not promo.is_active:
+        return jsonify({'error': 'PROMO_NOT_FOUND'}), 404
+    if not promo.requires_confirmation:
+        return jsonify({'error': 'PROMO_NOT_CONFIRMABLE',
+                        'message': 'This promotion applies automatically'}), 409
+
+    row = TicketPromoDecision.query.filter_by(
+        ticket_id=ticket_id, promotion_id=promotion_id).first()
+    if row is None:
+        row = TicketPromoDecision(ticket_id=ticket_id, promotion_id=promotion_id)
+        db.session.add(row)
+    row.decision = decision
+    row.decided_by = user_id
+    row.decided_at = datetime.now(timezone.utc)
+    db.session.flush()
+
+    promotion_svc.recompute_quantity_promos(ticket)
+    ticket.recalculate_totals()
+    ticket.version += 1
+
+    audit_svc.log(user_id, 'PROMO_DECISION', 'ticket', ticket_id,
+                  after={'promotion_id': promotion_id, 'name': promo.name,
+                         'decision': decision, 'discount_cents': ticket.discount_cents})
+    db.session.commit()
+
+    socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
+    _emit_floor_update()
+
+    d = ticket.to_dict()
+    d['available_promotions'] = promotion_svc.preview_pending_quantity_promos(ticket)
+    return jsonify(d)
 
 
 @tickets_bp.route('/<ticket_id>/customer-name', methods=['PATCH'])
@@ -343,6 +406,7 @@ def add_item(ticket_id):
     db.session.flush()
     inventory_svc.consume_for_line_item(line_item, user_id)
     promotion_svc.apply_promos_to_line_item(line_item, ticket)
+    promotion_svc.recompute_quantity_promos(ticket)
     ticket.recalculate_totals()
     ticket.version += 1
 
@@ -358,10 +422,13 @@ def add_item(ticket_id):
     socketio.emit('ticket:updated', {'ticket_id': ticket_id, 'version': ticket.version}, room=f'ticket:{ticket_id}')
 
     # Auto-print chit to kitchen/bar printer (non-blocking — runs in background)
+    # Modifier rows are stored once per line item, so scale them by the line
+    # quantity: 2x a bucket carrying 10 beer modifiers must be prepared as 20.
     mod_map: dict[str, int] = {}
+    _mod_mult = max(1, int(line_item.quantity or 1))
     for lim in line_item.modifiers:
         n = lim.name_snapshot or '?'
-        mod_map[n] = mod_map.get(n, 0) + 1
+        mod_map[n] = mod_map.get(n, 0) + _mod_mult
     _spawn_auto_print_chit(
         current_app._get_current_object(),
         line_item.id,
@@ -411,6 +478,8 @@ def void_item(ticket_id, item_id):
     item.voided_by = manager_id
     item.void_reason = reason
 
+    db.session.flush()
+    promotion_svc.recompute_quantity_promos(ticket)
     ticket.recalculate_totals()
     ticket.version += 1
 
@@ -420,6 +489,95 @@ def void_item(ticket_id, item_id):
 
     socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
     return jsonify({'message': 'Item voided'})
+
+
+@tickets_bp.route('/<ticket_id>/items/<item_id>', methods=['PATCH'])
+@jwt_required()
+def update_item_quantity(ticket_id, item_id):
+    """Change the quantity of an existing line item.
+
+    Inventory is re-synced by reversing the original deduction and consuming
+    again at the new quantity, so ingredient stock and the COGS rows in
+    sale_item_costs always reflect what was actually served. Quantity promos
+    are recomputed afterwards, so bumping a bucket from 1 to 2 makes a 2x1
+    fire without the waiter adding a second line.
+
+    Lowering the quantity gives product back and therefore needs a manager PIN,
+    exactly like voiding. Raising it does not.
+    """
+    user_id = get_jwt_identity()
+    data = request.get_json() or {}
+    new_qty = data.get('quantity')
+
+    if not isinstance(new_qty, int) or isinstance(new_qty, bool):
+        return jsonify({'error': 'INVALID_QUANTITY',
+                        'message': 'quantity must be an integer'}), 422
+    if new_qty < 1 or new_qty > 99:
+        return jsonify({'error': 'INVALID_QUANTITY',
+                        'message': 'quantity must be between 1 and 99'}), 422
+
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    if ticket.status != 'OPEN':
+        return jsonify({'error': 'TICKET_CLOSED'}), 403
+
+    item = TicketLineItem.query.get_or_404(item_id)
+    if item.ticket_id != ticket_id:
+        return jsonify({'error': 'NOT_FOUND'}), 404
+    if item.status == 'VOIDED':
+        return jsonify({'error': 'ITEM_VOIDED',
+                        'message': 'Cannot change the quantity of a voided item'}), 409
+
+    old_qty = int(item.quantity or 1)
+    if new_qty == old_qty:
+        return jsonify(item.to_dict())
+
+    manager_id = data.get('manager_id')
+    if new_qty < old_qty and not manager_id:
+        return jsonify({'error': 'MANAGER_REQUIRED',
+                        'message': 'Manager PIN required to reduce quantities'}), 403
+
+    before = item.to_dict()
+    performed_by = manager_id or user_id
+
+    try:
+        # Re-sync inventory: undo the original deduction, drop its COGS rows so
+        # they cannot be double counted at close, then deduct at the new qty.
+        if item.status != 'STAGED':
+            inventory_svc.reverse_for_line_item(item, performed_by)
+            SaleItemCost.query.filter_by(ticket_line_item_id=item.id).delete(
+                synchronize_session=False)
+            db.session.flush()
+
+        item.quantity = new_qty
+        if new_qty > old_qty:
+            item.needs_reprint = True
+        db.session.flush()
+
+        if item.status != 'STAGED':
+            inventory_svc.consume_for_line_item(item, performed_by)
+    except ValueError as e:
+        db.session.rollback()
+        msg = str(e)
+        if msg.startswith('OUT_OF_STOCK:'):
+            return jsonify({'error': 'OUT_OF_STOCK', 'message': msg}), 422
+        return jsonify({'error': 'INVENTORY_ERROR', 'message': msg}), 422
+
+    promotion_svc.recompute_quantity_promos(ticket)
+    ticket.recalculate_totals()
+    ticket.version += 1
+
+    audit_svc.log(performed_by, 'ITEM_QTY_CHANGE', 'line_item', item_id,
+                  before=before, after={'quantity': new_qty})
+    db.session.commit()
+
+    socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
+    if item.routing_dest == 'BAR':
+        socketio.emit('bar:update', {}, room='bar')
+    else:
+        socketio.emit('kitchen:update', {}, room='kitchen')
+    _emit_floor_update()
+
+    return jsonify(item.to_dict())
 
 
 @tickets_bp.route('/<ticket_id>/send-order', methods=['POST'])
@@ -609,6 +767,7 @@ def close_ticket(ticket_id):
             if resource.is_temp:
                 resource.is_active = False
 
+    promotion_svc.recompute_quantity_promos(ticket)
     ticket.recalculate_totals()
     ticket.payment_type = payment_type
     ticket.tendered_cents = tendered_cents
@@ -892,6 +1051,7 @@ _EDITABLE_PAYMENT_FIELDS = {
 
 @tickets_bp.route('/<ticket_id>/edit-payment', methods=['POST'])
 @jwt_required()
+@limiter.limit("5 per minute")
 def edit_payment(ticket_id):
     """Edit payment fields on a CLOSED ticket. Manager/admin only, PIN-gated.
     Logs every change to audit_log; sets edited_after_close=True. Does NOT
@@ -1072,29 +1232,15 @@ def request_payment(ticket_id):
     if ticket.status != 'OPEN':
         return jsonify({'error': 'TICKET_NOT_OPEN'}), 409
 
-    # Stop active pool timer and free the table if applicable
+    # Stop active pool timer and free the table if applicable.
+    # Delegates to _stop_active_timer so promo_free_seconds is always honoured.
     if ticket.resource_id:
         resource = Resource.query.get(ticket.resource_id)
         if resource and resource.type == 'POOL_TABLE':
-            active_session = PoolTimerSession.query.filter_by(
-                ticket_id=ticket.id, end_time=None
-            ).first()
-            if active_session:
-                now = datetime.now(timezone.utc)
-                active_session.end_time = now
-                cfg = PoolTableConfig.query.get(resource.id)
-                mode = cfg.billing_mode if cfg else 'PER_MINUTE'
-                rate = cfg.rate_cents if cfg else 8600
-                result = billing.calculate_charge(active_session.start_time, now, mode, rate)
-                active_session.duration_seconds = result['duration_seconds']
-                active_session.charge_cents = result['charge_cents']
-                audit_svc.log(user_id, 'TIMER_STOP', 'timer_session', active_session.id,
-                               after={'duration_seconds': result['duration_seconds'],
-                                      'charge_cents': result['charge_cents'],
-                                      'reason': 'Pedir cuenta'})
+            _stop_active_timer(ticket, user_id)
+            db.session.flush()
             # Free the pool table
             resource.status = 'AVAILABLE'
-            resource.timer_start = None
             ticket.recalculate_totals()
 
     ticket.payment_requested = True

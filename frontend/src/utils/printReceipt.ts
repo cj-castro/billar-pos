@@ -13,6 +13,8 @@ export interface ReceiptTicket {
     status: string
     modifiers?: Array<{ name: string; price_cents: number }>
     notes?: string
+    promo_discount_cents?: number
+    promotions?: Array<{ name: string; discount_cents: number }>
   }>
   timer_sessions?: Array<{
     resource_code: string
@@ -31,20 +33,40 @@ export interface ReceiptTicket {
   tip_cents?: number
   change_due?: number
   manual_discount_pct?: number
+  applied_promotions?: Array<{
+    promotion_id: string
+    name: string
+    promo_type?: string | null
+    discount_cents: number
+  }>
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function promoRows(ticket: ReceiptTicket): string {
+  return (ticket.applied_promotions || [])
+    .filter(p => (p.discount_cents || 0) > 0)
+    .map(p => `<div class="total-row" style="color:#4ade80"><span>&nbsp;&nbsp;• ${escapeHtml(p.name || 'Promoción')}</span><span>-${fmt(p.discount_cents)}</span></div>`)
+    .join('')
 }
 
 function fmt(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`
 }
 
-function groupModifiers(modifiers: Array<{ name: string; price_cents: number }>) {
+function groupModifiers(modifiers: Array<{ name: string; price_cents: number }>, multiplier = 1) {
+  // Modifier rows are stored once per line item regardless of quantity, so a
+  // 2x bucket carrying 10 beer modifiers must be reported as 20 beers.
+  const mult = Math.max(1, multiplier || 1)
   const map = new Map<string, { name: string; count: number; price_cents: number }>()
   for (const m of modifiers) {
     const existing = map.get(m.name)
     if (existing) {
-      existing.count++
+      existing.count += mult
     } else {
-      map.set(m.name, { name: m.name, count: 1, price_cents: m.price_cents })
+      map.set(m.name, { name: m.name, count: mult, price_cents: m.price_cents })
     }
   }
   return Array.from(map.values())
@@ -66,7 +88,19 @@ function groupLineItems(items: ReceiptTicket['line_items']) {
     unit_price_cents: number
     variants: Variant[]
     status: string
+    promo_discount_cents: number
+    promotions: Map<string, number>
   }>()
+
+  const mergePromos = (
+    target: { promo_discount_cents: number; promotions: Map<string, number> },
+    item: ReceiptTicket['line_items'][number],
+  ) => {
+    target.promo_discount_cents += item.promo_discount_cents ?? 0
+    for (const p of item.promotions ?? []) {
+      target.promotions.set(p.name, (target.promotions.get(p.name) ?? 0) + p.discount_cents)
+    }
+  }
 
   for (const item of items) {
     const baseKey = `${item.menu_item_name}::${item.unit_price_cents}`
@@ -81,6 +115,7 @@ function groupLineItems(items: ReceiptTicket['line_items']) {
         return vk === variantKey
       })
       if (v) { v.quantity += item.quantity } else { existing.variants.push({ modifiers: item.modifiers ?? [], notes: item.notes, quantity: item.quantity }) }
+      mergePromos(existing, item)
     } else {
       map.set(baseKey, {
         name: item.menu_item_name,
@@ -88,7 +123,10 @@ function groupLineItems(items: ReceiptTicket['line_items']) {
         unit_price_cents: item.unit_price_cents,
         variants: [{ modifiers: item.modifiers ?? [], notes: item.notes, quantity: item.quantity }],
         status: item.status,
+        promo_discount_cents: 0,
+        promotions: new Map<string, number>(),
       })
+      mergePromos(map.get(baseKey)!, item)
     }
   }
   return Array.from(map.values())
@@ -145,7 +183,7 @@ export function printReceipt(ticket: ReceiptTicket, livePoolCents?: number, unpa
         }).join('')
       : (() => {
           const [v] = item.variants
-          const modLines = groupModifiers(v.modifiers ?? [])
+          const modLines = groupModifiers(v.modifiers ?? [], v.quantity)
             .map((m) => {
               const label = m.count > 1 ? `${m.name} ×${m.count}` : m.name
               return `<div class="mod">&nbsp;&nbsp;+ ${label}</div>`  // price hidden — rolled into total
@@ -154,12 +192,18 @@ export function printReceipt(ticket: ReceiptTicket, livePoolCents?: number, unpa
           return modLines + noteLine
         })()
 
+    const promoLines = Array.from(item.promotions.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, cents]) =>
+        `<div class="mod" style="color:#4ade80">&nbsp;&nbsp;${escapeHtml(name)} −${fmt(cents)}</div>`)
+      .join('')
+
     return `
       <div class="item-row">
         <span class="item-name">${item.quantity}x ${item.name}</span>
         <span class="item-price">${fmt(lineTotal)}</span>
       </div>
-      ${subLines}`
+      ${subLines}${promoLines}`
   }).join('')
 
   // Per-session rows — show live duration + charge for running sessions
@@ -288,7 +332,7 @@ export function printReceipt(ticket: ReceiptTicket, livePoolCents?: number, unpa
   <div class="divider-solid"></div>
 
   <div class="total-row"><span>Subtotal</span><span>${fmt(ticket.subtotal_cents)}</span></div>
-  ${ticket.discount_cents > 0 ? `<div class="total-row" style="color:#4ade80"><span>Discount${ticket.manual_discount_pct ? ` (${ticket.manual_discount_pct}%)` : ''}</span><span>-${fmt(ticket.discount_cents)}</span></div>` : ''}
+  ${ticket.discount_cents > 0 ? `<div class="total-row" style="color:#4ade80"><span>Discount${ticket.manual_discount_pct ? ` (${ticket.manual_discount_pct}%)` : ''}</span><span>-${fmt(ticket.discount_cents)}</span></div>${promoRows(ticket)}` : ''}
   ${computedPoolCents > 0 ? `<div class="total-row"><span>Pool Time</span><span>${fmt(computedPoolCents)}</span></div>` : ''}
   <div class="total-row grand"><span>TOTAL</span><span>${fmt(liveTotal)}</span></div>
   ${tipLine}

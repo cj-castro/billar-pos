@@ -2,10 +2,11 @@ from datetime import timedelta
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import (
     create_access_token, create_refresh_token,
-    jwt_required, get_jwt_identity
+    jwt_required, get_jwt_identity, get_jwt
 )
 from app.extensions import db, limiter
 from app.models.user import User
+from app.models.token_blocklist import TokenBlocklist
 from app.services import audit_svc
 
 auth_bp = Blueprint('auth', __name__)
@@ -55,6 +56,10 @@ def refresh():
 @jwt_required()
 def logout():
     user_id = get_jwt_identity()
+    jti = get_jwt().get('jti')
+    if jti:
+        # Revoke this token so it cannot be reused after logout
+        db.session.add(TokenBlocklist(jti=jti))
     audit_svc.log(user_id, 'USER_LOGOUT', 'user', user_id, ip_address=request.remote_addr)
     db.session.commit()
     return jsonify({'message': 'Logged out'})
@@ -77,6 +82,7 @@ def verify_manager_pin(pin: str):
 
 @auth_bp.route('/verify-pin', methods=['POST'])
 @jwt_required()
+@limiter.limit("5 per minute")
 def verify_pin():
     data = request.get_json()
     pin = data.get('pin', '')

@@ -91,6 +91,17 @@ def center_line(text, width=CHARS):
 def left_line(text, width=CHARS):
     return enc(text[:width].ljust(width)) + LF
 
+def applied_promotions(data):
+    """Promotions applied to the ticket, newest payload field (may be absent).
+
+    Older backends do not send 'applied_promotions'; in that case the receipt
+    keeps showing only the aggregated Discount line, exactly as before.
+    """
+    promos = data.get('applied_promotions') or []
+    if not isinstance(promos, list):
+        return []
+    return [p for p in promos if isinstance(p, dict) and (p.get('discount_cents') or 0) > 0]
+
 def wrap_lines(text, width=CHARS, indent=''):
     """Split text at ', ' boundaries to fit width; continuation lines use indent."""
     words = text.split(', ')
@@ -194,12 +205,18 @@ def _logo_escpos(max_width: int = 384) -> bytes:
         return b''
 
 
-def _group_modifiers(mods: list) -> list:
+def _group_modifiers(mods: list, multiplier: int = 1) -> list:
+    """Count modifier occurrences, scaled by the line quantity.
+
+    Modifier rows are stored once per line item regardless of quantity, so a
+    2x bucket carrying 10 beer modifiers must be reported as 20 beers.
+    """
+    mult = max(1, int(multiplier or 1))
     seen: dict = {}
     for m in mods:
         n = m.get('name', '')
         if n:
-            seen[n] = seen.get(n, 0) + 1
+            seen[n] = seen.get(n, 0) + mult
     return [{'name': n, 'count': c} for n, c in seen.items()]
 
 
@@ -216,9 +233,13 @@ def _group_line_items(items: list) -> list:
                 'unit_price_cents': item.get('unit_price_cents', 0),
                 'variants': {},
                 'status': item.get('status', ''),
+                'promotions': {},
             }
         g = grouped[base_key]
         g['quantity'] += item.get('quantity', 1)
+        for p in (item.get('promotions') or []):
+            pname = p.get('name') or 'Promocion'
+            g['promotions'][pname] = g['promotions'].get(pname, 0) + (p.get('discount_cents') or 0)
         if var_key not in g['variants']:
             g['variants'][var_key] = {
                 'modifiers': item.get('modifiers') or [],
@@ -268,11 +289,17 @@ def format_receipt_html(data: dict, unpaid: bool = False, reprint: bool = False)
                 item_rows_html += f'<div class="mod">&nbsp;&nbsp;{v["quantity"]}x {_html.escape(label)}</div>'
         else:
             v = variants[0]
-            for mc in _group_modifiers(v['modifiers']):
+            for mc in _group_modifiers(v['modifiers'], v['quantity']):
                 label = f'{mc["name"]} ×{mc["count"]}' if mc['count'] > 1 else mc['name']
                 item_rows_html += f'<div class="mod">&nbsp;&nbsp;+ {_html.escape(label)}</div>'
             if v['notes']:
                 item_rows_html += f'<div class="mod">&nbsp;&nbsp;<em>{_html.escape(v["notes"])}</em></div>'
+        for pname, pcents in sorted(g.get('promotions', {}).items(),
+                                    key=lambda kv: (-kv[1], kv[0])):
+            item_rows_html += (
+                f'<div class="mod" style="color:#1a7f37">&nbsp;&nbsp;{_html.escape(pname)} '
+                f'-{fmt_cents(pcents)}</div>'
+            )
 
     # Timer sessions
     timer_rows_html = ''
@@ -304,6 +331,10 @@ def format_receipt_html(data: dict, unpaid: bool = False, reprint: bool = False)
     if disc > 0:
         pct_str = f' ({disc_pct}%)' if disc_pct else ''
         disc_line = f'<div class="total-row" style="color:#16a34a"><span>Discount{pct_str}</span><span>-{fmt_cents(disc)}</span></div>'
+        for promo in applied_promotions(data):
+            disc_line += (f'<div class="total-row" style="color:#16a34a">'
+                          f'<span>&nbsp;&nbsp;• {_html.escape(str(promo.get("name") or "Promocion"))}</span>'
+                          f'<span>-{fmt_cents(promo.get("discount_cents") or 0)}</span></div>')
     pool_line = f'<div class="total-row"><span>Pool Time</span><span>{fmt_cents(pool_c)}</span></div>' if pool_c > 0 else ''
     tip_line  = ''
     if tip > 0:
@@ -511,13 +542,22 @@ def format_receipt_escpos(data: dict, unpaid: bool = False, reprint: bool = Fals
         raw += two_col(f'{g["quantity"]}x {g["name"]}', fmt_cents(line_total))
         multi = len(variants) > 1
         for v in variants:
-            mod_names = [m.get('name', '') for m in v['modifiers'] if m.get('name', '')]
-            label = ', '.join(mod_names)
+            if multi:
+                mod_names = [m.get('name', '') for m in v['modifiers'] if m.get('name', '')]
+                label = ', '.join(mod_names)
+            else:
+                label = ', '.join(
+                    f'{mc["name"]} x{mc["count"]}' if mc['count'] > 1 else mc['name']
+                    for mc in _group_modifiers(v['modifiers'], v['quantity'])
+                )
             if v.get('notes'):
                 label = (label + ' ' if label else '') + f'({v["notes"]})'
             if label:
                 prefix = f'  {v["quantity"]}x ' if multi else '  + '
                 raw += wrap_lines(prefix + label, CHARS, '    ')
+        for pname, pcents in sorted(g.get('promotions', {}).items(),
+                                    key=lambda kv: (-kv[1], kv[0])):
+            raw += two_col(f'  {pname}', f'-{fmt_cents(pcents)}')
         raw += LF  # breathing room between items
 
     # ── Timer sessions ───────────────────────────────────────────────────────
@@ -542,6 +582,9 @@ def format_receipt_escpos(data: dict, unpaid: bool = False, reprint: bool = Fals
     if disc > 0:
         pct_str = f' ({disc_pct}%)' if disc_pct else ''
         raw += two_col(f'Descuento{pct_str}', f'-{fmt_cents(disc)}')
+        for promo in applied_promotions(data):
+            raw += two_col(f'  * {promo.get("name") or "Promocion"}',
+                           f'-{fmt_cents(promo.get("discount_cents") or 0)}')
     if pool_c > 0:
         raw += two_col('Pool Time', fmt_cents(pool_c))
     if tip > 0:
@@ -681,9 +724,13 @@ def format_receipt(data: dict, unpaid: bool = False, reprint: bool = False) -> b
             var_key = f'{mod_key}::{notes}'
             base_key = (name, price)
             if base_key not in base_groups:
-                base_groups[base_key] = {'name': name, 'price': price, 'qty': 0, 'variants': {}}
+                base_groups[base_key] = {'name': name, 'price': price, 'qty': 0,
+                                         'variants': {}, 'promotions': {}}
             bg = base_groups[base_key]
             bg['qty'] += item.get('quantity', 1)
+            for p in (item.get('promotions') or []):
+                pname = p.get('name') or 'Promocion'
+                bg['promotions'][pname] = bg['promotions'].get(pname, 0) + (p.get('discount_cents') or 0)
             if var_key not in bg['variants']:
                 bg['variants'][var_key] = {'mods': mods, 'notes': notes, 'qty': 0}
             bg['variants'][var_key]['qty'] += item.get('quantity', 1)
@@ -716,15 +763,19 @@ def format_receipt(data: dict, unpaid: bool = False, reprint: bool = False) -> b
                 # Single variant: show modifier names only, NO price (rolled into total above)
                 v = variants[0]
                 mod_counts = {}
+                _mult = max(1, int(v.get('qty') or 1))
                 for mod in v['mods']:
                     mname = mod.get('name', '')
                     if mname:
-                        mod_counts[mname] = mod_counts.get(mname, 0) + 1
+                        mod_counts[mname] = mod_counts.get(mname, 0) + _mult
                 for mname, cnt in mod_counts.items():
                     label_m = f'  + {mname}' + (f' x{cnt}' if cnt > 1 else '')
                     buf += left_line(label_m)  # no price column — price is in the total
                 if v['notes']:
                     buf += left_line(f'  * {v["notes"]}')
+            for pname, pcents in sorted(bg.get('promotions', {}).items(),
+                                        key=lambda kv: (-kv[1], kv[0])):
+                buf += two_col(f'  {pname}', f'-{fmt_cents(pcents)}')
 
     # ---- Pool time ----
     timer_sessions = [s for s in (data.get('timer_sessions') or [])
@@ -763,6 +814,9 @@ def format_receipt(data: dict, unpaid: bool = False, reprint: bool = False) -> b
     if disc > 0:
         pct_str = f' ({disc_pct}%)' if disc_pct else ''
         buf += two_col(f'Descuento{pct_str}', f'-{fmt_cents(disc)}')
+        for promo in applied_promotions(data):
+            buf += two_col(f'  * {promo.get("name") or "Promocion"}',
+                           f'-{fmt_cents(promo.get("discount_cents") or 0)}')
     if pool_c > 0:
         buf += two_col('Pool Time', fmt_cents(pool_c))
 

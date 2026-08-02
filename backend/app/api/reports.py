@@ -128,6 +128,55 @@ def pool_time_report():
     } for r in rows])
 
 
+@reports_bp.route('/promotions', methods=['GET'])
+@jwt_required()
+def promotions_report():
+    """Promotional sales per promotion over the period.
+
+    tickets_count      distinct closed tickets that used the promotion
+    units_discounted   units on the discounted line items
+    gross_cents        list price of those line items before the promotion
+    discount_cents     amount given away by the promotion
+    net_cents          gross_cents - discount_cents
+    """
+    err = require_manager()
+    if err: return err
+    from_dt, to_dt = parse_dates()
+
+    sql = text("""
+        SELECT
+            p.id                                        AS promotion_id,
+            p.name                                      AS promotion_name,
+            p.promo_type                                AS promo_type,
+            COUNT(DISTINCT lip.ticket_id)               AS tickets_count,
+            COUNT(lip.id)                               AS applications,
+            COALESCE(SUM(tli.quantity), 0)              AS units_discounted,
+            COALESCE(SUM(tli.quantity * tli.unit_price_cents), 0) AS gross_cents,
+            COALESCE(SUM(lip.discount_cents), 0)        AS discount_cents
+        FROM line_item_promotions lip
+        JOIN promotions p ON p.id = lip.promotion_id
+        JOIN tickets t ON t.id = lip.ticket_id
+        LEFT JOIN ticket_line_items tli
+               ON tli.id = lip.line_item_id AND tli.status != 'VOIDED'
+        WHERE t.status = 'CLOSED'
+          AND t.closed_at BETWEEN :from_dt AND :to_dt
+        GROUP BY p.id, p.name, p.promo_type
+        ORDER BY discount_cents DESC
+    """)
+    rows = db.session.execute(sql, {'from_dt': from_dt, 'to_dt': to_dt}).mappings().all()
+    return jsonify([{
+        'promotion_id': r['promotion_id'],
+        'promotion_name': r['promotion_name'],
+        'promo_type': r['promo_type'],
+        'tickets_count': int(r['tickets_count'] or 0),
+        'applications': int(r['applications'] or 0),
+        'units_discounted': _int(r['units_discounted']),
+        'gross_cents': _int(r['gross_cents']),
+        'discount_cents': _int(r['discount_cents']),
+        'net_cents': _int(r['gross_cents']) - _int(r['discount_cents']),
+    } for r in rows])
+
+
 @reports_bp.route('/payments', methods=['GET'])
 @jwt_required()
 def payments_report():

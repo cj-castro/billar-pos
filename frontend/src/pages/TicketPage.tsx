@@ -22,14 +22,17 @@ import {
 function cents(n: number) { return `$${(n / 100).toFixed(2)}` }
 
 // Group duplicate modifiers and return [{name, count, price_cents}]
-function groupModifiers(modifiers: Array<{ name: string; price_cents: number }>) {
+function groupModifiers(modifiers: Array<{ name: string; price_cents: number }>, multiplier = 1) {
+  // Modifier rows are stored once per line item regardless of quantity, so a
+  // 2× bucket carrying 10 beer modifiers must be shown as 20 beers.
+  const mult = Math.max(1, multiplier || 1)
   const map = new Map<string, { name: string; count: number; price_cents: number }>()
   for (const m of modifiers) {
     const existing = map.get(m.name)
     if (existing) {
-      existing.count++
+      existing.count += mult
     } else {
-      map.set(m.name, { name: m.name, count: 1, price_cents: m.price_cents })
+      map.set(m.name, { name: m.name, count: mult, price_cents: m.price_cents })
     }
   }
   return Array.from(map.values())
@@ -46,6 +49,10 @@ function groupLineItemsUI(items: any[]) {
     modifiers: any[]
     notes?: string
     status: string          // worst-case status (STAGED > SENT > IN_PROGRESS > READY > SERVED)
+    promo_discount_cents: number
+    promotions: Map<string, number>
+    lastId: string          // most recently added line item in this group
+    lastQty: number         // its own quantity, for the +/- stepper
   }>()
   const statusRank: Record<string, number> = { STAGED: 5, SENT: 4, IN_PROGRESS: 3, READY: 2, SERVED: 1 }
   for (const item of items) {
@@ -55,6 +62,12 @@ function groupLineItemsUI(items: any[]) {
     if (existing) {
       existing.ids.push(item.id)
       existing.quantity += item.quantity
+      existing.lastId = item.id
+      existing.lastQty = item.quantity
+      existing.promo_discount_cents += item.promo_discount_cents ?? 0
+      for (const p of item.promotions ?? []) {
+        existing.promotions.set(p.name, (existing.promotions.get(p.name) ?? 0) + p.discount_cents)
+      }
       // keep the "most pending" status visible
       if ((statusRank[item.status] ?? 0) > (statusRank[existing.status] ?? 0)) {
         existing.status = item.status
@@ -68,6 +81,12 @@ function groupLineItemsUI(items: any[]) {
         modifiers: item.modifiers ?? [],
         notes: item.notes,
         status: item.status,
+        lastId: item.id,
+        lastQty: item.quantity,
+        promo_discount_cents: item.promo_discount_cents ?? 0,
+        promotions: new Map<string, number>(
+          (item.promotions ?? []).map((p: any) => [p.name, p.discount_cents])
+        ),
       })
     }
   }
@@ -79,12 +98,16 @@ export default function TicketPage() {
   const navigate = useNavigate()
   const { t } = useTranslation()
   const qc = useQueryClient()
+  const user = useAuthStore((s) => s.user)
+  const isManager = user?.role === 'MANAGER' || user?.role === 'ADMIN'
 
   const [showAddItem, setShowAddItem] = useState(false)
   const [showTransfer, setShowTransfer] = useState(false)
   const [showEditPayment, setShowEditPayment] = useState(false)
   const [showPinForVoid, setShowPinForVoid] = useState<string[] | null>(null)
   const [voidQtyPicker, setVoidQtyPicker] = useState<{ ids: string[]; name: string; qty: number } | null>(null)
+  const [voidReason, setVoidReason] = useState('')
+  const [showVoidReason, setShowVoidReason] = useState<{ ids: string[]; managerId: string } | null>(null)
   const [showPinForDiscount, setShowPinForDiscount] = useState(false)
   const [pendingDiscountPct, setPendingDiscountPct] = useState<number | null>(null)
   const [showPayment, setShowPayment] = useState(false)
@@ -111,6 +134,8 @@ export default function TicketPage() {
   const [showPinForReprint, setShowPinForReprint] = useState<string | null>(null) // ticketId
   const [reprintBannerKey, setReprintBannerKey] = useState(0)
   const [voidingTimer, setVoidingTimer] = useState(false)
+  const [showPinForQty, setShowPinForQty] = useState<{ itemId: string; quantity: number } | null>(null)
+  const [decidingPromo, setDecidingPromo] = useState<string | null>(null)
 
   // Close modals with Escape
   useEscKey(() => {
@@ -118,8 +143,9 @@ export default function TicketPage() {
     if (showPayment) { setShowPayment(false); return }
     if (voidQtyPicker) { setVoidQtyPicker(null); return }
     if (showPinForVoid) { setShowPinForVoid(null); return }
+    if (showPinForQty) { setShowPinForQty(null); return }
     if (showPinForDiscount) { setShowPinForDiscount(false); setPendingDiscountPct(null); return }
-  }, showPayment || !!voidQtyPicker || !!showPinForVoid || showPinForDiscount)
+  }, showPayment || !!voidQtyPicker || !!showPinForVoid || !!showPinForQty || showPinForDiscount)
 
   const { data: ticket, refetch } = useQuery({
     queryKey: ['ticket', id],
@@ -132,10 +158,49 @@ export default function TicketPage() {
 
   if (!ticket) return <div className="p-8 text-center text-slate-400">{t('common.loading')}</div>
 
+  const changeQty = async (itemId: string, newQty: number, managerId?: string) => {
+    try {
+      await client.patch(`/tickets/${id}/items/${itemId}`, {
+        quantity: newQty,
+        ...(managerId ? { manager_id: managerId } : {}),
+      })
+      refetch()
+    } catch (err: any) {
+      const code = err.response?.data?.error
+      toast.error(
+        code === 'OUT_OF_STOCK'
+          ? 'Sin inventario suficiente para aumentar la cantidad'
+          : err.response?.data?.message || 'No se pudo cambiar la cantidad'
+      )
+    }
+  }
+
+  const decidePromo = async (promotionId: string, decision: 'ACCEPTED' | 'DECLINED') => {
+    setDecidingPromo(promotionId)
+    try {
+      await client.post(`/tickets/${id}/promotions/${promotionId}`, { decision })
+      refetch()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'No se pudo aplicar la promoción')
+    } finally {
+      setDecidingPromo(null)
+    }
+  }
+
   const handleVoid = async (itemIds: string | string[], managerId: string) => {
     const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
+    // Open the reason modal instead of using prompt()
+    setShowVoidReason({ ids, managerId })
+    setVoidReason('')
+    setShowPinForVoid(null)
+    setVoidQtyPicker(null)
+  }
+
+  const confirmVoid = async () => {
+    if (!showVoidReason) return
+    const { ids, managerId } = showVoidReason
+    const reason = voidReason.trim() || 'Void'
     try {
-      const reason = prompt('Reason for void:') || 'Void'
       for (const itemId of ids) {
         await client.delete(`/tickets/${id}/items/${itemId}`, { data: { manager_id: managerId, reason } })
       }
@@ -144,8 +209,8 @@ export default function TicketPage() {
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'No se pudo anular')
     }
-    setShowPinForVoid(null)
-    setVoidQtyPicker(null)
+    setShowVoidReason(null)
+    setVoidReason('')
   }
 
   const thermalPrint = async (ticketId: string, unpaid = false) => {
@@ -314,7 +379,6 @@ export default function TicketPage() {
   const isPoolTable = (ticket.timer_sessions ?? []).length > 0
     || ticket.resource_code?.startsWith('BT')
     || ticket.resource_code?.startsWith('PT')  // legacy codes pre-2026-04-27 rename
-  const isManager = ['MANAGER', 'ADMIN'].includes(useAuthStore.getState().user?.role ?? '')
 
   const handleJoinWaitlist = async () => {
     setWlJoining(true)
@@ -333,16 +397,38 @@ export default function TicketPage() {
     } finally { setWlJoining(false) }
   }
 
-  // Compute live totals — pool time may still be running (charge_cents null)
+  // Compute live totals — mirror server-side billing.calculate_charge for each billing_mode
   const livePoolCents: number = (ticket.timer_sessions ?? []).reduce((sum: number, s: any) => {
-    if (!s.end_time && s.start_time) {
-      const secs = Math.max(0, (Date.now() - new Date(s.start_time).getTime()) / 1000)
-      return sum + Math.floor(secs / 3600 * s.rate_cents)
+    if (!s.end_time && s.status !== 'CANCELLED' && s.start_time) {
+      const rawSecs = Math.max(0, (Date.now() - new Date(s.start_time).getTime()) / 1000)
+      const promoSecs = s.promo_free_seconds ?? 0
+      const billableSecs = Math.max(0, rawSecs - promoSecs)
+      const ratePerMin = s.rate_cents / 60
+
+      let charge = 0
+      if (s.billing_mode === 'ROUND_15') {
+        const mins = Math.ceil(billableSecs / 60)
+        const rounded = mins > 0 ? Math.ceil(mins / 15) * 15 : 0
+        charge = Math.round(rounded * ratePerMin)
+      } else if (s.billing_mode === 'PER_HOUR') {
+        const hours = billableSecs > 0 ? Math.ceil(billableSecs / 3600) : 0
+        charge = hours * s.rate_cents
+      } else {
+        // PER_MINUTE (default): fractional minutes, rounded
+        charge = Math.round((billableSecs / 60) * ratePerMin)
+      }
+      return sum + charge
     }
     return sum + (s.charge_cents ?? 0)
   }, 0)
   const liveSubtotal: number = ticket.subtotal_cents ?? 0
   const liveDiscount: number = ticket.discount_cents ?? 0
+  // Per-promotion breakdown (additive backend field; absent on older payloads)
+  const appliedPromos: Array<{ promotion_id: string; name: string; discount_cents: number }> =
+    (ticket as any).applied_promotions ?? []
+  // Promotions that qualify but wait for the waiter to confirm them
+  const availablePromos: Array<{ promotion_id: string; name: string; discount_cents: number }> =
+    (ticket as any).available_promotions ?? []
   const liveTotal: number = Math.max(0, liveSubtotal - liveDiscount + livePoolCents)
 
   return (
@@ -443,16 +529,40 @@ export default function TicketPage() {
               <div key={group.ids.join(',')} className="flex items-start justify-between p-3 border-b border-slate-700 last:border-0">
                 <div>
                   <div className="font-medium">{group.quantity}× {group.menu_item_name}</div>
-                  {groupModifiers(group.modifiers).map((m) => (
+                  {groupModifiers(group.modifiers, group.quantity).map((m) => (
                     <div key={m.name} className="text-xs text-sky-300 ml-2">
                       → {m.count > 1 ? `${m.name} ×${m.count}` : m.name}
                     </div>
                   ))}
                   {group.notes && <div className="text-xs text-slate-400 ml-2 italic">{group.notes}</div>}
+                  {Array.from(group.promotions.entries())
+                    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                    .map(([name]) => (
+                      <div key={name} className="text-xs text-green-400 ml-2">🏷️ {name}</div>
+                    ))}
                   <div className={`text-xs mt-0.5 ${
                     group.status === 'STAGED' ? 'text-yellow-400' :
                     group.status === 'SERVED' ? 'text-green-400' : 'text-slate-400'
                   }`}>{group.status}{group.ids.length > 1 ? ` (${group.ids.length})` : ''}</div>
+                  {ticket.status === 'OPEN' && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <button
+                        onClick={() => {
+                          if (group.lastQty > 1) {
+                            setShowPinForQty({ itemId: group.lastId, quantity: group.lastQty - 1 })
+                          }
+                        }}
+                        disabled={group.lastQty <= 1}
+                        title={group.lastQty > 1 ? 'Reducir cantidad' : 'Usa Anular para quitar este artículo'}
+                        className="w-6 h-6 rounded bg-slate-700 text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed"
+                      >−</button>
+                      <button
+                        onClick={() => changeQty(group.lastId, group.lastQty + 1)}
+                        title="Aumentar cantidad"
+                        className="w-6 h-6 rounded bg-slate-700 text-sm font-bold hover:bg-slate-600"
+                      >+</button>
+                    </div>
+                  )}
                 </div>
                 <div className="text-right">
                   <div className="font-mono">{cents(
@@ -461,6 +571,11 @@ export default function TicketPage() {
                       (group.modifiers ?? []).reduce((s: number, m: any) => s + (m.price_cents ?? 0), 0)
                     )
                   )}</div>
+                  {group.promo_discount_cents > 0 && (
+                    <div className="font-mono text-xs text-green-400">
+                      −{cents(group.promo_discount_cents)}
+                    </div>
+                  )}
                   {ticket.status === 'OPEN' && (
                     <button
                       onClick={() => {
@@ -551,6 +666,36 @@ export default function TicketPage() {
           </div>
         )}
 
+        {/* Promotions waiting for the waiter to confirm */}
+        {ticket.status === 'OPEN' && availablePromos.length > 0 && (
+          <div className="bg-amber-950/60 border border-amber-700 rounded-xl p-4 mb-4 space-y-3">
+            {availablePromos.map(p => (
+              <div key={p.promotion_id} className="flex items-center gap-3 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold text-amber-200">🏷️ {p.name}</div>
+                  <div className="text-xs text-amber-300/80">
+                    Descuento disponible: {cents(p.discount_cents)}
+                  </div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => decidePromo(p.promotion_id, 'DECLINED')}
+                    disabled={decidingPromo === p.promotion_id}
+                    className="px-3 py-2 rounded-lg text-sm bg-slate-700 disabled:opacity-50">
+                    Ahora no
+                  </button>
+                  <button
+                    onClick={() => decidePromo(p.promotion_id, 'ACCEPTED')}
+                    disabled={decidingPromo === p.promotion_id}
+                    className="px-3 py-2 rounded-lg text-sm font-bold bg-amber-500 text-slate-900 disabled:opacity-50">
+                    Aplicar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Totals */}
         <div className="bg-slate-800 rounded-xl p-4 mb-4 space-y-1.5">
           <div className="flex justify-between text-sm">
@@ -569,6 +714,12 @@ export default function TicketPage() {
               <span className="font-mono">-{cents(liveDiscount)}</span>
             </div>
           )}
+          {appliedPromos.filter(p => (p.discount_cents || 0) > 0).map(p => (
+            <div key={p.promotion_id} className="flex justify-between text-xs text-green-400/80 pl-3">
+              <span>• {p.name}</span>
+              <span className="font-mono">-{cents(p.discount_cents)}</span>
+            </div>
+          ))}
           {livePoolCents > 0 && (
             <div className="flex justify-between text-sm font-semibold text-yellow-300">
               <span>🎱 {t('ticket.poolTime')}{activeTimer ? ' (est.)' : ''}</span>
@@ -721,7 +872,7 @@ export default function TicketPage() {
                 🔄 Reimprimir (PIN)
               </button>
             )}
-            {(useAuthStore.getState().user?.role === 'MANAGER' || useAuthStore.getState().user?.role === 'ADMIN') && (
+            {isManager && (
               <button
                 onClick={() => setShowEditPayment(true)}
                 className="w-full py-2.5 bg-amber-700 hover:bg-amber-600 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
@@ -796,6 +947,46 @@ export default function TicketPage() {
           onCancel={() => setShowPinForVoid(null)}
         />
       )}
+
+      {showPinForQty && (
+        <ManagerPinDialog
+          action="Reducir cantidad"
+          onConfirm={(managerId) => {
+            changeQty(showPinForQty.itemId, showPinForQty.quantity, managerId)
+            setShowPinForQty(null)
+          }}
+          onCancel={() => setShowPinForQty(null)}
+        />
+      )}
+
+      {/* Void reason modal — replaces browser prompt() */}
+      {showVoidReason && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80] p-4">
+          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 p-5 space-y-4">
+            <h2 className="font-bold text-lg">Motivo de Anulación</h2>
+            <input
+              autoFocus
+              type="text"
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') confirmVoid() }}
+              placeholder="Motivo (opcional)"
+              className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowVoidReason(null); setVoidReason('') }}
+                className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-bold"
+              >Cancelar</button>
+              <button
+                onClick={confirmVoid}
+                className="flex-1 py-2 bg-red-600 hover:bg-red-500 rounded-xl text-sm font-bold"
+              >Confirmar Anulación</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPinForDiscount && pendingDiscountPct !== null && (
         <ManagerPinDialog
           action={pendingDiscountPct === 0 ? 'Eliminar Descuento' : `Aplicar ${pendingDiscountPct}% de Descuento`}

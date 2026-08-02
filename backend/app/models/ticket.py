@@ -70,7 +70,7 @@ class Ticket(db.Model):
 
         self.total_cents = max(0, self.subtotal_cents - self.discount_cents + self.pool_time_cents)
 
-    def to_dict(self, include_items=True, include_timer=True):
+    def to_dict(self, include_items=True, include_timer=True, waiting_list_entry=None):
         d = {
             'id': self.id,
             'ticket_type': self.ticket_type or 'TABLE',
@@ -103,20 +103,49 @@ class Ticket(db.Model):
             'notes': self.notes,
             'customer_name': self.customer_name,
         }
+        # Additive: per-promotion breakdown so the receipt and the UI can show
+        # which promotions produced discount_cents. Manual discounts are not
+        # included here — they are already reported via manual_discount_pct.
+        # Only built on detail payloads (include_items=True) to keep the list
+        # endpoints free of an extra query per ticket.
         if include_items:
-            d['line_items'] = [i.to_dict() for i in self.line_items.all()]
+            promo_totals: dict = {}
+            promo_by_line: dict = {}
+            for lip in self.applied_promos.all():
+                promo = lip.promotion
+                entry = promo_totals.setdefault(lip.promotion_id, {
+                    'promotion_id': lip.promotion_id,
+                    'name': promo.name if promo else 'Promoción',
+                    'promo_type': promo.promo_type if promo else None,
+                    'discount_cents': 0,
+                })
+                entry['discount_cents'] += lip.discount_cents or 0
+                if lip.line_item_id:
+                    line = promo_by_line.setdefault(lip.line_item_id, {'total': 0, 'names': {}})
+                    line['total'] += lip.discount_cents or 0
+                    nm = promo.name if promo else 'Promoción'
+                    line['names'][nm] = line['names'].get(nm, 0) + (lip.discount_cents or 0)
+            d['applied_promotions'] = sorted(
+                promo_totals.values(), key=lambda p: (-p['discount_cents'], p['name'])
+            )
+        if include_items:
+            d['line_items'] = [i.to_dict(promo_info=promo_by_line.get(i.id)) for i in self.line_items.all()]
         if include_timer:
             d['timer_sessions'] = [s.to_dict() for s in self.timer_sessions.all()]
-        # Include linked waiting list entry if any (floor ticket OR assigned pool ticket)
-        from app.models.waiting_list import WaitingListEntry
-        from sqlalchemy import or_
-        wl = WaitingListEntry.query.filter(
-            or_(
-                WaitingListEntry.assigned_ticket_id == self.id,
-                WaitingListEntry.floor_ticket_id == self.id,
-            ),
-            WaitingListEntry.status.in_(['WAITING', 'SEATED'])
-        ).first()
+        # waiting_list_entry: pass in from the caller to avoid a per-ticket query.
+        # If not provided, do a lazy lookup (single-ticket detail endpoints only).
+        if waiting_list_entry is not None:
+            wl = waiting_list_entry
+        else:
+            from app.models.waiting_list import WaitingListEntry
+            from sqlalchemy import or_
+            wl = WaitingListEntry.query.filter(
+                or_(
+                    WaitingListEntry.assigned_ticket_id == self.id,
+                    WaitingListEntry.floor_ticket_id == self.id,
+                ),
+                WaitingListEntry.status.in_(['WAITING', 'SEATED'])
+            ).first()
         d['waiting_list_entry'] = {
             'id': wl.id, 'party_name': wl.party_name, 'party_size': wl.party_size,
             'position': wl.position,
@@ -149,7 +178,21 @@ class TicketLineItem(db.Model):
     modifiers = db.relationship('LineItemModifier', backref='line_item', cascade='all,delete-orphan')
     promos = db.relationship('LineItemPromotion', backref='line_item_ref', lazy='dynamic')
 
-    def to_dict(self):
+    def to_dict(self, promo_info=None):
+        """Serialize the line item.
+
+        promo_info: optional pre-computed {'total': cents, 'names': {name: cents}}
+        supplied by Ticket.to_dict so the promotion rows are read once per
+        ticket instead of once per line item. When omitted it is looked up.
+        """
+        if promo_info is None:
+            promo_info = {'total': 0, 'names': {}}
+            for lip in self.promos.all():
+                promo_info['total'] += lip.discount_cents or 0
+                nm = lip.promotion.name if lip.promotion else 'Promoción'
+                promo_info['names'][nm] = promo_info['names'].get(nm, 0) + (lip.discount_cents or 0)
+        promo_total = promo_info.get('total', 0)
+        gross = (self.quantity or 0) * (self.unit_price_cents or 0)
         return {
             'id': self.id,
             'ticket_id': self.ticket_id,
@@ -157,6 +200,13 @@ class TicketLineItem(db.Model):
             'menu_item_name': self.menu_item.name if self.menu_item else self.item_name,
             'quantity': self.quantity,
             'unit_price_cents': self.unit_price_cents,
+            'promo_discount_cents': promo_total,
+            'net_cents': gross - promo_total,
+            'promotions': [
+                {'name': n, 'discount_cents': c}
+                for n, c in sorted(promo_info.get('names', {}).items(),
+                                   key=lambda kv: (-kv[1], kv[0]))
+            ],
             'status': self.status,
             'routing_dest': self.routing_dest,
             'sent_at': self.sent_at.isoformat() if self.sent_at else None,

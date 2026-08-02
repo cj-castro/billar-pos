@@ -138,11 +138,13 @@ def print_queue_chit(item_id):
     job.status = 'SENT'
     db.session.commit()
 
-    # Group modifiers by name
+    # Group modifiers by name. Modifier rows exist once per line item, so scale
+    # them by the line quantity: 2x a bucket with 10 beer modifiers = 20 beers.
     mod_map: dict[str, int] = {}
+    _mod_mult = max(1, int(item.quantity or 1))
     for m in item.modifiers:
         name = m.modifier.name if hasattr(m, 'modifier') and m.modifier else getattr(m, 'name', '?')
-        mod_map[name] = mod_map.get(name, 0) + 1
+        mod_map[name] = mod_map.get(name, 0) + _mod_mult
 
     chit_data = {
         'job_id': job.id,

@@ -12,3 +12,15 @@ jwt = JWTManager()
 socketio = SocketIO(cors_allowed_origins="*", async_mode='eventlet')
 cors = CORS()
 limiter = Limiter(key_func=get_remote_address)
+
+
+@jwt.token_in_blocklist_loader
+def check_if_token_revoked(jwt_header, jwt_payload):
+    """Return True if the token has been revoked (user logged out)."""
+    from app.models.token_blocklist import TokenBlocklist
+    jti = jwt_payload.get('jti')
+    if not jti:
+        return False
+    return db.session.query(
+        TokenBlocklist.query.filter_by(jti=jti).exists()
+    ).scalar()

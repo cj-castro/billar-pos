@@ -24,3 +24,6 @@ class Config:
     CURRENCY = os.environ.get('CURRENCY', 'USD')
     TZ = os.environ.get('TZ', 'America/Mexico_City')
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
+
+    # Reject requests larger than 2 MB to prevent DoS via oversized payloads
+    MAX_CONTENT_LENGTH = 2 * 1024 * 1024  # 2 MB

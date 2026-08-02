@@ -43,8 +43,11 @@ def _int(v):
 
 
 # Shared CTE used by all three sub-routes.
-# net_gross_cents: line revenue after proportional discount (ticket.discount_cents
-# is distributed across line items by their share of subtotal_cents).
+# net_gross_cents: line revenue after discounts. Promotion discounts are
+# attributed to the exact line item that earned them (via line_item_promotions)
+# so a 2x1 on one product never reduces the reported revenue or margin of an
+# unrelated product. The manual ticket-level % discount has no per-line
+# attribution, so it stays distributed across lines by share of subtotal_cents.
 # Falls back to gross_cents when subtotal is zero (prevents division by zero).
 _RECIPE_CTE = """
 WITH recipe_cost AS (
@@ -54,6 +57,18 @@ WITH recipe_cost AS (
     FROM insumos_base ib
     JOIN inventory_items ii ON ii.id = ib.inventory_item_id
     GROUP BY ib.menu_item_id
+),
+line_promo AS (
+    SELECT line_item_id, SUM(discount_cents) AS promo_cents
+    FROM line_item_promotions
+    WHERE line_item_id IS NOT NULL
+    GROUP BY line_item_id
+),
+ticket_promo AS (
+    SELECT ticket_id, SUM(discount_cents) AS promo_cents
+    FROM line_item_promotions
+    WHERE ticket_id IS NOT NULL
+    GROUP BY ticket_id
 ),
 line_costs AS (
     SELECT
@@ -65,14 +80,22 @@ line_costs AS (
         tli.unit_price_cents,
         t.ticket_type,
         tli.quantity * tli.unit_price_cents             AS gross_cents,
-        COALESCE(
-            ROUND(
-                tli.quantity * tli.unit_price_cents
-                * (t.subtotal_cents - COALESCE(t.discount_cents, 0))::numeric
-                / NULLIF(t.subtotal_cents, 0)::numeric
-            ),
+        COALESCE(lp.promo_cents, 0)                     AS promo_discount_cents,
+        GREATEST(
             tli.quantity * tli.unit_price_cents
-        )                                               AS net_gross_cents,
+            - COALESCE(lp.promo_cents, 0)
+            - COALESCE(
+                ROUND(
+                    tli.quantity * tli.unit_price_cents
+                    * GREATEST(
+                        COALESCE(t.discount_cents, 0) - COALESCE(tp.promo_cents, 0), 0
+                      )::numeric
+                    / NULLIF(t.subtotal_cents, 0)::numeric
+                ),
+                0
+              ),
+            0
+        )::bigint                                       AS net_gross_cents,
         COALESCE(
             tli.cost_snapshot_cents,
             tli.quantity * rc.unit_cost_cents,
@@ -85,6 +108,8 @@ line_costs AS (
     FROM ticket_line_items tli
     JOIN tickets t ON tli.ticket_id = t.id
     LEFT JOIN recipe_cost rc ON rc.menu_item_id = tli.menu_item_id
+    LEFT JOIN line_promo lp ON lp.line_item_id = tli.id
+    LEFT JOIN ticket_promo tp ON tp.ticket_id = tli.ticket_id
     WHERE t.status = 'CLOSED'
       AND t.closed_at BETWEEN :from_dt AND :to_dt
       AND tli.status != 'VOIDED'
