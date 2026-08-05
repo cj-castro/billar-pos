@@ -260,3 +260,4 @@ if __name__ == "__main__":
 # ✅ What --validate does
 # Reads the current IP, subnet mask, gateway, and DNS servers from Windows (using netsh).
 
+ 

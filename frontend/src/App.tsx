@@ -18,6 +18,7 @@ import ModifiersPage from './pages/manager/ModifiersPage'
 import PromotionsPage from './pages/manager/PromotionsPage'
 import SafeCollectionsPage from './pages/manager/SafeCollectionsPage'
 import EarningsPage from './pages/manager/EarningsPage'
+import AnalyticsPage from './pages/manager/AnalyticsPage'
 import { SocketProvider } from './hooks/useSocket'
 
 function RequireAuth({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/manager/promotions" element={<RequireAuth roles={['MANAGER','ADMIN']}><PromotionsPage /></RequireAuth>} />
         <Route path="/manager/safe" element={<RequireAuth roles={['ADMIN']}><SafeCollectionsPage /></RequireAuth>} />
         <Route path="/manager/earnings" element={<RequireAuth roles={['ADMIN']}><EarningsPage /></RequireAuth>} />
+        <Route path="/manager/analytics" element={<RequireAuth roles={['ADMIN']}><AnalyticsPage /></RequireAuth>} />
         <Route path="*" element={<Navigate to={user ? '/floor' : '/login'} replace />} />
       </Routes>
     </SocketProvider>

@@ -247,7 +247,10 @@ def get_ticket(ticket_id):
     d = ticket.to_dict()
     # Promotions that qualify right now but need the waiter to confirm them.
     if ticket.status == 'OPEN':
-        d['available_promotions'] = promotion_svc.preview_pending_quantity_promos(ticket)
+        try:
+            d['available_promotions'] = promotion_svc.preview_pending_quantity_promos(ticket)
+        except Exception:
+            d['available_promotions'] = []
     else:
         d['available_promotions'] = []
     return jsonify(d)
@@ -290,6 +293,9 @@ def decide_promotion(ticket_id, promotion_id):
     row.decided_at = datetime.now(timezone.utc)
     db.session.flush()
 
+    from app.models.promotion import QUANTITY_PROMO_TYPES
+    if decision == 'ACCEPTED' and promo.promo_type not in QUANTITY_PROMO_TYPES:
+        promotion_svc.apply_confirmable_item_promo(promo, ticket)
     promotion_svc.recompute_quantity_promos(ticket)
     ticket.recalculate_totals()
     ticket.version += 1

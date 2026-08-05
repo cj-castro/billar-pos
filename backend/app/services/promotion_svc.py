@@ -16,14 +16,20 @@ def apply_promos_to_line_item(line_item, ticket, now: datetime = None):
 
     'now' is compared against happy-hour windows in the venue's local timezone
     (Config.TZ), not UTC, so $17:00 happy hour means 17:00 local time.
+    Promos with requires_confirmation only apply when the waiter has already
+    accepted them for this ticket.
     """
     if now is None:
-        # Use local venue time for all comparisons
         now = datetime.now(ZoneInfo(Config.TZ))
 
+    try:
+        decisions = _ticket_decisions(ticket)
+    except Exception:
+        decisions = {}
     promos = Promotion.query.filter_by(is_active=True).all()
     for promo in promos:
-        discount = _evaluate_promo(promo, line_item, now)
+        confirmed = decisions.get(promo.id) == 'ACCEPTED'
+        discount = _evaluate_promo(promo, line_item, now, confirmed=confirmed)
         if discount and discount > 0:
             lip = LineItemPromotion(
                 line_item_id=line_item.id,
@@ -34,7 +40,38 @@ def apply_promos_to_line_item(line_item, ticket, now: datetime = None):
             db.session.add(lip)
 
 
-def _evaluate_promo(promo, line_item, now: datetime) -> int:
+def apply_confirmable_item_promo(promo, ticket, now: datetime = None):
+    """Apply a HAPPY_HOUR / ITEM_DISCOUNT promo to all current eligible line items.
+
+    Called when the waiter accepts a confirmable non-quantity promo.  Clears
+    any stale rows for this promo on the ticket first so the result is
+    idempotent.
+    """
+    if now is None:
+        now = datetime.now(ZoneInfo(Config.TZ))
+    for lip in list(ticket.applied_promos):
+        if lip.promotion_id == promo.id:
+            db.session.delete(lip)
+    db.session.flush()
+    for item in ticket.line_items:
+        if item.status == 'VOIDED':
+            continue
+        discount = _evaluate_promo(promo, item, now, confirmed=True)
+        if discount and discount > 0:
+            db.session.add(LineItemPromotion(
+                line_item_id=item.id,
+                ticket_id=ticket.id,
+                promotion_id=promo.id,
+                discount_cents=discount,
+            ))
+    db.session.flush()
+
+
+def _evaluate_promo(promo, line_item, now: datetime, *, confirmed: bool = False) -> int:
+    # Promos that require waiter confirmation are never auto-applied.
+    if promo.requires_confirmation and not confirmed:
+        return 0
+
     # Ensure we always compare in local time
     local_now = now.astimezone(ZoneInfo(Config.TZ))
     today = local_now.date()
@@ -297,7 +334,12 @@ def recompute_quantity_promos(ticket, now: datetime = None):
             continue
         if promo.requires_confirmation and decisions.get(promo.id) != 'ACCEPTED':
             continue
-        eligible_units = _units_in_time_window(promo, units, local_now)
+        # For confirmed promos, skip the time-window filter so a discount the
+        # waiter already accepted doesn't vanish when the window later closes.
+        if promo.requires_confirmation and decisions.get(promo.id) == 'ACCEPTED':
+            eligible_units = [u for u in units if unit_is_eligible(promo, u, category_by_item)]
+        else:
+            eligible_units = _units_in_time_window(promo, units, local_now)
         if not eligible_units:
             continue
         for u in eligible_units:
@@ -336,11 +378,11 @@ def _units_in_time_window(promo, units: list, local_now: datetime) -> list:
 
 
 def preview_pending_quantity_promos(ticket, now: datetime = None) -> list:
-    """Quantity promos that would apply right now but are awaiting confirmation.
+    """All confirmable promos that qualify right now but are awaiting waiter decision.
 
-    Returns the promotions the waiter has not answered yet, each with the
-    discount it would produce, so the till can offer them. Promotions already
-    accepted or declined for this ticket are not returned. Nothing is written.
+    Covers HAPPY_HOUR, ITEM_DISCOUNT, BOGO, and QTY_PERCENT_DISCOUNT — any
+    promo with requires_confirmation=True that the waiter hasn't answered yet.
+    Returns each offer with the discount it would produce. Nothing is written.
     """
     if now is None:
         now = datetime.now(ZoneInfo(Config.TZ))
@@ -348,39 +390,63 @@ def preview_pending_quantity_promos(ticket, now: datetime = None) -> list:
 
     promos = (Promotion.query
               .filter(Promotion.is_active.is_(True),
-                      Promotion.requires_confirmation.is_(True),
-                      Promotion.promo_type.in_(QUANTITY_PROMO_TYPES))
+                      Promotion.requires_confirmation.is_(True))
               .all())
     if not promos:
         return []
 
     decisions = _ticket_decisions(ticket)
-    pending = [p for p in promos if p.id not in decisions]
+    # Only hide the banner once the waiter has ACCEPTED (applied) the promo.
+    # A DECLINED decision does not suppress it — the banner stays until confirmed.
+    pending = [p for p in promos if decisions.get(p.id) != 'ACCEPTED']
     if not pending:
         return []
 
-    units, category_by_item = _ticket_units(ticket)
-    if not units:
-        return []
+    # Pre-compute shared data only when needed.
+    _units_cache = None
+    _category_cache = None
+    _discounted_cache = None
 
-    # Units already carrying a promo row must look discounted to the preview,
-    # exactly as they would during a real recompute.
-    discounted_line_items = {
-        lip.line_item_id for lip in ticket.applied_promos.all() if lip.line_item_id
-    }
+    def _get_units():
+        nonlocal _units_cache, _category_cache, _discounted_cache
+        if _units_cache is None:
+            _units_cache, _category_cache = _ticket_units(ticket)
+            _discounted_cache = {
+                lip.line_item_id for lip in ticket.applied_promos.all() if lip.line_item_id
+            }
+        return _units_cache, _category_cache, _discounted_cache
 
     offers = []
     pending.sort(key=lambda p: (p.priority or 0, p.name or '', p.id))
     for promo in pending:
         if not promo_is_in_date_range(promo, local_now):
             continue
-        eligible_units = _units_in_time_window(promo, units, local_now)
-        if not eligible_units:
-            continue
-        for u in eligible_units:
-            u.already_discounted = u.line_item_id in discounted_line_items
-        discounts = compute_quantity_promo_discounts(promo, eligible_units, category_by_item)
-        total = sum(c for c in discounts.values() if c > 0)
+
+        if promo.promo_type in QUANTITY_PROMO_TYPES:
+            # Banner only shown while the time window is currently open.
+            # _units_in_time_window uses order time (for application), but for the
+            # preview we want the window to gate when the banner appears/disappears.
+            if promo.happy_hour_start and promo.happy_hour_end:
+                if not promo_time_window_contains(promo, local_now):
+                    continue
+            units, category_by_item, discounted_line_items = _get_units()
+            if not units:
+                continue
+            eligible_units = [u for u in units if unit_is_eligible(promo, u, category_by_item)]
+            if not eligible_units:
+                continue
+            for u in eligible_units:
+                u.already_discounted = u.line_item_id in discounted_line_items
+            discounts = compute_quantity_promo_discounts(promo, eligible_units, category_by_item)
+            total = sum(c for c in discounts.values() if c > 0)
+        else:
+            # HAPPY_HOUR / ITEM_DISCOUNT — evaluate against each current line item.
+            total = sum(
+                _evaluate_promo(promo, item, local_now, confirmed=True)
+                for item in ticket.line_items
+                if item.status != 'VOIDED'
+            )
+
         if total <= 0:
             continue
         offers.append({

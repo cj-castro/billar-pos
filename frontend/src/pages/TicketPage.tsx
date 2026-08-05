@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -11,6 +11,7 @@ import PrintRetryBanner from '../components/PrintRetryBanner'
 import { useAuthStore } from '../stores/authStore'
 import { useTimer } from '../hooks/useTimer'
 import { useEscKey } from '../hooks/useEscKey'
+import { useSocket } from '../hooks/useSocket'
 import client from '../api/client'
 import toast from 'react-hot-toast'
 import {
@@ -136,6 +137,15 @@ export default function TicketPage() {
   const [voidingTimer, setVoidingTimer] = useState(false)
   const [showPinForQty, setShowPinForQty] = useState<{ itemId: string; quantity: number } | null>(null)
   const [decidingPromo, setDecidingPromo] = useState<string | null>(null)
+
+  // Join ticket-specific socket room so ticket:updated events are received
+  // and useSocket.ts can invalidate ['ticket', id] immediately.
+  const socket = useSocket()
+  useEffect(() => {
+    if (!socket || !id) return
+    socket.emit('join', { room: `ticket:${id}` })
+    return () => { socket.emit('leave', { room: `ticket:${id}` }) }
+  }, [socket, id])
 
   // Close modals with Escape
   useEscKey(() => {
@@ -678,12 +688,6 @@ export default function TicketPage() {
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <button
-                    onClick={() => decidePromo(p.promotion_id, 'DECLINED')}
-                    disabled={decidingPromo === p.promotion_id}
-                    className="px-3 py-2 rounded-lg text-sm bg-slate-700 disabled:opacity-50">
-                    Ahora no
-                  </button>
                   <button
                     onClick={() => decidePromo(p.promotion_id, 'ACCEPTED')}
                     disabled={decidingPromo === p.promotion_id}

@@ -5,6 +5,7 @@ SQL (IF NOT EXISTS, DO $$ blocks with information_schema checks). No separate
 Alembic runner is needed; the entrypoint calls flask init-db before gunicorn starts.
 """
 import logging
+import click
 from flask import Flask
 from .config import Config
 from .extensions import db, migrate, jwt, socketio, cors, limiter
@@ -42,6 +43,7 @@ def create_app(config_class=Config):
     from .api.suppliers import suppliers_bp
     from .api.settings import settings_bp
     from .api.promotions import promotions_bp
+    from .api.analytics import analytics_bp
 
     app.register_blueprint(auth_bp,          url_prefix='/api/v1/auth')
     app.register_blueprint(resources_bp,     url_prefix='/api/v1/resources')
@@ -58,6 +60,7 @@ def create_app(config_class=Config):
     app.register_blueprint(suppliers_bp,     url_prefix='/api/v1/suppliers')
     app.register_blueprint(settings_bp,      url_prefix='/api/v1/settings')
     app.register_blueprint(promotions_bp,    url_prefix='/api/v1/promotions')
+    app.register_blueprint(analytics_bp,     url_prefix='/api/v1/analytics')
 
     from .sockets import events  # noqa: F401
 
@@ -625,6 +628,167 @@ def create_app(config_class=Config):
             run(stmt, 'step23')
         print("STEP 23: promotion confirmation + time window added")
 
+        # ── STEP 24: modifier_groups.split_modifier_qty ───────────────────────
+        # Column exists in the model but was never added via a migration step.
+        # Any ORM query on modifier_groups selects this column by name, so the
+        # DB must have it or every modifier-group read fails in production.
+        run(
+            "ALTER TABLE modifier_groups ADD COLUMN IF NOT EXISTS split_modifier_qty BOOLEAN DEFAULT FALSE",
+            'step24',
+        )
+        print("STEP 24: modifier_groups.split_modifier_qty added")
+
+        # ── STEP 25: Fixed operating costs (gastos fijos mensuales) ───────────
+        # Until now the platform could only report GROSS profit. These are the
+        # monthly costs that exist whether or not a single ticket is sold, so
+        # they are what turns gross profit into net profit and makes a
+        # break-even point computable. Amounts are editable from Analítica →
+        # Rentabilidad; the seed only runs when the table is empty, so operator
+        # edits are never overwritten by a later init-db.
+        run("""
+            CREATE TABLE IF NOT EXISTS fixed_costs (
+                id          VARCHAR(36) PRIMARY KEY,
+                concepto    VARCHAR(120) NOT NULL UNIQUE,
+                categoria   VARCHAR(40),
+                monto_cents INTEGER NOT NULL DEFAULT 0,
+                is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+                notas       TEXT,
+                updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """, 'step25_table')
+
+        _seeded = db.session.execute(text("SELECT COUNT(*) FROM fixed_costs")).scalar()
+        if not _seeded:
+            import uuid as _uuid
+            for _concepto, _cat, _pesos in [
+                ('Alquiler de Local',   'INSTALACIONES', 50000),
+                ('Personal / Empleados', 'NOMINA',       33000),
+                ('Servicio Agua',       'SERVICIOS',         0),
+                ('Servicio Luz',        'SERVICIOS',     14000),
+                ('Impuestos',           'IMPUESTOS',     20000),
+                ('Impuestos Estatales', 'IMPUESTOS',     14000),
+                ('Municipio',           'IMPUESTOS',      4000),
+                ('Internet',            'SERVICIOS',       800),
+            ]:
+                db.session.execute(text("""
+                    INSERT INTO fixed_costs (id, concepto, categoria, monto_cents)
+                    VALUES (:i, :c, :g, :m)
+                    ON CONFLICT (concepto) DO NOTHING
+                """), {'i': str(_uuid.uuid4()), 'c': _concepto,
+                       'g': _cat, 'm': _pesos * 100})
+            db.session.commit()
+            print("STEP 25: fixed_costs seeded (8 conceptos, $135,800.00/mes)")
+        else:
+            print(f"STEP 25: fixed_costs already populated ({_seeded} conceptos), seed skipped")
+
+        # ── STEP 26: Analytics layer — derived v_bola8_* views + indexes ──────
+        # Creates the seven new analytics views (payment breakdown, cash flow,
+        # cost coverage, inventory variance, staff performance, operational
+        # anomalies, promo redemptions). The thirteen ORIGINAL v_bola8_* views
+        # are never modified. Skips gracefully if the two foundation views
+        # (v_bola8_lineas_venta / v_bola8_tickets_cerrados) are absent — they
+        # are not defined in this repo. See docs/analytics-blueprint.md.
+        try:
+            from .analytics_views import ensure_analytics_views
+            ensure_analytics_views(db)
+        except Exception as exc:  # noqa: BLE001
+            db.session.rollback()
+            print(f"STEP 26: analytics layer FAILED — {exc}")
+            print("         init-db continues; dashboards will 503 until fixed.")
+
+
+    @app.cli.command('restate-costs')
+    @click.option('--dry-run', is_flag=True, help='Report what would change without writing.')
+    def restate_costs(dry_run):
+        """Recompute historical sale_item_costs from current inventory unit costs.
+
+        WHY THIS EXISTS
+            sale_item_costs.total_cost_cents is a snapshot written at sale time.
+            64 of 76 active inventory items had unit_cost_cents = 0, so the
+            deduction engine correctly resolved the recipe and then multiplied by
+            zero — 3,582 of 5,870 sold lines carry a cost of 0, and reported gross
+            margin sits at an impossible 97.2%.
+
+            Once real unit costs are entered, this command restates the existing
+            rows so 90 days of history become analysable immediately instead of
+            starting the clock over.
+
+        IMPORTANT
+            This applies TODAY'S unit cost to PAST sales. It is a current-cost
+            restatement, not true historical cost. Acceptable over a 90-day window
+            with stable supplier pricing — but every profit surface must keep
+            showing cobertura_costo_pct so the caveat stays visible.
+
+            Rows that already have a non-zero cost are left ALONE: they were
+            captured against the real cost at the time and are more accurate than
+            anything we would overwrite them with.
+        """
+        from sqlalchemy import text
+
+        preview = db.session.execute(text("""
+            SELECT count(*)                                        AS filas,
+                   count(DISTINCT s.ticket_line_item_id)           AS lineas,
+                   COALESCE(sum(round(s.quantity_deducted
+                                      * ii.unit_cost_cents)), 0)   AS nuevo_costo_cents
+            FROM sale_item_costs s
+            JOIN inventory_items ii ON ii.id = s.inventory_item_id
+            WHERE COALESCE(s.total_cost_cents, 0) = 0
+              AND COALESCE(ii.unit_cost_cents, 0) > 0
+              AND COALESCE(s.quantity_deducted, 0) > 0
+        """)).mappings().first()
+
+        still_zero = db.session.execute(text("""
+            SELECT count(*) FROM inventory_items
+            WHERE COALESCE(is_active, TRUE) AND COALESCE(unit_cost_cents, 0) = 0
+        """)).scalar()
+
+        print(f"Rows to restate      : {preview['filas']}")
+        print(f"Sale lines affected  : {preview['lineas']}")
+        print(f"Cost to be recorded  : ${preview['nuevo_costo_cents'] / 100:,.2f} MXN")
+        print(f"Items still unpriced : {still_zero} "
+              f"(their lines stay at zero cost until a cost is entered)")
+
+        if dry_run:
+            print("\n--dry-run: nothing written.")
+            return
+        if not preview['filas']:
+            print("\nNothing to restate. Enter unit costs first "
+                  "(GET /api/v1/analytics/cost-coverage lists them by revenue exposure).")
+            return
+
+        result = db.session.execute(text("""
+            UPDATE sale_item_costs s
+               SET unit_cost_cents  = ii.unit_cost_cents,
+                   total_cost_cents = round(s.quantity_deducted * ii.unit_cost_cents)
+              FROM inventory_items ii
+             WHERE ii.id = s.inventory_item_id
+               AND COALESCE(s.total_cost_cents, 0) = 0
+               AND COALESCE(ii.unit_cost_cents, 0) > 0
+               AND COALESCE(s.quantity_deducted, 0) > 0
+        """))
+        db.session.commit()
+        print(f"\nRestated {result.rowcount} rows. "
+              f"Margins are now current-cost restatements — label them as such.")
+
+
+    @app.cli.command('daily-report')
+    @click.option('--date', default=None, help='Target date YYYY-MM-DD (default: yesterday)')
+    def send_daily_report(date):
+        """Generate and email the daily sales report."""
+        from app.services.email_report_svc import generate_and_send_report
+        from datetime import date as date_type
+        target = None
+        if date:
+            try:
+                target = date_type.fromisoformat(date)
+            except ValueError:
+                raise click.BadParameter(f"Invalid date '{date}', use YYYY-MM-DD")
+        try:
+            generate_and_send_report(target_date=target)
+            print("Daily report sent successfully.")
+        except Exception as exc:
+            print(f"ERROR: {exc}")
+            raise SystemExit(1)
 
     @app.cli.command('seed-beer')
     def seed_beer():

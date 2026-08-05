@@ -48,6 +48,12 @@ services:
       KITCHEN_PASSWORD: ${KITCHEN_PASSWORD:-kitchen123}
       BARSTAFF_PASSWORD: ${BARSTAFF_PASSWORD:-bar123}
       PRINT_AGENT_URL: ${PRINT_AGENT_URL:-http://host.docker.internal:9191}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      REPORT_FROM: ${REPORT_FROM:-bola.8gdl@gmail.com}
+      REPORT_TO: ${REPORT_TO:-bola.8gdl@gmail.com,isc.castro@gmail.com}
     healthcheck:
       test: ["CMD-SHELL", "curl -s http://localhost:5000/api/v1/auth/me | grep -q msg"]
       interval: 15s
@@ -70,6 +76,29 @@ services:
         condition: service_healthy
     ports:
       - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - billiardbar_net
+
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    entrypoint: ["python", "scheduler.py"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-billiard}:${POSTGRES_PASSWORD:-billiard_secret}@postgres:5432/${POSTGRES_DB:-billiardbar}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      TZ: ${TZ:-America/Mexico_City}
+      FLASK_APP: wsgi.py
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      REPORT_FROM: ${REPORT_FROM:-bola.8gdl@gmail.com}
+      REPORT_TO: ${REPORT_TO:-bola.8gdl@gmail.com,isc.castro@gmail.com}
     networks:
       - billiardbar_net
 

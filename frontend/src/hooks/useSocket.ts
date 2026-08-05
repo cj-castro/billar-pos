@@ -99,6 +99,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
+    // Ticket changed (item added/voided, promo decided, timer stopped, etc.)
+    // Invalidate the specific ticket query so TicketPage gets fresh data including
+    // available_promotions. The room join happens inside TicketPage.
+    socket.on('ticket:updated', ({ ticket_id }: { ticket_id: string }) => {
+      qc.invalidateQueries({ queryKey: ['ticket', ticket_id] })
+    })
+
     // Settings changed — invalidate the relevant setting query on all clients
     socket.on('settings:changed', ({ key }: { key: string; value: string }) => {
       qc.invalidateQueries({ queryKey: ['settings', key] })

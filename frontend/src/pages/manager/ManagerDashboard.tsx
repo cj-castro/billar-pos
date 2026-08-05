@@ -24,6 +24,7 @@ export default function ManagerDashboard() {
   const adminTiles = [
     { to: '/manager/reports', icon: '📊', label: t('manager.reports'), desc: 'Sales, pool time, payments' },
     { to: '/manager/earnings', icon: '💹', label: 'Ganancias', desc: 'Ingresos, COGS, margen bruto' },
+    { to: '/manager/analytics', icon: '🧠', label: 'Analítica', desc: 'Menú, caja, inventario, riesgos' },
   ]
 
   return (

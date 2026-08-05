@@ -27,3 +27,11 @@ class Config:
 
     # Reject requests larger than 2 MB to prevent DoS via oversized payloads
     MAX_CONTENT_LENGTH = 2 * 1024 * 1024  # 2 MB
+
+    # Daily email report (SMTP / Gmail)
+    SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+    SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
+    SMTP_USER = os.environ.get('SMTP_USER', '')
+    SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
+    REPORT_FROM = os.environ.get('REPORT_FROM', '')
+    REPORT_TO = os.environ.get('REPORT_TO', '')

@@ -48,7 +48,25 @@ def login():
 @jwt_required(refresh=True)
 def refresh():
     identity = get_jwt_identity()
-    access_token = create_access_token(identity=identity, expires_delta=timedelta(hours=8))
+
+    # The role/name claims MUST be re-attached here. Without them the refreshed
+    # access token carries no 'role', so every role-gated endpoint (analytics,
+    # reports, earnings, safe) starts returning 403 the moment the first token
+    # refresh happens — while the UI still lets the user in, because the route
+    # guard reads role from the persisted auth store rather than the JWT.
+    #
+    # Claims are re-read from the database rather than copied from the old
+    # token, so a demoted or deactivated user loses access at the next refresh
+    # instead of holding elevated claims until the refresh token expires.
+    user = User.query.get(identity)
+    if not user or not user.is_active:
+        return jsonify({'error': 'USER_INACTIVE'}), 401
+
+    access_token = create_access_token(
+        identity=identity,
+        additional_claims={'role': user.role, 'name': user.name},
+        expires_delta=timedelta(hours=8),
+    )
     return jsonify({'access_token': access_token})
 
 
