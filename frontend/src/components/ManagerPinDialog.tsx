@@ -68,21 +68,21 @@ export default function ManagerPinDialog({ action, onConfirm, onCancel }: Props)
         ref={containerRef}
         tabIndex={-1}
         outline-none
-        className={`bg-slate-800 rounded-t-2xl sm:rounded-2xl p-6 w-full max-w-xs shadow-2xl border border-slate-600 outline-none ${shake ? 'animate-shake' : ''}`}
+        className={`bg-zinc-800 rounded-t-2xl sm:rounded-2xl p-6 w-full max-w-xs shadow-2xl border border-zinc-600 outline-none ${shake ? 'animate-shake' : ''}`}
       >
         <div className="flex items-center gap-2 mb-4">
           <span className="text-2xl">🔒</span>
           <div>
             <div className="font-bold">{t('pin.title')}</div>
-            <div className="text-xs text-slate-400">{action}</div>
+            <div className="text-xs text-zinc-400">{action}</div>
           </div>
         </div>
 
-        <div className="text-xs text-slate-500 text-center mb-2">{t('pin.hint')}</div>
+        <div className="text-xs text-zinc-500 text-center mb-2">{t('pin.hint')}</div>
 
         <div className="flex justify-center gap-3 my-4">
           {[0,1,2,3].map((i) => (
-            <div key={i} className={`w-5 h-5 rounded-full border-2 transition-all ${i < pin.length ? 'bg-sky-400 border-sky-400 scale-110' : 'border-slate-500'}`} />
+            <div key={i} className={`w-5 h-5 rounded-full border-2 transition-all ${i < pin.length ? 'bg-white border-white scale-110' : 'border-zinc-500'}`} />
           ))}
         </div>
 
@@ -94,7 +94,7 @@ export default function ManagerPinDialog({ action, onConfirm, onCancel }: Props)
                 if (d === '⌫') setPin(p => p.slice(0,-1))
                 else if (d !== '') setPin(p => p.length < 4 ? p + d : p)
               }}
-              className="bg-slate-700 hover:bg-slate-600 active:bg-slate-500 text-white font-bold py-3 rounded-lg text-lg disabled:opacity-30 select-none"
+              className="bg-zinc-700 hover:bg-zinc-600 active:bg-zinc-500 text-white font-bold py-3 rounded-lg text-lg disabled:opacity-30 select-none"
               disabled={loading || d === ''}
             >
               {d}
@@ -103,13 +103,13 @@ export default function ManagerPinDialog({ action, onConfirm, onCancel }: Props)
         </div>
 
         <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700">
+          <button onClick={onCancel} className="flex-1 py-2 rounded-lg border border-zinc-600 text-zinc-300 hover:bg-zinc-700">
             {t('pin.cancel')}
           </button>
           <button
             onClick={handleSubmit}
             disabled={pin.length !== 4 || loading}
-            className="flex-1 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 font-bold disabled:opacity-50"
+            className="flex-1 py-2 rounded-lg bg-white text-zinc-900 hover:bg-zinc-200 font-bold disabled:opacity-50"
           >
             {loading ? '...' : t('pin.authorize')}
           </button>

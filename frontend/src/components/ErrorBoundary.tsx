@@ -31,15 +31,15 @@ export default class ErrorBoundary extends React.Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-          <div className="bg-slate-800 rounded-2xl border border-red-700 p-8 max-w-md w-full space-y-4 text-center">
+        <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-6">
+          <div className="bg-zinc-800 rounded-2xl border border-red-700 p-8 max-w-md w-full space-y-4 text-center">
             <p className="text-4xl">⚠️</p>
             <h1 className="text-xl font-bold text-red-400">Error inesperado</h1>
-            <p className="text-slate-400 text-sm">
+            <p className="text-zinc-400 text-sm">
               Algo salió mal en la interfaz. Por favor recarga la página.
             </p>
             {this.state.error && (
-              <pre className="text-xs text-slate-500 bg-slate-900 rounded-lg p-3 text-left overflow-auto max-h-32">
+              <pre className="text-xs text-zinc-500 bg-zinc-900 rounded-lg p-3 text-left overflow-auto max-h-32">
                 {this.state.error.message}
               </pre>
             )}

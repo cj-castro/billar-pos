@@ -127,10 +127,10 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-[60] p-2 sm:p-4">
-      <div className="bg-slate-800 rounded-2xl w-full max-w-lg max-h-[92dvh] flex flex-col shadow-2xl border border-slate-600">
-        <div className="flex items-center justify-between p-4 border-b border-slate-700 shrink-0">
+      <div className="bg-zinc-800 rounded-2xl w-full max-w-lg max-h-[92dvh] flex flex-col shadow-2xl border border-zinc-600">
+        <div className="flex items-center justify-between p-4 border-b border-zinc-700 shrink-0">
           <h2 className="font-bold text-lg">Agregar Artículo</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white text-2xl">&times;</button>
         </div>
 
         <div className="overflow-y-scroll flex-1 p-3 sm:p-4 overscroll-contain">
@@ -145,9 +145,9 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
             <div className="grid grid-cols-2 gap-2">
               {(categories || []).map((cat: any) => (
                 <button key={cat.id} onClick={() => { setSelectedCategory(cat); setStep('items') }}
-                  className="bg-slate-700 active:bg-slate-600 rounded-xl p-3 text-left min-h-[56px]">
+                  className="bg-zinc-700 active:bg-zinc-600 rounded-xl p-3 text-left min-h-[56px]">
                   <div className="font-semibold text-sm">{cat.name}</div>
-                  <div className="text-xs text-slate-400">{cat.routing}</div>
+                  <div className="text-xs text-zinc-400">{cat.routing}</div>
                 </button>
               ))}
             </div>
@@ -156,7 +156,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
           {step === 'items' && (
             <div>
               <div className="flex items-center justify-between mb-3">
-                <button onClick={() => setStep('category')} className="text-sky-400 text-sm">← {selectedCategory?.name}</button>
+                <button onClick={() => setStep('category')} className="text-zinc-300 text-sm">← {selectedCategory?.name}</button>
                 <button onClick={onClose} className="px-4 py-1.5 bg-green-700 hover:bg-green-600 text-white text-sm font-bold rounded-lg">✓ Listo</button>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -169,13 +169,13 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                       disabled={oos}
                       className={`rounded-xl p-4 text-left transition-all relative ${
                         oos
-                          ? 'bg-slate-800 border border-slate-700 opacity-50 cursor-not-allowed'
+                          ? 'bg-zinc-800 border border-zinc-700 opacity-50 cursor-not-allowed'
                           : lowStock
                             ? 'bg-amber-950/60 border border-amber-700 hover:border-amber-500'
-                            : 'bg-slate-700 hover:bg-slate-600'
+                            : 'bg-zinc-700 hover:bg-zinc-600'
                       }`}>
                       <div className="font-semibold">{item.name}</div>
-                      <div className="text-sky-400 font-mono">${(item.price_cents / 100).toFixed(2)}</div>
+                      <div className="text-zinc-300 font-mono">${(item.price_cents / 100).toFixed(2)}</div>
                       {item.requires_flavor && !oos && <div className="text-xs text-yellow-400 mt-1">⚡ Flavor required</div>}
                       {oos && <div className="text-xs text-red-400 mt-1 font-semibold">🚫 Sin stock</div>}
                       {lowStock && remaining !== undefined && (
@@ -190,13 +190,13 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
 
           {step === 'modifiers' && selectedItem && (
             <div>
-              <button onClick={() => setStep('items')} className="text-sky-400 text-sm mb-3">← {selectedItem.name}</button>
+              <button onClick={() => setStep('items')} className="text-zinc-300 text-sm mb-3">← {selectedItem.name}</button>
 
               {/* Progress indicator when multiple groups */}
               {allGroups.length > 1 && (
                 <div className="flex gap-1.5 mb-4">
                   {allGroups.map((g: any) => (
-                    <div key={g.id} className={`flex-1 h-1.5 rounded-full transition-colors ${groupIsComplete(g) ? 'bg-sky-500' : 'bg-slate-600'}`} />
+                    <div key={g.id} className={`flex-1 h-1.5 rounded-full transition-colors ${groupIsComplete(g) ? 'bg-zinc-200' : 'bg-zinc-600'}`} />
                   ))}
                 </div>
               )}
@@ -215,7 +215,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                           <span className="text-red-400 text-xs ml-2">* Obligatorio</span>
                         </div>
                         <span className={`text-sm font-bold font-mono px-3 py-1 rounded-full border ${
-                          done ? 'bg-green-800 border-green-600 text-green-300' : 'bg-slate-700 border-slate-600 text-slate-300'
+                          done ? 'bg-green-800 border-green-600 text-green-300' : 'bg-zinc-700 border-zinc-600 text-zinc-300'
                         }`}>{total} / {target}</span>
                       </div>
                       <div className="space-y-2">
@@ -223,24 +223,24 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                           const cnt = bucketCountFor(group.id, mod.id)
                           const oos = blockedModifiers.includes(mod.id)
                           return (
-                            <div key={mod.id} className={`flex items-center justify-between rounded-xl px-4 py-2.5 ${oos ? 'bg-slate-800 opacity-50' : 'bg-slate-700'}`}>
+                            <div key={mod.id} className={`flex items-center justify-between rounded-xl px-4 py-2.5 ${oos ? 'bg-zinc-800 opacity-50' : 'bg-zinc-700'}`}>
                               <div>
                                 <span className="font-medium text-sm">{mod.name}</span>
                                 {oos && <span className="block text-xs text-red-400">🚫 Sin stock</span>}
                               </div>
                               <div className="flex items-center gap-2">
                                 <button onClick={() => adjustBucket(group.id, mod.id, -1)} disabled={cnt === 0}
-                                  className="w-11 h-11 bg-slate-600 hover:bg-slate-500 rounded-lg font-bold text-lg disabled:opacity-30">−</button>
-                                <span className={`w-8 text-center font-bold font-mono text-lg ${cnt > 0 ? 'text-yellow-300' : 'text-slate-500'}`}>{cnt}</span>
+                                  className="w-11 h-11 bg-zinc-600 hover:bg-zinc-500 rounded-lg font-bold text-lg disabled:opacity-30">−</button>
+                                <span className={`w-8 text-center font-bold font-mono text-lg ${cnt > 0 ? 'text-yellow-300' : 'text-zinc-500'}`}>{cnt}</span>
                                 <button onClick={() => adjustBucket(group.id, mod.id, 1)} disabled={total >= target || oos}
-                                  className="w-11 h-11 bg-slate-600 hover:bg-slate-500 rounded-lg font-bold text-lg disabled:opacity-30">+</button>
+                                  className="w-11 h-11 bg-zinc-600 hover:bg-zinc-500 rounded-lg font-bold text-lg disabled:opacity-30">+</button>
                               </div>
                             </div>
                           )
                         })}
                       </div>
                       {total < target && (
-                        <p className="text-xs text-slate-400 mt-2 text-center">
+                        <p className="text-xs text-zinc-400 mt-2 text-center">
                           Selecciona {target - total} más
                         </p>
                       )}
@@ -256,7 +256,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                           ? done
                             ? <span className="text-green-400 text-xs">✓</span>
                             : <span className="text-red-400 text-xs">* Obligatorio</span>
-                          : <span className="text-slate-400 text-xs">Opcional</span>
+                          : <span className="text-zinc-400 text-xs">Opcional</span>
                         }
                       </div>
                       <div className="grid grid-cols-2 gap-2">
@@ -277,13 +277,13 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                               disabled={oos}
                               className={`py-2 px-3 rounded-lg border text-sm transition-all ${
                                 oos
-                                  ? 'bg-slate-800 border-slate-700 opacity-50 cursor-not-allowed'
+                                  ? 'bg-zinc-800 border-zinc-700 opacity-50 cursor-not-allowed'
                                   : selected
-                                    ? 'bg-sky-600 border-sky-500 ring-2 ring-sky-400'
-                                    : 'bg-slate-700 border-slate-600 hover:border-sky-500'
+                                    ? 'bg-white border-zinc-400 ring-2 ring-white text-zinc-900'
+                                    : 'bg-zinc-700 border-zinc-600 hover:border-white'
                               }`}>
                               {mod.name}
-                              {mod.price_cents > 0 && !oos && <span className="text-xs text-slate-400 ml-1">+${(mod.price_cents / 100).toFixed(2)}</span>}
+                              {mod.price_cents > 0 && !oos && <span className="text-xs text-zinc-400 ml-1">+${(mod.price_cents / 100).toFixed(2)}</span>}
                               {oos && <span className="block text-xs text-red-400">🚫 Sin stock</span>}
                             </button>
                           )
@@ -295,7 +295,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
               })}
 
               <button onClick={() => setStep('confirm')} disabled={!canContinueModifiers()}
-                className="w-full mt-2 py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold disabled:opacity-50 disabled:cursor-not-allowed">
+                className="w-full mt-2 py-3 bg-white text-zinc-900 hover:bg-zinc-200 rounded-xl font-bold disabled:opacity-50 disabled:cursor-not-allowed">
                 {canContinueModifiers() ? 'Continuar →' : `Faltan selecciones obligatorias`}
               </button>
             </div>
@@ -303,8 +303,8 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
 
           {step === 'confirm' && selectedItem && (
             <div>
-              <button onClick={() => setStep(allGroups.length > 0 ? 'modifiers' : 'items')} className="text-sky-400 text-sm mb-3">← Atrás</button>
-              <div className="bg-slate-700 rounded-xl p-4 mb-4">
+              <button onClick={() => setStep(allGroups.length > 0 ? 'modifiers' : 'items')} className="text-zinc-300 text-sm mb-3">← Atrás</button>
+              <div className="bg-zinc-700 rounded-xl p-4 mb-4">
                 <div className="font-extrabold text-xl">{selectedItem.name}</div>
                 {allGroups.map((group: any) => {
                   if (group.allow_multiple) {
@@ -318,18 +318,18 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                   }
                   const mid = selectedModifiers[group.id]
                   const mod = group.modifiers?.find((m: any) => m.id === mid)
-                  return mod ? <div key={group.id} className="text-sm text-sky-300">→ {group.name}: {mod.name}</div> : null
+                  return mod ? <div key={group.id} className="text-sm text-zinc-200">→ {group.name}: {mod.name}</div> : null
                 })}
               </div>
               <div className="flex items-center gap-4 mb-4">
-                <span className="text-sm text-slate-400">Cantidad</span>
-                <button onClick={() => setQuantity(Math.max(1, quantity - 1))} className="w-11 h-11 bg-slate-700 rounded-lg font-bold">-</button>
+                <span className="text-sm text-zinc-400">Cantidad</span>
+                <button onClick={() => setQuantity(Math.max(1, quantity - 1))} className="w-11 h-11 bg-zinc-700 rounded-lg font-bold">-</button>
                 <span className="font-bold text-lg">{quantity}</span>
-                <button onClick={() => setQuantity(quantity + 1)} className="w-11 h-11 bg-slate-700 rounded-lg font-bold">+</button>
+                <button onClick={() => setQuantity(quantity + 1)} className="w-11 h-11 bg-zinc-700 rounded-lg font-bold">+</button>
               </div>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
                 placeholder="Notas especiales (opcional)"
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 text-sm mb-4 resize-none"
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg p-2 text-sm mb-4 resize-none"
                 rows={2} />
               <button onClick={handleAddItem} disabled={loading}
                 className="w-full py-3.5 bg-green-600 hover:bg-green-500 rounded-xl font-extrabold text-lg disabled:opacity-50">

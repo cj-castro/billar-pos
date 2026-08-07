@@ -31,39 +31,39 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950">
-      <div className="bg-slate-800 rounded-2xl p-8 w-full max-w-sm border border-slate-700 shadow-2xl">
+    <div className="min-h-screen flex items-center justify-center bg-zinc-950">
+      <div className="bg-zinc-800 rounded-2xl p-8 w-full max-w-sm border border-zinc-700 shadow-2xl">
         <div className="text-center mb-8">
-          <img src="/logo.jpg" alt="Bola 8 Pool Club" className="w-28 h-28 rounded-full object-cover mx-auto mb-4 border-2 border-sky-500 shadow-xl" />
+          <img src="/logo.jpg" alt="Bola 8 Pool Club" className="w-28 h-28 rounded-full object-cover mx-auto mb-4 border-2 border-zinc-400 shadow-xl" />
           <h1 className="text-3xl font-extrabold tracking-tight">Bola 8 Pool Club</h1>
-          <p className="text-slate-400 text-sm mt-1.5">{t('login.title')}</p>
+          <p className="text-zinc-400 text-sm mt-1.5">{t('login.title')}</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-sm text-slate-400 block mb-1">{t('login.username')}</label>
+            <label className="text-sm text-zinc-400 block mb-1">{t('login.username')}</label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-sky-500"
+              className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-4 py-3 focus:outline-none focus:border-zinc-400"
               autoComplete="username"
               autoFocus
             />
           </div>
           <div>
-            <label className="text-sm text-slate-400 block mb-1">{t('login.password')}</label>
+            <label className="text-sm text-zinc-400 block mb-1">{t('login.password')}</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-sky-500"
+              className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-4 py-3 focus:outline-none focus:border-zinc-400"
               autoComplete="current-password"
             />
           </div>
           <button
             type="submit"
             disabled={loading || !username || !password}
-            className="w-full py-3.5 bg-sky-600 hover:bg-sky-500 rounded-lg font-extrabold text-xl disabled:opacity-50 transition-colors"
+            className="w-full py-3.5 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-extrabold text-xl disabled:opacity-50 transition-colors"
           >
             {loading ? t('common.loading') : t('login.submit')}
           </button>

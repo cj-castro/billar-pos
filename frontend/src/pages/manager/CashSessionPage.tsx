@@ -258,11 +258,11 @@ export default function CashSessionPage() {
   ] as const
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white page-root">
+    <div className="min-h-screen bg-zinc-950 text-white page-root">
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-3xl mx-auto p-4">
-        <div className="sticky top-0 z-10 bg-slate-950 flex items-center justify-between py-3 mb-4 border-b border-slate-800">
+        <div className="sticky top-0 z-10 bg-zinc-950 flex items-center justify-between py-3 mb-4 border-b border-zinc-800">
           <h1 className="text-2xl font-extrabold tracking-tight">💰 Cash Session</h1>
           <div className={`px-3 py-1 rounded-full text-sm font-bold ${status?.open ? 'bg-green-700 text-green-200' : 'bg-red-800 text-red-200'}`}>
             {status?.open ? '🟢 Bar Abierto' : '🔴 Bar Cerrado'}
@@ -271,13 +271,13 @@ export default function CashSessionPage() {
 
         {/* ── BAR CLOSED: Open Session ── */}
         {!status?.open && (
-          <div className="bg-slate-800 rounded-2xl p-6 mb-6 border border-slate-700">
+          <div className="bg-zinc-800 rounded-2xl p-6 mb-6 border border-zinc-700">
             <h2 className="text-lg font-bold mb-1">Abrir Bar / Iniciar Sesión de Caja</h2>
-            <p className="text-slate-400 text-sm mb-4">Count the starting fund in the register before opening.</p>
-            <label className="text-xs text-slate-400 block mb-1">Opening Fund (starting cash in register)</label>
+            <p className="text-zinc-400 text-sm mb-4">Count the starting fund in the register before opening.</p>
+            <label className="text-xs text-zinc-400 block mb-1">Opening Fund (starting cash in register)</label>
             <div className="flex gap-3">
               <input type="number" value={openingFund} onChange={e => setOpeningFund(e.target.value)}
-                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-lg font-mono"
+                className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-4 py-3 text-lg font-mono"
                 placeholder="0.00" />
               <button onClick={handleOpen} disabled={saving}
                 className="bg-green-600 hover:bg-green-500 px-6 py-3 rounded-xl font-bold disabled:opacity-50">
@@ -291,10 +291,10 @@ export default function CashSessionPage() {
         {status?.open && s && (
           <>
             {/* Tab bar */}
-            <div className="flex gap-1 mb-4 bg-slate-800 rounded-xl p-1">
+            <div className="flex gap-1 mb-4 bg-zinc-800 rounded-xl p-1">
               {TABS.map(t => (
                 <button key={t.id} onClick={() => setActiveTab(t.id)}
-                  className={`flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-colors ${activeTab === t.id ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+                  className={`flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-colors ${activeTab === t.id ? 'bg-zinc-600 text-white' : 'text-zinc-400 hover:text-white'}`}>
                   {t.label}
                 </button>
               ))}
@@ -304,42 +304,42 @@ export default function CashSessionPage() {
             {activeTab === 'summary' && (
               <>
                 <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="bg-slate-800 rounded-xl p-4">
-                    <div className="text-xs text-slate-400 mb-1">Total Sales</div>
+                  <div className="bg-zinc-800 rounded-xl p-4">
+                    <div className="text-xs text-zinc-400 mb-1">Total Sales</div>
                     <div className="text-2xl font-bold text-green-400">{cents(s.total_sales_cents)}</div>
-                    <div className="text-xs text-slate-500 mt-1">{s.ticket_count} tickets</div>
+                    <div className="text-xs text-zinc-500 mt-1">{s.ticket_count} tickets</div>
                   </div>
-                  <div className="bg-slate-800 rounded-xl p-4">
-                    <div className="text-xs text-slate-400 mb-1">Total Tips</div>
+                  <div className="bg-zinc-800 rounded-xl p-4">
+                    <div className="text-xs text-zinc-400 mb-1">Total Tips</div>
                     <div className="text-2xl font-bold text-amber-400">{cents(s.total_tips_cents)}</div>
-                    <div className="text-xs text-slate-500 mt-1">
+                    <div className="text-xs text-zinc-500 mt-1">
                       Cash {cents(s.cash_tips_cents)} · Card {cents(s.card_tips_cents)}
                     </div>
                   </div>
-                  <div className="bg-slate-800 rounded-xl p-4">
-                    <div className="text-xs text-slate-400 mb-1">💵 Cash Sales</div>
+                  <div className="bg-zinc-800 rounded-xl p-4">
+                    <div className="text-xs text-zinc-400 mb-1">💵 Cash Sales</div>
                     <div className="text-xl font-bold">{cents(s.cash_sales_cents)}</div>
                   </div>
-                  <div className="bg-slate-800 rounded-xl p-4">
-                    <div className="text-xs text-slate-400 mb-1">💳 Card Sales</div>
+                  <div className="bg-zinc-800 rounded-xl p-4">
+                    <div className="text-xs text-zinc-400 mb-1">💳 Card Sales</div>
                     <div className="text-xl font-bold">{cents(s.card_sales_cents)}</div>
                   </div>
-                  <div className="bg-slate-800 rounded-xl p-4">
-                    <div className="text-xs text-slate-400 mb-1">Expenses</div>
+                  <div className="bg-zinc-800 rounded-xl p-4">
+                    <div className="text-xs text-zinc-400 mb-1">Expenses</div>
                     <div className="text-xl font-bold text-red-400">-{cents(s.total_expenses_cents)}</div>
-                    <div className="text-xs text-slate-500 mt-1">Cash -{cents(s.cash_expenses_cents)} · Card -{cents(s.card_expenses_cents)}</div>
+                    <div className="text-xs text-zinc-500 mt-1">Cash -{cents(s.cash_expenses_cents)} · Card -{cents(s.card_expenses_cents)}</div>
                   </div>
-                  <div className="bg-slate-800 rounded-xl p-4">
-                    <div className="text-xs text-slate-400 mb-1">Expected Cash in Register</div>
-                    <div className="text-xl font-bold text-sky-400">{cents(s.expected_cash_cents)}</div>
-                    <div className="text-xs text-slate-500 mt-1">Fondo + ventas efectivo + propinas − gastos − pago propinas a staff</div>
+                  <div className="bg-zinc-800 rounded-xl p-4">
+                    <div className="text-xs text-zinc-400 mb-1">Expected Cash in Register</div>
+                    <div className="text-xl font-bold text-zinc-300">{cents(s.expected_cash_cents)}</div>
+                    <div className="text-xs text-zinc-500 mt-1">Fondo + ventas efectivo + propinas − gastos − pago propinas a staff</div>
                   </div>
                 </div>
 
                 {/* Print buttons */}
                 <div className="flex gap-3 mb-4">
                   <button onClick={handlePrintReconciliation}
-                    className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold">
+                    className="flex-1 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-xl text-sm font-semibold">
                     🖨 Print Reconciliation
                   </button>
                   {s.total_tips_cents > 0 && (
@@ -351,27 +351,27 @@ export default function CashSessionPage() {
                 </div>
 
                 {/* ── Close Bar ── */}
-                <div className="bg-slate-800 rounded-2xl p-5 border border-red-900 mb-8">
+                <div className="bg-zinc-800 rounded-2xl p-5 border border-red-900 mb-8">
                   <h2 className="font-bold text-red-300 mb-3">🔒 Cerrar Bar / Finalizar Caja</h2>
 
                   {/* Pre-close breakdown */}
                   {s && (
-                    <div className="bg-slate-900 rounded-xl p-4 mb-4 space-y-2 text-sm">
+                    <div className="bg-zinc-900 rounded-xl p-4 mb-4 space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-slate-400">💰 Fondo inicial</span>
+                        <span className="text-zinc-400">💰 Fondo inicial</span>
                         <span className="font-mono">{cents(s.opening_fund_cents)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">🧾 Ventas en efectivo</span>
+                        <span className="text-zinc-400">🧾 Ventas en efectivo</span>
                         <span className="font-mono text-green-300">+{cents(s.cash_sales_cents)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">💳 Ventas con tarjeta</span>
-                        <span className="font-mono text-sky-300">{cents(s.card_sales_cents)}</span>
+                        <span className="text-zinc-400">💳 Ventas con tarjeta</span>
+                        <span className="font-mono text-zinc-200">{cents(s.card_sales_cents)}</span>
                       </div>
                       {s.total_expenses_cents > 0 && (
                         <div className="flex justify-between">
-                          <span className="text-slate-400">📤 Gastos en efectivo</span>
+                          <span className="text-zinc-400">📤 Gastos en efectivo</span>
                           <span className="font-mono text-red-400">-{cents(s.cash_expenses_cents)}</span>
                         </div>
                       )}
@@ -379,25 +379,25 @@ export default function CashSessionPage() {
                         <>
                           {s.cash_tips_cents > 0 && (
                             <div className="flex justify-between">
-                              <span className="text-slate-400">💵 Propinas efectivo recibidas</span>
+                              <span className="text-zinc-400">💵 Propinas efectivo recibidas</span>
                               <span className="font-mono text-amber-300">+{cents(s.cash_tips_cents)}</span>
                             </div>
                           )}
                           <div className="flex justify-between">
-                            <span className="text-slate-400">
+                            <span className="text-zinc-400">
                               📤 Propinas pagadas a staff
                               {s.card_tips_cents > 0 && (
-                                <span className="text-slate-500 text-xs"> (incl. {cents(s.card_tips_cents)} propinas tarjeta)</span>
+                                <span className="text-zinc-500 text-xs"> (incl. {cents(s.card_tips_cents)} propinas tarjeta)</span>
                               )}
                             </span>
                             <span className="font-mono text-red-400">-{cents(s.tip_payout_cents)}</span>
                           </div>
                         </>
                       )}
-                      <div className="border-t border-slate-700 pt-2 mt-2 space-y-1">
+                      <div className="border-t border-zinc-700 pt-2 mt-2 space-y-1">
                         <div className="flex justify-between font-bold">
-                          <span className="text-sky-300">💵 Efectivo esperado en caja</span>
-                          <span className="font-mono text-sky-300">{cents(s.expected_cash_cents)}</span>
+                          <span className="text-zinc-200">💵 Efectivo esperado en caja</span>
+                          <span className="font-mono text-zinc-200">{cents(s.expected_cash_cents)}</span>
                         </div>
                         <div className="flex justify-between font-bold">
                           <span className="text-emerald-300">💳 Tarjeta a verificar en terminal</span>
@@ -407,9 +407,9 @@ export default function CashSessionPage() {
                     </div>
                   )}
 
-                  <label className="text-xs text-slate-400 block mb-1">Efectivo contado en caja</label>
+                  <label className="text-xs text-zinc-400 block mb-1">Efectivo contado en caja</label>
                   <input type="number" value={closingCash} onChange={e => setClosingCash(e.target.value)}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-lg font-mono mb-3"
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-4 py-3 text-lg font-mono mb-3"
                     placeholder="0.00" />
                   {closingCash && s && (
                     <div className={`rounded-lg px-4 py-3 mb-3 text-sm font-bold ${
@@ -420,9 +420,9 @@ export default function CashSessionPage() {
                       {Math.round(parseFloat(closingCash) * 100) === s.expected_cash_cents && ' ✅ Cuadra perfecto'}
                     </div>
                   )}
-                  <label className="text-xs text-slate-400 block mb-1">Notas (opcional)</label>
+                  <label className="text-xs text-zinc-400 block mb-1">Notas (opcional)</label>
                   <textarea value={closeNotes} onChange={e => setCloseNotes(e.target.value)}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm mb-3" rows={2}
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm mb-3" rows={2}
                     placeholder="Notas de cierre..." />
                   {/* ── Ghost tickets blocker ── */}
                   {openCount > 0 && (
@@ -434,7 +434,7 @@ export default function CashSessionPage() {
                           </span>
                           <button onClick={() => { refetchAll(); refetchOpenTickets() }} className="text-xs text-amber-400 hover:text-amber-200 underline">↻ Actualizar</button>
                         </div>
-                        <div className="flex gap-3 text-xs text-slate-300">
+                        <div className="flex gap-3 text-xs text-zinc-300">
                           <span>🪑 <span className="text-white font-semibold">{realCount}</span> en mesa activa</span>
                           <span>👻 <span className="text-red-300 font-semibold">{ghostCount}</span> fantasma{ghostCount !== 1 ? 's' : ''} (mesa libre)</span>
                         </div>
@@ -445,24 +445,24 @@ export default function CashSessionPage() {
                           </button>
                         )}
                       </div>
-                      <div className="divide-y divide-slate-700">
+                      <div className="divide-y divide-zinc-700">
                         {(openTickets as any[]).map((ot: any) => (
-                          <div key={ot.id} className="px-4 py-3 bg-slate-800/60">
+                          <div key={ot.id} className="px-4 py-3 bg-zinc-800/60">
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="font-bold text-white text-sm">{ot.resource_code || '(sin mesa)'}</span>
-                                  {ot.customer_name && <span className="text-slate-300 text-xs">{ot.customer_name}</span>}
+                                  {ot.customer_name && <span className="text-zinc-300 text-xs">{ot.customer_name}</span>}
                                   {ot.resource_status === 'AVAILABLE' && (
                                     <span className="text-[10px] bg-red-900 text-red-300 px-1.5 py-0.5 rounded font-bold">MESA LIBRE · FANTASMA</span>
                                   )}
                                 </div>
-                                <div className="text-xs text-slate-400 mt-0.5">
+                                <div className="text-xs text-zinc-400 mt-0.5">
                                   {ot.item_count} artículo{ot.item_count !== 1 ? 's' : ''} · Total: <span className="text-green-300 font-mono">${((ot.total_cents || 0) / 100).toFixed(2)}</span>
-                                  {ot.opened_at && <span className="ml-2 text-slate-500">· {Math.round((Date.now() - new Date(ot.opened_at).getTime()) / 60000)} min abierta</span>}
+                                  {ot.opened_at && <span className="ml-2 text-zinc-500">· {Math.round((Date.now() - new Date(ot.opened_at).getTime()) / 60000)} min abierta</span>}
                                 </div>
                                 <a href={`/ticket/${ot.id}`} target="_blank" rel="noreferrer"
-                                  className="text-xs text-sky-400 hover:underline mt-0.5 inline-block">Ver cuenta →</a>
+                                  className="text-xs text-zinc-300 hover:underline mt-0.5 inline-block">Ver cuenta →</a>
                               </div>
                             </div>
                             <div className="flex gap-2 mt-2">
@@ -472,7 +472,7 @@ export default function CashSessionPage() {
                                 onChange={e => { setForcingClose(ot.id); setGhostReason(e.target.value) }}
                                 onFocus={() => setForcingClose(ot.id)}
                                 placeholder="Motivo del cierre forzado…"
-                                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 text-xs"
+                                className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-1.5 text-xs"
                               />
                               <button
                                 onClick={() => handleForceClose(ot.id)}
@@ -491,7 +491,7 @@ export default function CashSessionPage() {
                     className="w-full py-3 bg-red-700 hover:bg-red-600 rounded-xl font-bold text-lg disabled:opacity-50">
                     {saving ? 'Cerrando…' : openCount > 0 ? `🔒 Cierra las ${openCount} cuentas primero` : '🔒 Cerrar Bar'}
                   </button>
-                  <p className="text-xs text-slate-500 mt-2 text-center">
+                  <p className="text-xs text-zinc-500 mt-2 text-center">
                     Reconciliación + distribución de propinas se imprimirán al cerrar
                   </p>
                 </div>
@@ -501,22 +501,22 @@ export default function CashSessionPage() {
             {/* ── TICKETS TAB ── */}
             {activeTab === 'tickets' && (
               <div>
-                <div className="text-sm text-slate-400 mb-3">
+                <div className="text-sm text-zinc-400 mb-3">
                   {(sessionTickets as any[]).length} closed tickets this session
                   {' '}· click a ticket to re-open it
                 </div>
                 {(sessionTickets as any[]).length === 0 ? (
-                  <div className="text-center text-slate-500 py-12">No closed tickets yet</div>
+                  <div className="text-center text-zinc-500 py-12">No closed tickets yet</div>
                 ) : (
                   <div className="space-y-2">
                     {(sessionTickets as any[]).map((t: any) => (
-                      <div key={t.id} className="bg-slate-800 rounded-xl flex items-center justify-between px-4 py-3 border border-slate-700">
+                      <div key={t.id} className="bg-zinc-800 rounded-xl flex items-center justify-between px-4 py-3 border border-zinc-700">
                         <div>
                           <div className="font-semibold text-sm flex items-center gap-2">
                             {t.customer_name || '(sin nombre)'}
                             {t.was_reopened && <span className="bg-orange-800 text-orange-200 text-xs px-1.5 py-0.5 rounded">REABIERTO</span>}
                           </div>
-                          <div className="text-xs text-slate-400 mt-0.5">
+                          <div className="text-xs text-zinc-400 mt-0.5">
                             {t.resource_code || '—'} · {t.payment_type}
                             {' · '}{t.closed_at ? new Date(t.closed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                           </div>
@@ -536,7 +536,7 @@ export default function CashSessionPage() {
                               onClick={() => handleThermalPrint(t.id)}
                               disabled={printingTicket === t.id}
                               title="Reimprimir ticket en impresora térmica"
-                              className="text-xs bg-slate-600 hover:bg-slate-500 px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
+                              className="text-xs bg-zinc-600 hover:bg-zinc-500 px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
                               {printingTicket === t.id ? '…' : '🧾 Imprimir'}
                             </button>
                             <button
@@ -563,36 +563,36 @@ export default function CashSessionPage() {
             {/* ── EXPENSES TAB ── */}
             {activeTab === 'expenses' && (
               <>
-                <div className="bg-slate-800 rounded-2xl p-5 mb-4 border border-slate-700">
+                <div className="bg-zinc-800 rounded-2xl p-5 mb-4 border border-zinc-700">
                   <h2 className="font-bold mb-3">➕ Add Expense</h2>
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div>
-                      <label className="text-xs text-slate-400 block mb-1">Amount</label>
+                      <label className="text-xs text-zinc-400 block mb-1">Amount</label>
                       <input type="number" value={expAmount} onChange={e => setExpAmount(e.target.value)}
-                        className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono"
+                        className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 font-mono"
                         placeholder="0.00" />
                     </div>
                     <div>
-                      <label className="text-xs text-slate-400 block mb-1">Payment Method</label>
+                      <label className="text-xs text-zinc-400 block mb-1">Payment Method</label>
                       <div className="flex gap-2">
                         {(['CASH', 'CARD'] as const).map(m => (
                           <button key={m} onClick={() => setExpMethod(m)}
-                            className={`flex-1 py-2 rounded-lg text-sm font-bold border-2 ${expMethod === m ? 'bg-sky-600 border-sky-400' : 'bg-slate-700 border-slate-600'}`}>
+                            className={`flex-1 py-2 rounded-lg text-sm font-bold border-2 ${expMethod === m ? 'bg-white border-zinc-500 text-zinc-900' : 'bg-zinc-700 border-zinc-600'}`}>
                             {m === 'CASH' ? '💵' : '💳'} {m}
                           </button>
                         ))}
                       </div>
                     </div>
                     <div>
-                      <label className="text-xs text-slate-400 block mb-1">Payee / To whom</label>
+                      <label className="text-xs text-zinc-400 block mb-1">Payee / To whom</label>
                       <input value={expPayee} onChange={e => setExpPayee(e.target.value)}
-                        className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                        className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                         placeholder="e.g. Beer supplier" />
                     </div>
                     <div>
-                      <label className="text-xs text-slate-400 block mb-1">Description</label>
+                      <label className="text-xs text-zinc-400 block mb-1">Description</label>
                       <input value={expDesc} onChange={e => setExpDesc(e.target.value)}
-                        className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                        className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                         placeholder="e.g. Beer restock" />
                     </div>
                   </div>
@@ -603,19 +603,19 @@ export default function CashSessionPage() {
                 </div>
 
                 {(expenses as any[]).length === 0 ? (
-                  <div className="text-center text-slate-500 py-8">No expenses recorded</div>
+                  <div className="text-center text-zinc-500 py-8">No expenses recorded</div>
                 ) : (
-                  <div className="bg-slate-800 rounded-2xl overflow-hidden border border-slate-700">
-                    <div className="px-4 py-3 border-b border-slate-700 font-semibold text-sm">Today's Expenses</div>
+                  <div className="bg-zinc-800 rounded-2xl overflow-hidden border border-zinc-700">
+                    <div className="px-4 py-3 border-b border-zinc-700 font-semibold text-sm">Today's Expenses</div>
                     {(expenses as any[]).map((e: any) => (
-                      <div key={e.id} className="flex items-center justify-between px-4 py-3 border-b border-slate-700 last:border-0">
+                      <div key={e.id} className="flex items-center justify-between px-4 py-3 border-b border-zinc-700 last:border-0">
                         <div>
                           <div className="font-medium text-sm">{e.payee}</div>
-                          <div className="text-xs text-slate-400">{e.description} · {e.payment_method}</div>
+                          <div className="text-xs text-zinc-400">{e.description} · {e.payment_method}</div>
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="font-mono text-red-400 font-bold">-{cents(e.amount_cents)}</span>
-                          <button onClick={() => handleDeleteExpense(e.id)} className="text-slate-500 hover:text-red-400 text-sm">✕</button>
+                          <button onClick={() => handleDeleteExpense(e.id)} className="text-zinc-500 hover:text-red-400 text-sm">✕</button>
                         </div>
                       </div>
                     ))}
@@ -627,12 +627,12 @@ export default function CashSessionPage() {
             {/* ── TIPS CONFIG TAB ── */}
             {activeTab === 'tips' && (
               <div>
-                <div className="bg-slate-800 rounded-2xl p-5 mb-4 border border-slate-700">
+                <div className="bg-zinc-800 rounded-2xl p-5 mb-4 border border-zinc-700">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="font-bold">💝 Tip Distribution Config</h2>
                     {!editingTips && (
                       <button onClick={startEditTips}
-                        className="text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg">
+                        className="text-sm bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded-lg">
                         Edit
                       </button>
                     )}
@@ -645,17 +645,17 @@ export default function CashSessionPage() {
                         { label: '🍹 Bar + Manager', pct: tipCfg.bar_pct, cents: s.tip_distribution?.bar_cents },
                         { label: '🍳 Kitchen', pct: tipCfg.kitchen_pct, cents: s.tip_distribution?.kitchen_cents },
                       ].map(row => (
-                        <div key={row.label} className="flex items-center justify-between px-4 py-3 bg-slate-700 rounded-xl">
+                        <div key={row.label} className="flex items-center justify-between px-4 py-3 bg-zinc-700 rounded-xl">
                           <div>
                             <div className="font-semibold">{row.label}</div>
-                            <div className="text-xs text-slate-400">{row.pct}% of total tips</div>
+                            <div className="text-xs text-zinc-400">{row.pct}% of total tips</div>
                           </div>
                           <div className="text-xl font-bold text-amber-400">
                             {row.cents != null ? cents(row.cents) : `${row.pct}%`}
                           </div>
                         </div>
                       ))}
-                      <div className="text-xs text-slate-500 text-center mt-2">
+                      <div className="text-xs text-zinc-500 text-center mt-2">
                         Total tips this session: {cents(s.total_tips_cents)}
                       </div>
                     </div>
@@ -670,9 +670,9 @@ export default function CashSessionPage() {
                           <label className="flex-1 text-sm font-medium">{row.label}</label>
                           <div className="flex items-center gap-1">
                             <input type="number" value={row.val} onChange={e => row.set(e.target.value)}
-                              className="w-20 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-center font-mono"
+                              className="w-20 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-center font-mono"
                               min="0" max="100" />
-                            <span className="text-slate-400">%</span>
+                            <span className="text-zinc-400">%</span>
                           </div>
                         </div>
                       ))}
@@ -683,7 +683,7 @@ export default function CashSessionPage() {
                       )}
                       <div className="flex gap-3 mt-2">
                         <button onClick={() => setEditingTips(false)}
-                          className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold">
+                          className="flex-1 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-xl text-sm font-semibold">
                           Cancelar
                         </button>
                         <button onClick={handleSaveTipConfig} disabled={savingTips || tipTotal !== 100}
@@ -708,16 +708,16 @@ export default function CashSessionPage() {
 
         {/* ── Past Sessions ── */}
         {(sessions as any[]).length > 0 && (
-          <div className="bg-slate-800 rounded-2xl overflow-hidden border border-slate-700 mt-6">
-            <div className="px-4 py-3 border-b border-slate-700 font-semibold text-slate-200">📋 Historial de Sesiones</div>
+          <div className="bg-zinc-800 rounded-2xl overflow-hidden border border-zinc-700 mt-6">
+            <div className="px-4 py-3 border-b border-zinc-700 font-semibold text-zinc-200">📋 Historial de Sesiones</div>
             {(sessions as any[]).map((sess: any) => (
-              <div key={sess.id} className="flex items-center justify-between px-4 py-3 border-b border-slate-700 last:border-0 text-sm">
+              <div key={sess.id} className="flex items-center justify-between px-4 py-3 border-b border-zinc-700 last:border-0 text-sm">
                 <div>
                   <div className="font-medium">{sess.date}</div>
-                  <div className="text-xs text-slate-400">{sess.opened_at?.slice(11, 16)} → {sess.closed_at?.slice(11, 16) ?? 'open'}</div>
+                  <div className="text-xs text-zinc-400">{sess.opened_at?.slice(11, 16)} → {sess.closed_at?.slice(11, 16) ?? 'open'}</div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${sess.status === 'OPEN' ? 'bg-green-800 text-green-300' : 'bg-slate-700 text-slate-300'}`}>
+                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${sess.status === 'OPEN' ? 'bg-green-800 text-green-300' : 'bg-zinc-700 text-zinc-300'}`}>
                     {sess.status}
                   </span>
                   <button
@@ -730,7 +730,7 @@ export default function CashSessionPage() {
                       } catch { toast.error('No se pudo cargar la sesión') }
                       finally { setLoadingSession(false) }
                     }}
-                    className="px-3 py-1 bg-sky-700 hover:bg-sky-600 rounded-lg text-xs font-semibold"
+                    className="px-3 py-1 bg-zinc-700 hover:bg-white hover:text-zinc-900 rounded-lg text-xs font-semibold"
                   >
                     {loadingSession ? '…' : '🔍 Ver'}
                   </button>
@@ -743,43 +743,43 @@ export default function CashSessionPage() {
         {/* ── Session Detail Modal ── */}
         {viewingSession && viewingSummary && (
           <div className="fixed inset-0 bg-black/80 flex items-start justify-center z-50 p-4 overflow-y-auto">
-            <div className="bg-slate-800 rounded-2xl w-full max-w-lg border border-slate-600 my-4">
-              <div className="flex items-center justify-between p-5 border-b border-slate-700">
+            <div className="bg-zinc-800 rounded-2xl w-full max-w-lg border border-zinc-600 my-4">
+              <div className="flex items-center justify-between p-5 border-b border-zinc-700">
                 <div>
                   <h2 className="font-bold text-lg">Sesión — {viewingSession.date}</h2>
-                  <div className="text-xs text-slate-400 mt-0.5">
+                  <div className="text-xs text-zinc-400 mt-0.5">
                     {viewingSession.opened_at?.slice(11,16)} → {viewingSession.closed_at?.slice(11,16) ?? 'abierta'}
                     &nbsp;·&nbsp; {viewingSummary.ticket_count} tickets
                   </div>
                 </div>
                 <button onClick={() => { setViewingSession(null); setViewingSummary(null) }}
-                  className="text-slate-400 hover:text-white text-2xl font-bold">✕</button>
+                  className="text-zinc-400 hover:text-white text-2xl font-bold">✕</button>
               </div>
               <div className="p-5 space-y-3 text-sm">
                 {/* Sales summary */}
-                <div className="bg-slate-900 rounded-xl p-4 space-y-2">
-                  <div className="font-semibold text-slate-300 mb-2">💰 Ventas</div>
-                  <div className="flex justify-between"><span className="text-slate-400">Total Ventas</span><span className="font-mono text-yellow-300">{cents(viewingSummary.total_sales_cents)}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-400">💵 Efectivo</span><span className="font-mono">{cents(viewingSummary.cash_sales_cents)}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-400">💳 Tarjeta</span><span className="font-mono">{cents(viewingSummary.card_sales_cents)}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-400">Propinas</span><span className="font-mono text-amber-400">{cents(viewingSummary.total_tips_cents)}</span></div>
+                <div className="bg-zinc-900 rounded-xl p-4 space-y-2">
+                  <div className="font-semibold text-zinc-300 mb-2">💰 Ventas</div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Total Ventas</span><span className="font-mono text-yellow-300">{cents(viewingSummary.total_sales_cents)}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">💵 Efectivo</span><span className="font-mono">{cents(viewingSummary.cash_sales_cents)}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">💳 Tarjeta</span><span className="font-mono">{cents(viewingSummary.card_sales_cents)}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Propinas</span><span className="font-mono text-amber-400">{cents(viewingSummary.total_tips_cents)}</span></div>
                 </div>
                 {/* Cash reconciliation */}
-                <div className="bg-slate-900 rounded-xl p-4 space-y-2">
-                  <div className="font-semibold text-slate-300 mb-2">🏦 Caja</div>
-                  <div className="flex justify-between"><span className="text-slate-400">Fondo Apertura</span><span className="font-mono">{cents(viewingSummary.opening_fund_cents)}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-400">+ Ventas Efectivo</span><span className="font-mono">{cents(viewingSummary.cash_sales_cents)}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-400">+ Propinas Efectivo</span><span className="font-mono">{cents(viewingSummary.cash_tips_cents)}</span></div>
+                <div className="bg-zinc-900 rounded-xl p-4 space-y-2">
+                  <div className="font-semibold text-zinc-300 mb-2">🏦 Caja</div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Fondo Apertura</span><span className="font-mono">{cents(viewingSummary.opening_fund_cents)}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">+ Ventas Efectivo</span><span className="font-mono">{cents(viewingSummary.cash_sales_cents)}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">+ Propinas Efectivo</span><span className="font-mono">{cents(viewingSummary.cash_tips_cents)}</span></div>
                   {viewingSummary.cash_expenses_cents > 0 && (
-                    <div className="flex justify-between"><span className="text-slate-400">- Gastos Efectivo</span><span className="font-mono text-red-400">-{cents(viewingSummary.cash_expenses_cents)}</span></div>
+                    <div className="flex justify-between"><span className="text-zinc-400">- Gastos Efectivo</span><span className="font-mono text-red-400">-{cents(viewingSummary.cash_expenses_cents)}</span></div>
                   )}
                   {viewingSummary.tip_payout_cents > 0 && (
-                    <div className="flex justify-between"><span className="text-slate-400">- Pago Propinas a Staff</span><span className="font-mono text-red-400">-{cents(viewingSummary.tip_payout_cents)}</span></div>
+                    <div className="flex justify-between"><span className="text-zinc-400">- Pago Propinas a Staff</span><span className="font-mono text-red-400">-{cents(viewingSummary.tip_payout_cents)}</span></div>
                   )}
-                  <div className="flex justify-between font-bold border-t border-slate-700 pt-2"><span>Efectivo Esperado</span><span className="font-mono text-sky-300">{cents(viewingSummary.expected_cash_cents)}</span></div>
+                  <div className="flex justify-between font-bold border-t border-zinc-700 pt-2"><span>Efectivo Esperado</span><span className="font-mono text-zinc-200">{cents(viewingSummary.expected_cash_cents)}</span></div>
                   {viewingSummary.closing_cash_counted_cents != null && (
                     <>
-                      <div className="flex justify-between"><span className="text-slate-400">Contado</span><span className="font-mono">{cents(viewingSummary.closing_cash_counted_cents)}</span></div>
+                      <div className="flex justify-between"><span className="text-zinc-400">Contado</span><span className="font-mono">{cents(viewingSummary.closing_cash_counted_cents)}</span></div>
                       <div className={`flex justify-between font-bold text-base ${(viewingSummary.cash_over_short_cents ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         <span>{(viewingSummary.cash_over_short_cents ?? 0) >= 0 ? '▲ SOBRANTE' : '▼ FALTANTE'}</span>
                         <span className="font-mono">{diff(viewingSummary.cash_over_short_cents ?? 0)}</span>
@@ -788,10 +788,10 @@ export default function CashSessionPage() {
                   )}
                 </div>
               </div>
-              <div className="flex gap-3 p-5 border-t border-slate-700">
+              <div className="flex gap-3 p-5 border-t border-zinc-700">
                 <button
                   onClick={() => printCashReconciliation(viewingSummary as ReconSummary, viewingSession.date, viewingSession.closed_at?.slice(11,16))}
-                  className="flex-1 py-2.5 bg-sky-700 hover:bg-sky-600 rounded-xl font-semibold text-sm"
+                  className="flex-1 py-2.5 bg-zinc-700 hover:bg-white hover:text-zinc-900 rounded-xl font-semibold text-sm"
                 >🖨️ Reimprimir Reconciliación</button>
                 {viewingSummary.tip_distribution && (
                   <button

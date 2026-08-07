@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 * { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color: #f1f5f9; }
+body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #09090b; color: #f4f4f5; }
 
 /* Bottom nav safe-area padding — applied to all page roots on mobile */
 @media (max-width: 767px) {

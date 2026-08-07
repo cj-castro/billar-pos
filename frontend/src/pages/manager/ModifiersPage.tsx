@@ -211,29 +211,29 @@ export default function ModifiersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 page-root">
+    <div className="min-h-screen bg-zinc-950 page-root">
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-2xl mx-auto p-4">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight">🧩 Modificadores</h1>
-            <p className="text-xs text-slate-400 mt-0.5">Grupos y opciones (sabores, salsas, extras…)</p>
+            <p className="text-xs text-zinc-400 mt-0.5">Grupos y opciones (sabores, salsas, extras…)</p>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setShowInactive(s => !s)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${showInactive ? 'bg-slate-600 border-slate-500 text-white' : 'bg-transparent border-slate-600 text-slate-400 hover:border-slate-400'}`}>
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${showInactive ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-transparent border-zinc-600 text-zinc-400 hover:border-zinc-400'}`}>
               {showInactive ? '👁 Ocultar inactivos' : '👁 Ver inactivos'}
             </button>
             <button onClick={() => setShowNewGroup(true)}
-              className="bg-sky-600 hover:bg-sky-500 px-4 py-1.5 rounded-lg text-sm font-semibold">
+              className="bg-white text-zinc-900 hover:bg-zinc-200 px-4 py-1.5 rounded-lg text-sm font-semibold">
               + Nuevo Grupo
             </button>
           </div>
         </div>
 
         {(groups as any[]).length === 0 && (
-          <div className="text-center text-slate-500 py-16">
+          <div className="text-center text-zinc-500 py-16">
             <div className="text-4xl mb-3">🧩</div>
             <div>Sin grupos de modificadores</div>
             <div className="text-xs mt-1">Crea un grupo (ej. "Sabores", "Salsas") y añade opciones dentro</div>
@@ -249,7 +249,7 @@ export default function ModifiersPage() {
             const visibleMods = allMods
             const inactiveCount = allMods.filter((m: any) => m.is_active === false).length
             return (
-              <div key={group.id} className="bg-slate-800 rounded-2xl border border-slate-700">
+              <div key={group.id} className="bg-zinc-800 rounded-2xl border border-zinc-700">
                 {/* Group header */}
                 <div className="flex items-center gap-2 p-4">
                   <button onClick={() => setExpandedGroup(isExpanded ? null : group.id)}
@@ -257,43 +257,43 @@ export default function ModifiersPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold">{group.name}</span>
                       {group.is_mandatory && <span className="text-xs bg-red-900 text-red-300 px-1.5 py-0.5 rounded-full">Obligatorio</span>}
-                      {group.allow_multiple && <span className="text-xs bg-sky-900 text-sky-300 px-1.5 py-0.5 rounded-full">Múltiple</span>}
+                      {group.allow_multiple && <span className="text-xs bg-zinc-800 text-zinc-200 px-1.5 py-0.5 rounded-full">Múltiple</span>}
                     </div>
-                    <div className="text-xs text-slate-400 mt-0.5">
+                    <div className="text-xs text-zinc-400 mt-0.5">
                       {visibleMods.length} opción{visibleMods.length !== 1 ? 'es' : ''}
-                      {!showInactive && inactiveCount > 0 && <span className="text-slate-500"> · {inactiveCount} eliminada{inactiveCount !== 1 ? 's' : ''}</span>}
+                      {!showInactive && inactiveCount > 0 && <span className="text-zinc-500"> · {inactiveCount} eliminada{inactiveCount !== 1 ? 's' : ''}</span>}
                       {' · '}Sel: {group.min_selections}–{group.max_selections}
-                      <span className="ml-2 text-slate-500">{isExpanded ? '▲' : '▼'}</span>
+                      <span className="ml-2 text-zinc-500">{isExpanded ? '▲' : '▼'}</span>
                     </div>
                   </button>
                   <button onClick={() => openEditGroup(group)}
-                    className="bg-slate-700 hover:bg-sky-700 px-3 py-1.5 rounded-lg text-sm shrink-0" title="Editar grupo">✏️</button>
+                    className="bg-zinc-700 hover:bg-zinc-700 px-3 py-1.5 rounded-lg text-sm shrink-0" title="Editar grupo">✏️</button>
                   <button onClick={() => handleDeleteGroup(group)}
-                    className="bg-slate-700 hover:bg-red-800 px-3 py-1.5 rounded-lg text-sm text-red-400 shrink-0" title="Eliminar grupo">🗑</button>
+                    className="bg-zinc-700 hover:bg-red-800 px-3 py-1.5 rounded-lg text-sm text-red-400 shrink-0" title="Eliminar grupo">🗑</button>
                 </div>
 
                 {/* Modifiers list */}
                 {isExpanded && (
-                  <div className="border-t border-slate-700 px-4 pb-4">
+                  <div className="border-t border-zinc-700 px-4 pb-4">
                     <div className="space-y-2 mt-3">
                       {visibleMods.length === 0 && (
-                        <div className="text-xs text-slate-500 py-2 text-center">Sin opciones aún</div>
+                        <div className="text-xs text-zinc-500 py-2 text-center">Sin opciones aún</div>
                       )}
                       {visibleMods.map((mod: any) => {
                         const active = mod.is_active !== false
                         return (
                           <div key={mod.id}
-                            className={`flex items-center gap-2 p-2 rounded-lg transition-opacity ${active ? 'bg-slate-700/50' : 'bg-slate-900/40 opacity-60'}`}>
+                            className={`flex items-center gap-2 p-2 rounded-lg transition-opacity ${active ? 'bg-zinc-700/50' : 'bg-zinc-900/40 opacity-60'}`}>
                             <div className="flex-1 min-w-0">
                               <span className="text-sm font-medium">{mod.name}</span>
-                              {!active && <span className="ml-2 text-xs text-slate-500 italic">inactivo</span>}
+                              {!active && <span className="ml-2 text-xs text-zinc-500 italic">inactivo</span>}
                             </div>
                             {mod.price_cents > 0 && (
-                              <span className="text-xs text-sky-400 font-mono shrink-0">+${(mod.price_cents / 100).toFixed(2)}</span>
+                              <span className="text-xs text-zinc-300 font-mono shrink-0">+${(mod.price_cents / 100).toFixed(2)}</span>
                             )}
                             {/* Edit */}
                             <button onClick={() => openEditMod(mod)}
-                              className="bg-slate-600 hover:bg-sky-700 px-2 py-1 rounded text-xs shrink-0" title="Editar">✏️</button>
+                              className="bg-zinc-600 hover:bg-zinc-700 px-2 py-1 rounded text-xs shrink-0" title="Editar">✏️</button>
                             {/* Toggle active/inactive */}
                             <button onClick={() => handleToggleMod(mod)}
                               className={`px-2 py-1 rounded text-xs font-semibold shrink-0 ${active ? 'bg-yellow-900 hover:bg-yellow-700 text-yellow-300' : 'bg-green-900 hover:bg-green-700 text-green-300'}`}
@@ -302,13 +302,13 @@ export default function ModifiersPage() {
                             </button>
                             {/* Delete (soft) */}
                             <button onClick={() => handleDeleteMod(mod)}
-                              className="bg-slate-700 hover:bg-red-800 px-2 py-1 rounded text-xs text-red-400 shrink-0" title="Eliminar">🗑</button>
+                              className="bg-zinc-700 hover:bg-red-800 px-2 py-1 rounded text-xs text-red-400 shrink-0" title="Eliminar">🗑</button>
                           </div>
                         )
                       })}
                     </div>
                     <button onClick={() => { setShowNewMod(group.id); setNewModForm({ ...BLANK_MOD }) }}
-                      className="mt-3 w-full py-1.5 border border-dashed border-slate-600 rounded-lg text-sm text-slate-400 hover:border-sky-500 hover:text-sky-400 transition-colors">
+                      className="mt-3 w-full py-1.5 border border-dashed border-zinc-600 rounded-lg text-sm text-zinc-400 hover:border-white hover:text-white transition-colors">
                       + Añadir opción a "{group.name}"
                     </button>
                   </div>
@@ -322,13 +322,13 @@ export default function ModifiersPage() {
       {/* ── New Group Modal ─────────────────────────────────────────────────── */}
       {showNewGroup && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-sky-700">
-            <h2 className="font-bold mb-4 text-sky-300">+ Nuevo Grupo de Modificadores</h2>
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-zinc-600">
+            <h2 className="font-bold mb-4 text-zinc-200">+ Nuevo Grupo de Modificadores</h2>
             <GroupForm form={newGroupForm} setForm={setNewGroupForm} />
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setShowNewGroup(false)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => setShowNewGroup(false)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               <button onClick={handleCreateGroup} disabled={!newGroupForm.name.trim() || saving}
-                className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg font-bold disabled:opacity-50">
+                className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-bold disabled:opacity-50">
                 {saving ? 'Creando…' : 'Crear Grupo'}
               </button>
             </div>
@@ -339,15 +339,15 @@ export default function ModifiersPage() {
       {/* ── Edit Group Modal ────────────────────────────────────────────────── */}
       {editingGroup && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-600">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-zinc-600">
             <h2 className="font-bold mb-4">✏️ Editar Grupo: {editingGroup.name}</h2>
             <GroupForm form={groupForm} setForm={setGroupForm} />
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setEditingGroup(null)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => setEditingGroup(null)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               <button onClick={() => { handleDeleteGroup(editingGroup); setEditingGroup(null) }}
                 className="py-2 px-4 bg-red-900 hover:bg-red-700 text-red-300 rounded-lg text-sm font-semibold">🗑 Eliminar</button>
               <button onClick={handleUpdateGroup} disabled={!groupForm.name.trim() || saving}
-                className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg font-bold disabled:opacity-50">
+                className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-bold disabled:opacity-50">
                 {saving ? 'Guardando…' : 'Guardar'}
               </button>
             </div>
@@ -358,11 +358,11 @@ export default function ModifiersPage() {
       {/* ── Add Modifier Modal ───────────────────────────────────────────────── */}
       {showNewMod && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-green-700">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-green-700">
             <h2 className="font-bold mb-4 text-green-300">+ Nueva Opción</h2>
             <ModifierForm form={newModForm} setForm={setNewModForm} />
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setShowNewMod(null)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => setShowNewMod(null)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               <button onClick={() => handleCreateMod(showNewMod)} disabled={!newModForm.name.trim() || saving}
                 className="flex-1 py-2 bg-green-600 hover:bg-green-500 rounded-lg font-bold disabled:opacity-50">
                 {saving ? 'Añadiendo…' : 'Añadir'}
@@ -375,7 +375,7 @@ export default function ModifiersPage() {
       {/* ── Edit Modifier Modal ─────────────────────────────────────────────── */}
       {editingMod && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-md border border-slate-600 max-h-[90vh] overflow-y-auto">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-md border border-zinc-600 max-h-[90vh] overflow-y-auto">
             <h2 className="font-bold mb-1">✏️ Editar: {editingMod.name}</h2>
             {editingMod.is_active === false && (
               <div className="text-xs text-yellow-400 bg-yellow-900/30 rounded-lg px-3 py-1.5 mb-3">
@@ -387,33 +387,33 @@ export default function ModifiersPage() {
             </div>
 
             {/* ── Inventory rules ───────────────────────────────────────── */}
-            <div className="mt-5 border-t border-slate-700 pt-4">
+            <div className="mt-5 border-t border-zinc-700 pt-4">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-slate-300 uppercase tracking-wide">📦 Consumo de Inventario</p>
+                <p className="text-xs font-semibold text-zinc-300 uppercase tracking-wide">📦 Consumo de Inventario</p>
                 <button onClick={() => setAddingRule(r => !r)}
-                  className="text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded-lg text-sky-400">
+                  className="text-xs bg-zinc-700 hover:bg-zinc-600 px-2 py-1 rounded-lg text-zinc-300">
                   {addingRule ? '✕ Cancelar' : '+ Vincular'}
                 </button>
               </div>
 
               {modRules.length === 0 && !addingRule && (
-                <p className="text-xs text-slate-500 italic">Sin vínculos — seleccionar esta opción no consume inventario.</p>
+                <p className="text-xs text-zinc-500 italic">Sin vínculos — seleccionar esta opción no consume inventario.</p>
               )}
 
               {modRules.map(r => (
-                <div key={r.inventory_item_id} className="flex items-center gap-2 bg-slate-700/50 rounded-lg px-3 py-2 mb-1.5">
+                <div key={r.inventory_item_id} className="flex items-center gap-2 bg-zinc-700/50 rounded-lg px-3 py-2 mb-1.5">
                   <span className="flex-1 text-sm">{r.inventory_item_name}</span>
-                  <span className="text-xs text-slate-400">{r.inventory_item_unit}</span>
-                  <span className="text-xs font-mono text-sky-300 w-6 text-center">{r.quantity}</span>
+                  <span className="text-xs text-zinc-400">{r.inventory_item_unit}</span>
+                  <span className="text-xs font-mono text-zinc-200 w-6 text-center">{r.quantity}</span>
                   <button onClick={() => removeRule(r.inventory_item_id)}
                     className="text-red-400 hover:text-red-300 text-xs px-1">✕</button>
                 </div>
               ))}
 
               {addingRule && (
-                <div className="bg-slate-700/50 rounded-xl p-3 space-y-2 mt-2 border border-slate-600">
+                <div className="bg-zinc-700/50 rounded-xl p-3 space-y-2 mt-2 border border-zinc-600">
                   <select value={newRuleItemId} onChange={e => setNewRuleItemId(e.target.value)}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
                     <option value="">— Seleccionar artículo de inventario —</option>
                     {(inventoryItems as any[])
                       .filter((i: any) => !modRules.some(r => r.inventory_item_id === i.id))
@@ -422,11 +422,11 @@ export default function ModifiersPage() {
                       ))}
                   </select>
                   <div className="flex gap-2 items-center">
-                    <label className="text-xs text-slate-400 shrink-0">Cantidad:</label>
+                    <label className="text-xs text-zinc-400 shrink-0">Cantidad:</label>
                     <input type="number" min={1} value={newRuleQty} onChange={e => setNewRuleQty(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-center" />
+                      className="w-20 bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm text-center" />
                     <button onClick={addRule} disabled={!newRuleItemId}
-                      className="flex-1 py-1.5 bg-sky-600 hover:bg-sky-500 rounded-lg text-sm font-bold disabled:opacity-40">
+                      className="flex-1 py-1.5 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg text-sm font-bold disabled:opacity-40">
                       + Agregar
                     </button>
                   </div>
@@ -435,7 +435,7 @@ export default function ModifiersPage() {
             </div>
 
             <div className="flex gap-2 mt-5 flex-wrap">
-              <button onClick={() => setEditingMod(null)} className="py-2 px-3 border border-slate-600 rounded-lg text-sm">Cancelar</button>
+              <button onClick={() => setEditingMod(null)} className="py-2 px-3 border border-zinc-600 rounded-lg text-sm">Cancelar</button>
               {/* Toggle active */}
               <button onClick={() => handleToggleMod(editingMod)}
                 className={`py-2 px-3 rounded-lg text-sm font-semibold ${editingMod.is_active !== false ? 'bg-yellow-900 hover:bg-yellow-700 text-yellow-200' : 'bg-green-900 hover:bg-green-700 text-green-200'}`}>
@@ -446,7 +446,7 @@ export default function ModifiersPage() {
                 className="py-2 px-3 bg-red-900 hover:bg-red-700 text-red-300 rounded-lg text-sm font-semibold">🗑 Eliminar</button>
               {/* Save */}
               <button onClick={handleUpdateMod} disabled={!modForm.name.trim() || saving}
-                className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg font-bold disabled:opacity-50 min-w-[80px]">
+                className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-bold disabled:opacity-50 min-w-[80px]">
                 {saving ? 'Guardando…' : 'Guardar'}
               </button>
             </div>
@@ -463,23 +463,23 @@ function GroupForm({ form, setForm }: { form: any; setForm: (f: any) => void }) 
   return (
     <div className="space-y-3">
       <div>
-        <label className="text-xs text-slate-400 block mb-1">Nombre del grupo *</label>
+        <label className="text-xs text-zinc-400 block mb-1">Nombre del grupo *</label>
         <input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-          className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+          className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
           placeholder="Ej. Sabores, Salsas, Extras" />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs text-slate-400 block mb-1">Mín. selecciones</label>
+          <label className="text-xs text-zinc-400 block mb-1">Mín. selecciones</label>
           <input type="number" min={0} value={form.min_selections}
             onChange={(e) => setForm({ ...form, min_selections: parseInt(e.target.value) || 0 })}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2" />
         </div>
         <div>
-          <label className="text-xs text-slate-400 block mb-1">Máx. selecciones</label>
+          <label className="text-xs text-zinc-400 block mb-1">Máx. selecciones</label>
           <input type="number" min={1} value={form.max_selections}
             onChange={(e) => setForm({ ...form, max_selections: parseInt(e.target.value) || 1 })}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2" />
         </div>
       </div>
       <div className="flex flex-col gap-2">
@@ -502,16 +502,16 @@ function ModifierForm({ form, setForm }: { form: any; setForm: (f: any) => void 
   return (
     <div className="space-y-3">
       <div>
-        <label className="text-xs text-slate-400 block mb-1">Nombre *</label>
+        <label className="text-xs text-zinc-400 block mb-1">Nombre *</label>
         <input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-          className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+          className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
           placeholder="Ej. Buffalo, BBQ, Habanero" />
       </div>
       <div>
-        <label className="text-xs text-slate-400 block mb-1">Precio adicional ($) — dejar vacío si es gratis</label>
+        <label className="text-xs text-zinc-400 block mb-1">Precio adicional ($) — dejar vacío si es gratis</label>
         <input type="number" min={0} step="0.01" value={form.price_cents}
           onChange={(e) => setForm({ ...form, price_cents: e.target.value })}
-          className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+          className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
           placeholder="0.00" />
       </div>
     </div>

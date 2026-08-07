@@ -9,7 +9,7 @@ import { useEscKey } from '../../hooks/useEscKey'
 
 const ROLES = ['WAITER', 'KITCHEN_STAFF', 'BAR_STAFF', 'MANAGER', 'ADMIN']
 const ROLE_COLORS: Record<string, string> = {
-  WAITER: 'text-sky-400', KITCHEN_STAFF: 'text-orange-400',
+  WAITER: 'text-zinc-300', KITCHEN_STAFF: 'text-orange-400',
   BAR_STAFF: 'text-purple-400', MANAGER: 'text-green-400', ADMIN: 'text-red-400',
 }
 const ROLE_LABELS: Record<string, string> = {
@@ -90,27 +90,27 @@ export default function UsersPage() {
   const needsPin = (role: string) => ['MANAGER', 'ADMIN'].includes(role)
 
   return (
-    <div className="min-h-screen bg-slate-950 page-root">
+    <div className="min-h-screen bg-zinc-950 page-root">
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-3xl mx-auto p-4">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-extrabold tracking-tight">👥 Cuentas del Personal</h1>
-          <button onClick={() => setShowCreate(true)} className="bg-sky-600 hover:bg-sky-500 px-4 py-2 rounded-lg font-semibold text-sm">+ Nuevo Usuario</button>
+          <button onClick={() => setShowCreate(true)} className="bg-white text-zinc-900 hover:bg-zinc-200 px-4 py-2 rounded-lg font-semibold text-sm">+ Nuevo Usuario</button>
         </div>
 
         <div className="space-y-2">
           {(users as any[]).map((u) => (
-            <div key={u.id} className={`bg-slate-800 rounded-xl p-4 border ${u.is_active ? 'border-slate-700' : 'border-red-900 opacity-60'}`}>
+            <div key={u.id} className={`bg-zinc-800 rounded-xl p-4 border ${u.is_active ? 'border-zinc-700' : 'border-red-900 opacity-60'}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-lg">
+                  <div className="w-10 h-10 rounded-full bg-zinc-700 flex items-center justify-center text-lg">
                     {ROLE_LABELS[u.role]?.split(' ')[0] ?? '👤'}
                   </div>
                   <div>
                     <div className="font-semibold">{u.name}</div>
-                    <div className="text-sm text-slate-400">
-                      @{u.username} · <span className={ROLE_COLORS[u.role] ?? 'text-slate-300'}>{ROLE_LABELS[u.role] ?? u.role}</span>
+                    <div className="text-sm text-zinc-400">
+                      @{u.username} · <span className={ROLE_COLORS[u.role] ?? 'text-zinc-300'}>{ROLE_LABELS[u.role] ?? u.role}</span>
                     </div>
                     {needsPin(u.role) && (
                       <div className={`text-xs mt-0.5 ${u.has_pin ? 'text-green-400' : 'text-red-400'}`}>
@@ -122,7 +122,7 @@ export default function UsersPage() {
                 <div className="flex gap-2">
                   {u.is_active && (
                     <button onClick={() => openEdit(u)}
-                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-semibold">
+                      className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 rounded-lg text-sm font-semibold">
                       ✏️ Editar
                     </button>
                   )}
@@ -142,52 +142,52 @@ export default function UsersPage() {
       {/* Create Modal */}
       {showCreate && (
         <Modal opacity={70}>
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-600 space-y-3">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-zinc-600 space-y-3">
             <h2 className="font-bold text-lg">Nueva Cuenta de Personal</h2>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Usuario</label>
+              <label className="text-xs text-zinc-400 block mb-1">Usuario</label>
               <input autoFocus value={form.username} onChange={e => setForm(p => ({ ...p, username: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm"
                 placeholder="john.doe" />
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Nombre Completo</label>
+              <label className="text-xs text-zinc-400 block mb-1">Nombre Completo</label>
               <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm"
                 placeholder="John Doe" />
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Role</label>
+              <label className="text-xs text-zinc-400 block mb-1">Role</label>
               <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
                 {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Contraseña</label>
+              <label className="text-xs text-zinc-400 block mb-1">Contraseña</label>
               <input type="password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
             </div>
             {needsPin(form.role) && (
               <div>
-                <label className="text-xs text-slate-400 block mb-1">
+                <label className="text-xs text-zinc-400 block mb-1">
                   Manager PIN (4 digits) — <span className="text-yellow-400">required to authorize voids & discounts</span>
                 </label>
                 <input type="password" maxLength={4} inputMode="numeric" value={form.pin}
                   onChange={e => setForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, '') }))}
                   onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm tracking-widest text-center text-xl font-mono"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm tracking-widest text-center text-xl font-mono"
                   placeholder="••••" />
               </div>
             )}
             <div className="flex gap-3 pt-2">
               <button onClick={() => { setShowCreate(false); setForm({ ...emptyForm }) }}
-                className="flex-1 py-2 border border-slate-600 rounded-lg text-slate-300">Cancelar</button>
+                className="flex-1 py-2 border border-zinc-600 rounded-lg text-zinc-300">Cancelar</button>
               <button onClick={handleCreate} disabled={saving || !form.username || !form.password}
-                className="flex-1 py-2 bg-sky-600 rounded-lg font-bold disabled:opacity-50">
+                className="flex-1 py-2 bg-white text-zinc-900 rounded-lg font-bold disabled:opacity-50">
                 {saving ? 'Creando…' : 'Crear'}
               </button>
             </div>
@@ -198,31 +198,31 @@ export default function UsersPage() {
       {/* Edit Modal */}
       {editUser && (
         <Modal opacity={70}>
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-600 space-y-3">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-zinc-600 space-y-3">
             <h2 className="font-bold text-lg">Edit: {editUser.name}</h2>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Nombre Completo</label>
+              <label className="text-xs text-zinc-400 block mb-1">Nombre Completo</label>
               <input autoFocus value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && handleEdit()}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Role</label>
+              <label className="text-xs text-zinc-400 block mb-1">Role</label>
               <select value={editForm.role} onChange={e => setEditForm(p => ({ ...p, role: e.target.value }))}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
                 {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Nueva Contraseña <span className="text-slate-500">(dejar en blanco para conservar)</span></label>
+              <label className="text-xs text-zinc-400 block mb-1">Nueva Contraseña <span className="text-zinc-500">(dejar en blanco para conservar)</span></label>
               <input type="password" value={editForm.new_password} onChange={e => setEditForm(p => ({ ...p, new_password: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && handleEdit()}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" placeholder="••••••••" />
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" placeholder="••••••••" />
             </div>
 
             {/* PIN section */}
-            <div className="bg-slate-900 rounded-xl p-3 border border-slate-700">
-              <div className="text-xs text-slate-400 font-semibold mb-2">
+            <div className="bg-zinc-900 rounded-xl p-3 border border-zinc-700">
+              <div className="text-xs text-zinc-400 font-semibold mb-2">
                 🔑 Manager PIN
                 {editUser.has_pin
                   ? <span className="ml-2 text-green-400">● Active</span>
@@ -230,13 +230,13 @@ export default function UsersPage() {
               </div>
               {!editForm.clear_pin ? (
                 <div>
-                  <label className="text-xs text-slate-500 block mb-1">
+                  <label className="text-xs text-zinc-500 block mb-1">
                     {editUser.has_pin ? 'Reset PIN (enter new 4-digit PIN)' : 'Set PIN (4 digits)'}
                   </label>
                   <input type="password" maxLength={4} inputMode="numeric" value={editForm.pin}
                     onChange={e => setEditForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, '') }))}
                     onKeyDown={e => e.key === 'Enter' && handleEdit()}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm tracking-widest text-center text-xl font-mono"
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm tracking-widest text-center text-xl font-mono"
                     placeholder={editUser.has_pin ? '•••• (new)' : '••••'} />
                   {editUser.has_pin && (
                     <button onClick={() => setEditForm(p => ({ ...p, clear_pin: true, pin: '' }))}
@@ -249,19 +249,19 @@ export default function UsersPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-red-400 text-sm">⚠️ PIN will be removed</span>
                   <button onClick={() => setEditForm(p => ({ ...p, clear_pin: false }))}
-                    className="text-xs text-slate-400 hover:text-slate-300">Undo</button>
+                    className="text-xs text-zinc-400 hover:text-zinc-300">Undo</button>
                 </div>
               )}
               {!needsPin(editForm.role) && (
-                <div className="text-xs text-slate-500 mt-1">PIN only applies to Manager/Admin roles</div>
+                <div className="text-xs text-zinc-500 mt-1">PIN only applies to Manager/Admin roles</div>
               )}
             </div>
 
             <div className="flex gap-3 pt-2">
               <button onClick={() => setEditUser(null)}
-                className="flex-1 py-2 border border-slate-600 rounded-lg text-slate-300">Cancelar</button>
+                className="flex-1 py-2 border border-zinc-600 rounded-lg text-zinc-300">Cancelar</button>
               <button onClick={handleEdit} disabled={saving || !editForm.name}
-                className="flex-1 py-2 bg-sky-600 rounded-lg font-bold disabled:opacity-50">
+                className="flex-1 py-2 bg-white text-zinc-900 rounded-lg font-bold disabled:opacity-50">
                 {saving ? 'Guardando…' : 'Guardar Cambios'}
               </button>
             </div>

@@ -34,7 +34,7 @@ export default function ManagerDashboard() {
   const FEATURED = new Set(['/floor', '/manager/cash', '/manager/inventory'])
 
   return (
-    <div className="min-h-screen bg-slate-950 page-root">
+    <div className="min-h-screen bg-zinc-950 page-root">
       <NavBar />
       <div className="max-w-4xl mx-auto p-6">
         <h1 className="text-3xl font-extrabold mb-6 tracking-tight">{t('manager.title')}</h1>
@@ -44,19 +44,19 @@ export default function ManagerDashboard() {
             return (
               <Link key={t.to} to={t.to}
                 className={featured
-                  ? 'col-span-2 bg-slate-800 hover:bg-slate-700 rounded-2xl p-6 border-2 border-sky-700 hover:border-sky-500 transition-all'
-                  : 'bg-slate-800 hover:bg-slate-700 rounded-2xl p-4 border border-slate-700 hover:border-sky-600 transition-all'}>
+                  ? 'col-span-2 bg-zinc-800 hover:bg-zinc-700 rounded-2xl p-6 border-2 border-zinc-600 hover:border-white transition-all'
+                  : 'bg-zinc-800 hover:bg-zinc-700 rounded-2xl p-4 border border-zinc-700 hover:border-white transition-all'}>
                 <div className={featured ? 'text-5xl mb-3' : 'text-2xl mb-1.5'}>{t.icon}</div>
                 <div className={featured ? 'font-extrabold text-lg' : 'font-semibold text-sm'}>{t.label}</div>
-                <div className={featured ? 'text-sm text-slate-400 mt-1' : 'text-[11px] text-slate-500 mt-0.5'}>{t.desc}</div>
+                <div className={featured ? 'text-sm text-zinc-400 mt-1' : 'text-[11px] text-zinc-500 mt-0.5'}>{t.desc}</div>
               </Link>
             )
           })}
           {isAdmin && adminTiles.map((t) => (
-            <Link key={t.to} to={t.to} className="bg-slate-800 hover:bg-slate-700 rounded-2xl p-4 border border-violet-800 hover:border-violet-500 transition-all">
+            <Link key={t.to} to={t.to} className="bg-zinc-800 hover:bg-zinc-700 rounded-2xl p-4 border border-violet-800 hover:border-violet-500 transition-all">
               <div className="text-2xl mb-1.5">{t.icon}</div>
               <div className="font-semibold text-sm text-violet-300">{t.label}</div>
-              <div className="text-[11px] text-slate-500 mt-0.5">{t.desc}</div>
+              <div className="text-[11px] text-zinc-500 mt-0.5">{t.desc}</div>
             </Link>
           ))}
         </div>

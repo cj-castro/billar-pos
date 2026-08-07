@@ -65,18 +65,18 @@ function Card({ title, value, sub, tone = 'default' }: {
 }) {
   const toneClass = tone === 'good' ? 'text-emerald-400'
     : tone === 'bad' ? 'text-red-400'
-    : tone === 'warn' ? 'text-yellow-400' : 'text-slate-100'
+    : tone === 'warn' ? 'text-yellow-400' : 'text-zinc-100'
   return (
-    <div className="bg-slate-800 rounded-xl p-4 border border-slate-700">
-      <div className="text-xs text-slate-400 uppercase tracking-wide">{title}</div>
+    <div className="bg-zinc-800 rounded-xl p-4 border border-zinc-700">
+      <div className="text-xs text-zinc-400 uppercase tracking-wide">{title}</div>
       <div className={`text-2xl font-bold mt-1 font-mono ${toneClass}`}>{value}</div>
-      {sub && <div className="text-xs text-slate-500 mt-1">{sub}</div>}
+      {sub && <div className="text-xs text-zinc-500 mt-1">{sub}</div>}
     </div>
   )
 }
 
 function Delta({ v }: { v: number | null }) {
-  if (v == null) return <span className="text-slate-500">—</span>
+  if (v == null) return <span className="text-zinc-500">—</span>
   const good = v >= 0
   return (
     <span className={good ? 'text-emerald-400' : 'text-red-400'}>
@@ -92,7 +92,7 @@ function CoverageBanner({ pct }: { pct: number | null | undefined }) {
   return (
     <div className={`rounded-xl p-3 mb-4 border text-sm ${
       bad ? 'bg-amber-950/40 border-amber-700 text-amber-200'
-          : 'bg-slate-800 border-slate-700 text-slate-300'}`}>
+          : 'bg-zinc-800 border-zinc-700 text-zinc-300'}`}>
       <b>Cobertura de costo: {pct.toFixed(1)}%</b>
       {bad && (
         <> — el margen mostrado está inflado. Solo {pct.toFixed(1)}% de la venta de
@@ -107,9 +107,9 @@ function ChartFrame({ title, note, children, height = 280 }: {
   title: string; note?: string; children: React.ReactElement; height?: number
 }) {
   return (
-    <div className="bg-slate-800 rounded-xl p-4 border border-slate-700">
+    <div className="bg-zinc-800 rounded-xl p-4 border border-zinc-700">
       <div className="font-bold mb-1">{title}</div>
-      {note && <div className="text-xs text-slate-500 mb-2">{note}</div>}
+      {note && <div className="text-xs text-zinc-500 mb-2">{note}</div>}
       <ResponsiveContainer width="100%" height={height}>{children}</ResponsiveContainer>
     </div>
   )
@@ -125,7 +125,7 @@ const tooltipStyle = {
 const moneyFmt = (v: any) => formatMXN(Math.round(Number(v) * 100))
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="text-slate-500 text-sm p-6 text-center">{children}</div>
+  return <div className="text-zinc-500 text-sm p-6 text-center">{children}</div>
 }
 
 export default function AnalyticsPage() {
@@ -155,7 +155,7 @@ export default function AnalyticsPage() {
   const notReady = health.data && !health.data.ready
 
   return (
-    <div className="min-h-screen bg-slate-950 page-root text-slate-100">
+    <div className="min-h-screen bg-zinc-950 page-root text-zinc-100">
       <NavBar />
       <div className="max-w-7xl mx-auto p-4 sm:p-6">
         <div className="flex items-center gap-3 mb-4">
@@ -169,10 +169,10 @@ export default function AnalyticsPage() {
           <div className="bg-red-950/50 border border-red-700 text-red-200 rounded-xl p-4 mb-4">
             <b>Capa analítica no instalada</b> — faltan {health.data.missing_views.length} vistas.
             <div className="text-sm mt-2">
-              Ejecuta <code className="bg-slate-800 px-1 rounded">db_update_analytics.sql</code>{' '}
+              Ejecuta <code className="bg-zinc-800 px-1 rounded">db_update_analytics.sql</code>{' '}
               en esta base de datos:
             </div>
-            <pre className="text-xs bg-slate-900 border border-slate-700 rounded p-2 mt-2
+            <pre className="text-xs bg-zinc-900 border border-zinc-700 rounded p-2 mt-2
                             overflow-x-auto whitespace-pre-wrap">
 {`docker cp db_update_analytics.sql billar-pos-postgres-1:/tmp/
 docker exec billar-pos-postgres-1 psql -U billiard -d billiardbar \\
@@ -186,28 +186,28 @@ docker exec billar-pos-postgres-1 psql -U billiard -d billiardbar \\
         )}
 
         {/* date range */}
-        <div className="flex flex-wrap items-end gap-3 mb-4 bg-slate-900 p-3 rounded-xl
-                        border border-slate-800">
+        <div className="flex flex-wrap items-end gap-3 mb-4 bg-zinc-900 p-3 rounded-xl
+                        border border-zinc-800">
           <label className="text-sm">
-            <span className="block text-xs text-slate-400 mb-1">Desde</span>
+            <span className="block text-xs text-zinc-400 mb-1">Desde</span>
             <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-                   className="bg-slate-800 border border-slate-700 rounded px-2 py-1" />
+                   className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1" />
           </label>
           <label className="text-sm">
-            <span className="block text-xs text-slate-400 mb-1">Hasta</span>
+            <span className="block text-xs text-zinc-400 mb-1">Hasta</span>
             <input type="date" value={to} onChange={e => setTo(e.target.value)}
-                   className="bg-slate-800 border border-slate-700 rounded px-2 py-1" />
+                   className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1" />
           </label>
           <div className="flex gap-2">
             {[[7, '7d'], [30, '30d'], [90, '90d']].map(([n, l]) => (
               <button key={l as string}
                       onClick={() => { setFrom(daysAgo((n as number) - 1)); setTo(today()) }}
-                      className="text-xs bg-slate-800 hover:bg-slate-700 border
-                                 border-slate-700 rounded px-3 py-1.5">{l}</button>
+                      className="text-xs bg-zinc-800 hover:bg-zinc-700 border
+                                 border-zinc-700 rounded px-3 py-1.5">{l}</button>
             ))}
           </div>
           {(tab === 'inventario' || tab === 'costos') && (
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-zinc-500">
               Esta pestaña usa una ventana fija de 28 días definida por las vistas base.
             </span>
           )}
@@ -218,8 +218,8 @@ docker exec billar-pos-postgres-1 psql -U billiard -d billiardbar \\
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap transition-colors ${
-                tab === t.id ? 'bg-sky-600 text-white font-semibold'
-                             : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                tab === t.id ? 'bg-white text-zinc-900 font-semibold'
+                             : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>
               <span className="mr-1">{t.icon}</span>{t.label}
             </button>
           ))}
@@ -268,7 +268,7 @@ function Resumen({ d, loading }: { d: any; loading: boolean }) {
               sub={`Descuentos ${formatMXN(t.descuentos_cents)}`} />
       </div>
 
-      <div className="bg-slate-800 rounded-xl p-4 border border-slate-700 text-sm
+      <div className="bg-zinc-800 rounded-xl p-4 border border-zinc-700 text-sm
                       flex flex-wrap gap-6">
         <span>vs. periodo anterior ({d.comparativo.from} → {d.comparativo.to}):</span>
         <span>Ventas <Delta v={v.ventas} /></span>
@@ -411,26 +411,26 @@ function Rentabilidad({ d, loading }: { d: any; loading: boolean }) {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
-        <div className="bg-slate-800 rounded-xl p-4 border border-slate-700">
+        <div className="bg-zinc-800 rounded-xl p-4 border border-zinc-700">
           <div className="font-bold mb-2">Punto de equilibrio</div>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between border-b border-slate-700 pb-2">
-              <span className="text-slate-400">Venta diaria necesaria</span>
+            <div className="flex justify-between border-b border-zinc-700 pb-2">
+              <span className="text-zinc-400">Venta diaria necesaria</span>
               <span className="font-mono">{formatMXN(eq.venta_diaria_necesaria_cents)}</span>
             </div>
-            <div className="flex justify-between border-b border-slate-700 pb-2">
-              <span className="text-slate-400">Venta diaria actual</span>
+            <div className="flex justify-between border-b border-zinc-700 pb-2">
+              <span className="text-zinc-400">Venta diaria actual</span>
               <span className={`font-mono ${
                 eq.venta_diaria_actual_cents >= eq.venta_diaria_necesaria_cents
                   ? 'text-emerald-400' : 'text-red-400'}`}>
                 {formatMXN(eq.venta_diaria_actual_cents)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">COGS máximo tolerable</span>
+              <span className="text-zinc-400">COGS máximo tolerable</span>
               <span className="font-mono text-amber-400 font-bold">
                 {eq.cogs_equilibrio_pct}%</span>
             </div>
-            <div className="text-xs text-slate-500 pt-1">{eq.nota}</div>
+            <div className="text-xs text-zinc-500 pt-1">{eq.nota}</div>
           </div>
         </div>
 
@@ -464,14 +464,14 @@ function Rentabilidad({ d, loading }: { d: any; loading: boolean }) {
         </ComposedChart>
       </ChartFrame>
 
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-        <div className="p-3 font-bold border-b border-slate-700 flex justify-between">
+      <div className="bg-zinc-800 rounded-xl border border-zinc-700 overflow-hidden">
+        <div className="p-3 font-bold border-b border-zinc-700 flex justify-between">
           <span>Costos fijos mensuales</span>
           <span className="font-mono">{formatMXN(cf.mensual_cents)}/mes</span>
         </div>
         <table className="w-full text-sm">
-          <thead className="bg-slate-900">
-            <tr className="text-left text-xs text-slate-400">
+          <thead className="bg-zinc-900">
+            <tr className="text-left text-xs text-zinc-400">
               <th className="p-2">Concepto</th><th className="p-2">Categoría</th>
               <th className="p-2 text-right">Mensual</th><th className="p-2 text-right">Diario</th>
               <th className="p-2 text-right">Anual</th><th className="p-2 text-right">% del total</th>
@@ -479,13 +479,13 @@ function Rentabilidad({ d, loading }: { d: any; loading: boolean }) {
           </thead>
           <tbody>
             {cf.conceptos.map((c: any) => (
-              <tr key={c.concepto} className="border-t border-slate-700/60">
+              <tr key={c.concepto} className="border-t border-zinc-700/60">
                 <td className="p-2">{c.concepto}</td>
-                <td className="p-2 text-xs text-slate-400">{c.categoria}</td>
+                <td className="p-2 text-xs text-zinc-400">{c.categoria}</td>
                 <td className="p-2 text-right font-mono">{formatMXN(c.mensual_cents)}</td>
-                <td className="p-2 text-right font-mono text-slate-400">
+                <td className="p-2 text-right font-mono text-zinc-400">
                   {formatMXN(c.diario_cents)}</td>
-                <td className="p-2 text-right font-mono text-slate-400">
+                <td className="p-2 text-right font-mono text-zinc-400">
                   {formatMXN(c.anual_cents)}</td>
                 <td className="p-2 text-right font-mono">
                   {cf.mensual_cents ? (c.mensual_cents / cf.mensual_cents * 100).toFixed(1) : '0'}%</td>
@@ -565,17 +565,17 @@ function Billar({ d, loading }: { d: any; loading: boolean }) {
         </AreaChart>
       </ChartFrame>
 
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-        <div className="p-3 font-bold border-b border-slate-700">
+      <div className="bg-zinc-800 rounded-xl border border-zinc-700 overflow-hidden">
+        <div className="p-3 font-bold border-b border-zinc-700">
           Detalle por mesa
-          <div className="text-xs text-slate-500 font-normal mt-1">
+          <div className="text-xs text-zinc-500 font-normal mt-1">
             La tarifa por hora es prácticamente igual en todas las mesas, así que las
             diferencias de ingreso son diferencias de <b>uso</b>, no de precio.
           </div>
         </div>
         <table className="w-full text-sm">
-          <thead className="bg-slate-900">
-            <tr className="text-left text-xs text-slate-400">
+          <thead className="bg-zinc-900">
+            <tr className="text-left text-xs text-zinc-400">
               <th className="p-2">Mesa</th><th className="p-2">Nombre</th>
               <th className="p-2 text-right">Ingreso</th><th className="p-2 text-right">% billar</th>
               <th className="p-2 text-right">Horas</th><th className="p-2 text-right">Sesiones</th>
@@ -587,9 +587,9 @@ function Billar({ d, loading }: { d: any; loading: boolean }) {
           </thead>
           <tbody>
             {d.mesas.map((m: any) => (
-              <tr key={m.mesa} className="border-t border-slate-700/60 hover:bg-slate-700/40">
+              <tr key={m.mesa} className="border-t border-zinc-700/60 hover:bg-zinc-700/40">
                 <td className="p-2 font-medium">{m.mesa}</td>
-                <td className="p-2 text-xs text-slate-400">{m.nombre}</td>
+                <td className="p-2 text-xs text-zinc-400">{m.nombre}</td>
                 <td className="p-2 text-right font-mono text-emerald-400">
                   {formatMXN(m.ingreso_cents)}</td>
                 <td className="p-2 text-right font-mono">{m.pct_del_billar}%</td>
@@ -597,17 +597,17 @@ function Billar({ d, loading }: { d: any; loading: boolean }) {
                 <td className="p-2 text-right font-mono">{m.sesiones}</td>
                 <td className="p-2 text-right font-mono">
                   {formatMXN(m.ingreso_por_hora_cents)}</td>
-                <td className="p-2 text-right font-mono text-slate-400">
+                <td className="p-2 text-right font-mono text-zinc-400">
                   {m.minutos_gratis_promo}</td>
-                <td className="p-2 text-right font-mono text-slate-400">{m.dias_activa}</td>
+                <td className="p-2 text-right font-mono text-zinc-400">{m.dias_activa}</td>
                 <td className={`p-2 text-right font-mono ${
-                  m.sesiones_editadas > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+                  m.sesiones_editadas > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>
                   {m.sesiones_editadas}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr className="border-t-2 border-slate-600 bg-slate-900 font-bold">
+            <tr className="border-t-2 border-zinc-600 bg-zinc-900 font-bold">
               <td className="p-2" colSpan={2}>TOTAL</td>
               <td className="p-2 text-right font-mono text-emerald-400">
                 {formatMXN(r.ingreso_total_cents)}</td>
@@ -651,12 +651,12 @@ function Menu({ d, loading }: { d: any; loading: boolean }) {
         {(['ESTRELLA', 'CABALLO', 'ROMPECABEZAS', 'PERRO'] as const).map(qd => (
           <button key={qd} onClick={() => setFiltro(filtro === qd ? 'TODOS' : qd)}
             className={`text-left rounded-xl p-4 border transition-colors ${
-              filtro === qd ? 'border-sky-500 bg-slate-700' : 'border-slate-700 bg-slate-800'
-            } hover:bg-slate-700`}>
+              filtro === qd ? 'border-zinc-400 bg-zinc-700' : 'border-zinc-700 bg-zinc-800'
+            } hover:bg-zinc-700`}>
             <div className="text-xs uppercase tracking-wide"
                  style={{ color: QUADRANT_COLOR[qd] }}>{qd}</div>
             <div className="text-2xl font-bold font-mono">{d.resumen_cuadrantes[qd]}</div>
-            <div className="text-xs text-slate-500 mt-1">{QUADRANT_LABEL[qd]}</div>
+            <div className="text-xs text-zinc-500 mt-1">{QUADRANT_LABEL[qd]}</div>
           </button>
         ))}
       </div>
@@ -677,7 +677,7 @@ function Menu({ d, loading }: { d: any; loading: boolean }) {
               if (!payload?.length) return null
               const p = payload[0].payload
               return (
-                <div className="bg-slate-800 border border-slate-600 rounded-lg p-2 text-xs">
+                <div className="bg-zinc-800 border border-zinc-600 rounded-lg p-2 text-xs">
                   <div className="font-bold">{p.producto}</div>
                   <div>{p.x} unidades · {p.y.toFixed(1)}% margen</div>
                   <div style={{ color: QUADRANT_COLOR[p.cuadrante] }}>{p.cuadrante}</div>
@@ -692,18 +692,18 @@ function Menu({ d, loading }: { d: any; loading: boolean }) {
         </ScatterChart>
       </ChartFrame>
 
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-        <div className="p-3 font-bold border-b border-slate-700 flex justify-between">
+      <div className="bg-zinc-800 rounded-xl border border-zinc-700 overflow-hidden">
+        <div className="p-3 font-bold border-b border-zinc-700 flex justify-between">
           <span>Productos {filtro !== 'TODOS' && `— ${filtro}`}</span>
           {filtro !== 'TODOS' && (
             <button onClick={() => setFiltro('TODOS')}
-                    className="text-xs text-sky-400">ver todos</button>
+                    className="text-xs text-zinc-300">ver todos</button>
           )}
         </div>
         <div className="overflow-x-auto max-h-[560px]">
           <table className="w-full text-sm">
-            <thead className="bg-slate-900 sticky top-0">
-              <tr className="text-left text-xs text-slate-400">
+            <thead className="bg-zinc-900 sticky top-0">
+              <tr className="text-left text-xs text-zinc-400">
                 <th className="p-2">Producto</th><th className="p-2">Categoría</th>
                 <th className="p-2 text-right">Uds</th><th className="p-2 text-right">Venta</th>
                 <th className="p-2 text-right">Costo</th><th className="p-2 text-right">Utilidad</th>
@@ -712,7 +712,7 @@ function Menu({ d, loading }: { d: any; loading: boolean }) {
             </thead>
             <tbody>
               {prods.map((p: any) => (
-                <tr key={p.producto} className="border-t border-slate-700/60 hover:bg-slate-700/40">
+                <tr key={p.producto} className="border-t border-zinc-700/60 hover:bg-zinc-700/40">
                   <td className="p-2">
                     {p.producto}
                     {!p.margen_confiable && (
@@ -720,10 +720,10 @@ function Menu({ d, loading }: { d: any; loading: boolean }) {
                             className="ml-1 text-amber-400">⚠</span>
                     )}
                   </td>
-                  <td className="p-2 text-slate-400 text-xs">{p.categoria}</td>
+                  <td className="p-2 text-zinc-400 text-xs">{p.categoria}</td>
                   <td className="p-2 text-right font-mono">{p.unidades}</td>
                   <td className="p-2 text-right font-mono">{formatMXN(p.venta_cents)}</td>
-                  <td className="p-2 text-right font-mono text-slate-400">
+                  <td className="p-2 text-right font-mono text-zinc-400">
                     {formatMXN(p.costo_cents)}</td>
                   <td className="p-2 text-right font-mono text-emerald-400">
                     {formatMXN(p.utilidad_cents)}</td>
@@ -739,15 +739,15 @@ function Menu({ d, loading }: { d: any; loading: boolean }) {
       </div>
 
       {d.productos_lentos?.length > 0 && (
-        <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-          <div className="p-3 font-bold border-b border-slate-700">
-            Productos lentos <span className="text-xs text-slate-500 font-normal">
+        <div className="bg-zinc-800 rounded-xl border border-zinc-700 overflow-hidden">
+          <div className="p-3 font-bold border-b border-zinc-700">
+            Productos lentos <span className="text-xs text-zinc-500 font-normal">
               (ventana fija de 30 días — vista productos_lentos)</span>
           </div>
           <div className="overflow-x-auto max-h-72">
             <table className="w-full text-sm">
-              <thead className="bg-slate-900 sticky top-0">
-                <tr className="text-left text-xs text-slate-400">
+              <thead className="bg-zinc-900 sticky top-0">
+                <tr className="text-left text-xs text-zinc-400">
                   <th className="p-2">Producto</th><th className="p-2">Categoría</th>
                   <th className="p-2 text-right">Precio</th><th className="p-2 text-right">Uds 30d</th>
                   <th className="p-2">Última venta</th><th className="p-2">Diagnóstico</th>
@@ -755,12 +755,12 @@ function Menu({ d, loading }: { d: any; loading: boolean }) {
               </thead>
               <tbody>
                 {d.productos_lentos.map((p: any, i: number) => (
-                  <tr key={i} className="border-t border-slate-700/60">
+                  <tr key={i} className="border-t border-zinc-700/60">
                     <td className="p-2">{p.producto}</td>
-                    <td className="p-2 text-slate-400 text-xs">{p.categoria}</td>
+                    <td className="p-2 text-zinc-400 text-xs">{p.categoria}</td>
                     <td className="p-2 text-right font-mono">{formatMXN(p.precio_cents)}</td>
                     <td className="p-2 text-right font-mono">{p.unidades_30d}</td>
-                    <td className="p-2 text-xs text-slate-400">{p.ultima_venta ?? 'nunca'}</td>
+                    <td className="p-2 text-xs text-zinc-400">{p.ultima_venta ?? 'nunca'}</td>
                     <td className="p-2 text-xs text-yellow-400">{p.diagnostico}</td>
                   </tr>
                 ))}
@@ -817,15 +817,15 @@ function Caja({ d, loading }: { d: any; loading: boolean }) {
               sub={`${r.sesiones} sesiones`} />
       </div>
 
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-slate-300">
+      <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-3 text-sm text-zinc-300">
         <b>Cómo se calcula el efectivo esperado.</b> Las propinas se pagan al personal{' '}
         <b>en efectivo el mismo día</b>, incluidas las que se dejaron con tarjeta, así que
         salen del cajón:
-        <div className="font-mono text-xs mt-2 text-slate-400">
+        <div className="font-mono text-xs mt-2 text-zinc-400">
           esperado = fondo + ventas en efectivo + propinas en efectivo − propinas pagadas
           − gastos − retiros
         </div>
-        <div className="text-xs mt-1 text-slate-500">
+        <div className="text-xs mt-1 text-zinc-500">
           Las propinas en efectivo entran y vuelven a salir, así que se cancelan: el drenaje
           neto del cajón son las propinas de tarjeta ({formatMXN(r.propinas_tarjeta_cents)}).
           Un <b>sobrante</b> del tamaño de las propinas del día normalmente significa que ese
@@ -846,18 +846,18 @@ function Caja({ d, loading }: { d: any; loading: boolean }) {
         </BarChart>
       </ChartFrame>
 
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-        <div className="p-3 font-bold border-b border-slate-700">
+      <div className="bg-zinc-800 rounded-xl border border-zinc-700 overflow-hidden">
+        <div className="p-3 font-bold border-b border-zinc-700">
           Sesiones de caja
-          <div className="text-xs text-slate-500 font-normal mt-1">
+          <div className="text-xs text-zinc-500 font-normal mt-1">
             La columna <b>Propinas</b> es lo que se pagó al personal desde el cajón (incluye
             las de tarjeta). Ya está descontada del esperado.
           </div>
         </div>
         <div className="overflow-x-auto max-h-[520px]">
           <table className="w-full text-sm">
-            <thead className="bg-slate-900 sticky top-0">
-              <tr className="text-left text-xs text-slate-400">
+            <thead className="bg-zinc-900 sticky top-0">
+              <tr className="text-left text-xs text-zinc-400">
                 <th className="p-2">Fecha</th><th className="p-2">Abrió / Cerró</th>
                 <th className="p-2 text-right">Fondo</th><th className="p-2 text-right">Efectivo</th>
                 <th className="p-2 text-right">Propinas</th>
@@ -868,9 +868,9 @@ function Caja({ d, loading }: { d: any; loading: boolean }) {
             </thead>
             <tbody>
               {d.sesiones.map((s: any) => (
-                <tr key={s.session_id} className="border-t border-slate-700/60 hover:bg-slate-700/40">
+                <tr key={s.session_id} className="border-t border-zinc-700/60 hover:bg-zinc-700/40">
                   <td className="p-2 whitespace-nowrap">{s.fecha}</td>
-                  <td className="p-2 text-xs text-slate-400">
+                  <td className="p-2 text-xs text-zinc-400">
                     {s.abierta_por ?? '—'} / {s.cerrada_por ?? '—'}</td>
                   <td className="p-2 text-right font-mono">{formatMXN(s.fondo_inicial_cents)}</td>
                   <td className="p-2 text-right font-mono">{formatMXN(s.efectivo_ventas_cents)}</td>
@@ -890,12 +890,12 @@ function Caja({ d, loading }: { d: any; loading: boolean }) {
                   <td className={`p-2 text-xs ${
                     s.diagnostico === 'Faltante grave' ? 'text-red-400'
                     : s.diagnostico === 'Faltante' ? 'text-amber-400'
-                    : s.diagnostico === 'OK' ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    : s.diagnostico === 'OK' ? 'text-emerald-400' : 'text-zinc-400'}`}>
                     {s.diagnostico}
                     {s.diagnostico === 'Sobrante'
                      && s.propinas_pagadas_cents > 0
                      && Math.abs(s.diferencia_cents - s.propinas_pagadas_cents) <= 5000 && (
-                      <span className="block text-slate-500"
+                      <span className="block text-zinc-500"
                             title="El sobrante coincide con las propinas del día">
                         ≈ propinas no pagadas
                       </span>
@@ -922,7 +922,7 @@ function Inventario({ d, loading }: { d: any; loading: boolean }) {
   const tone = (rec: string) =>
     rec === 'Comprar urgente' ? 'text-red-400'
     : rec === 'Comprar esta semana' ? 'text-amber-400'
-    : rec === 'Debajo de mínimo' ? 'text-yellow-400' : 'text-slate-400'
+    : rec === 'Debajo de mínimo' ? 'text-yellow-400' : 'text-zinc-400'
 
   return (
     <div className="space-y-4">
@@ -936,15 +936,15 @@ function Inventario({ d, loading }: { d: any; loading: boolean }) {
               sub={`${r.insumos_con_merma} insumos`} />
       </div>
 
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-        <div className="p-3 font-bold border-b border-slate-700">
-          Compras sugeridas <span className="text-xs text-slate-500 font-normal">
+      <div className="bg-zinc-800 rounded-xl border border-zinc-700 overflow-hidden">
+        <div className="p-3 font-bold border-b border-zinc-700">
+          Compras sugeridas <span className="text-xs text-zinc-500 font-normal">
             ({d.ventana})</span>
         </div>
         <div className="overflow-x-auto max-h-96">
           <table className="w-full text-sm">
-            <thead className="bg-slate-900 sticky top-0">
-              <tr className="text-left text-xs text-slate-400">
+            <thead className="bg-zinc-900 sticky top-0">
+              <tr className="text-left text-xs text-zinc-400">
                 <th className="p-2">Insumo</th><th className="p-2">Proveedor</th>
                 <th className="p-2 text-right">Stock</th><th className="p-2 text-right">Cobertura</th>
                 <th className="p-2 text-right">Comprar</th><th className="p-2 text-right">Costo est.</th>
@@ -953,10 +953,10 @@ function Inventario({ d, loading }: { d: any; loading: boolean }) {
             </thead>
             <tbody>
               {urgentes.map((c: any, i: number) => (
-                <tr key={i} className="border-t border-slate-700/60">
-                  <td className="p-2">{c.insumo} <span className="text-xs text-slate-500">
+                <tr key={i} className="border-t border-zinc-700/60">
+                  <td className="p-2">{c.insumo} <span className="text-xs text-zinc-500">
                     {c.unidad}</span></td>
-                  <td className="p-2 text-xs text-slate-400">{c.proveedor ?? '—'}</td>
+                  <td className="p-2 text-xs text-zinc-400">{c.proveedor ?? '—'}</td>
                   <td className="p-2 text-right font-mono">{c.stock}</td>
                   <td className="p-2 text-right font-mono">
                     {c.dias_cobertura == null ? '—' : `${c.dias_cobertura.toFixed(1)}d`}</td>
@@ -966,7 +966,7 @@ function Inventario({ d, loading }: { d: any; loading: boolean }) {
                 </tr>
               ))}
               {!urgentes.length && (
-                <tr><td colSpan={7} className="p-6 text-center text-slate-500">
+                <tr><td colSpan={7} className="p-6 text-center text-zinc-500">
                   Nada por comprar.</td></tr>
               )}
             </tbody>
@@ -974,18 +974,18 @@ function Inventario({ d, loading }: { d: any; loading: boolean }) {
         </div>
       </div>
 
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-        <div className="p-3 font-bold border-b border-slate-700">
+      <div className="bg-zinc-800 rounded-xl border border-zinc-700 overflow-hidden">
+        <div className="p-3 font-bold border-b border-zinc-700">
           Merma y ajustes
-          <div className="text-xs text-slate-500 font-normal mt-1">
+          <div className="text-xs text-zinc-500 font-normal mt-1">
             Merma = desperdicio declarado + ajustes netos negativos. Un ajuste positivo es
             inventario encontrado, no perdido, y no cuenta como merma.
           </div>
         </div>
         <div className="overflow-x-auto max-h-96">
           <table className="w-full text-sm">
-            <thead className="bg-slate-900 sticky top-0">
-              <tr className="text-left text-xs text-slate-400">
+            <thead className="bg-zinc-900 sticky top-0">
+              <tr className="text-left text-xs text-zinc-400">
                 <th className="p-2">Insumo</th><th className="p-2 text-right">Consumo 28d</th>
                 <th className="p-2 text-right">Merma</th><th className="p-2 text-right">Ajuste man.</th>
                 <th className="p-2 text-right">Ajuste conteo</th>
@@ -994,7 +994,7 @@ function Inventario({ d, loading }: { d: any; loading: boolean }) {
             </thead>
             <tbody>
               {d.merma.map((m: any, i: number) => (
-                <tr key={i} className="border-t border-slate-700/60">
+                <tr key={i} className="border-t border-zinc-700/60">
                   <td className="p-2">{m.insumo}</td>
                   <td className="p-2 text-right font-mono">{m.consumo_28d}</td>
                   <td className="p-2 text-right font-mono text-red-400">{m.merma_unidades}</td>
@@ -1002,11 +1002,11 @@ function Inventario({ d, loading }: { d: any; loading: boolean }) {
                   <td className="p-2 text-right font-mono">{m.ajuste_conteo}</td>
                   <td className="p-2 text-right font-mono">
                     {formatMXN(m.merma_valorizada_cents)}</td>
-                  <td className="p-2 text-xs text-slate-400">{m.diagnostico}</td>
+                  <td className="p-2 text-xs text-zinc-400">{m.diagnostico}</td>
                 </tr>
               ))}
               {!d.merma.length && (
-                <tr><td colSpan={7} className="p-6 text-center text-slate-500">
+                <tr><td colSpan={7} className="p-6 text-center text-zinc-500">
                   Sin merma registrada.</td></tr>
               )}
             </tbody>
@@ -1051,18 +1051,18 @@ function Costos({ d, loading }: { d: any; loading: boolean }) {
               sub={`Excluye ${r.excluidas.join(', ')}`} />
       </div>
 
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-        <div className="p-3 font-bold border-b border-slate-700">
+      <div className="bg-zinc-800 rounded-xl border border-zinc-700 overflow-hidden">
+        <div className="p-3 font-bold border-b border-zinc-700">
           Insumos sin costo — ordenados por venta expuesta
-          <div className="text-xs text-slate-500 font-normal mt-1">
+          <div className="text-xs text-zinc-500 font-normal mt-1">
             Captura de arriba hacia abajo: los primeros 10 recuperan la mayor parte de la
             exactitud del margen.
           </div>
         </div>
         <div className="overflow-x-auto max-h-[560px]">
           <table className="w-full text-sm">
-            <thead className="bg-slate-900 sticky top-0">
-              <tr className="text-left text-xs text-slate-400">
+            <thead className="bg-zinc-900 sticky top-0">
+              <tr className="text-left text-xs text-zinc-400">
                 <th className="p-2">#</th><th className="p-2">Insumo</th>
                 <th className="p-2">Categoría</th><th className="p-2">Proveedor</th>
                 <th className="p-2 text-right">Líneas</th>
@@ -1072,12 +1072,12 @@ function Costos({ d, loading }: { d: any; loading: boolean }) {
             <tbody>
               {faltantes.map((i: any, idx: number) => (
                 <tr key={i.inventory_item_id}
-                    className={`border-t border-slate-700/60 ${idx < 10 ? 'bg-amber-950/20' : ''}`}>
-                  <td className="p-2 text-slate-500 font-mono">{idx + 1}</td>
+                    className={`border-t border-zinc-700/60 ${idx < 10 ? 'bg-amber-950/20' : ''}`}>
+                  <td className="p-2 text-zinc-500 font-mono">{idx + 1}</td>
                   <td className="p-2 font-medium">{i.insumo}
-                    <span className="text-xs text-slate-500 ml-1">{i.unidad}</span></td>
-                  <td className="p-2 text-xs text-slate-400">{i.categoria}</td>
-                  <td className="p-2 text-xs text-slate-400">{i.proveedor ?? '—'}</td>
+                    <span className="text-xs text-zinc-500 ml-1">{i.unidad}</span></td>
+                  <td className="p-2 text-xs text-zinc-400">{i.categoria}</td>
+                  <td className="p-2 text-xs text-zinc-400">{i.proveedor ?? '—'}</td>
                   <td className="p-2 text-right font-mono">{i.lineas_expuestas}</td>
                   <td className="p-2 text-right font-mono text-amber-400">
                     {formatMXN(i.venta_expuesta_cents)}</td>
@@ -1099,7 +1099,7 @@ function Personal({ d, loading }: { d: any; loading: boolean }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-slate-300">
+      <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-3 text-sm text-zinc-300">
         {d.nota}
       </div>
 
@@ -1118,10 +1118,10 @@ function Personal({ d, loading }: { d: any; loading: boolean }) {
         </BarChart>
       </ChartFrame>
 
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-x-auto">
+      <div className="bg-zinc-800 rounded-xl border border-zinc-700 overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-slate-900">
-            <tr className="text-left text-xs text-slate-400">
+          <thead className="bg-zinc-900">
+            <tr className="text-left text-xs text-zinc-400">
               <th className="p-2">Empleado</th><th className="p-2">Rol</th>
               <th className="p-2 text-right">Tickets</th><th className="p-2 text-right">Ventas</th>
               <th className="p-2 text-right">Ticket prom.</th>
@@ -1133,9 +1133,9 @@ function Personal({ d, loading }: { d: any; loading: boolean }) {
           </thead>
           <tbody>
             {d.empleados.map((e: any) => (
-              <tr key={e.empleado} className="border-t border-slate-700/60 hover:bg-slate-700/40">
+              <tr key={e.empleado} className="border-t border-zinc-700/60 hover:bg-zinc-700/40">
                 <td className="p-2 font-medium">{e.empleado}</td>
-                <td className="p-2 text-xs text-slate-400">{e.rol ?? '—'}</td>
+                <td className="p-2 text-xs text-zinc-400">{e.rol ?? '—'}</td>
                 <td className="p-2 text-right font-mono">{e.tickets}</td>
                 <td className="p-2 text-right font-mono">{formatMXN(e.ventas_cents)}</td>
                 <td className="p-2 text-right font-mono">{formatMXN(e.ticket_promedio_cents)}</td>
@@ -1144,12 +1144,12 @@ function Personal({ d, loading }: { d: any; loading: boolean }) {
                 <td className="p-2 text-right font-mono">{formatMXN(e.propinas_cents)}</td>
                 <td className="p-2 text-right font-mono text-yellow-400">
                   {formatMXN(e.descuentos_cents)}</td>
-                <td className="p-2 text-right font-mono text-slate-400">
+                <td className="p-2 text-right font-mono text-zinc-400">
                   {e.duracion_prom_min == null ? '—' : `${e.duracion_prom_min}m`}</td>
                 <td className={`p-2 text-right font-mono ${
-                  e.reaperturas > 0 ? 'text-amber-400' : 'text-slate-500'}`}>{e.reaperturas}</td>
+                  e.reaperturas > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>{e.reaperturas}</td>
                 <td className={`p-2 text-right font-mono ${
-                  e.editados > 0 ? 'text-amber-400' : 'text-slate-500'}`}>{e.editados}</td>
+                  e.editados > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>{e.editados}</td>
               </tr>
             ))}
           </tbody>
@@ -1173,7 +1173,7 @@ function Riesgos({ d, loading }: { d: any; loading: boolean }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-slate-300">
+      <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-3 text-sm text-zinc-300">
         Las vistas de venta <b>excluyen</b> las líneas canceladas — correcto para ingresos,
         ciego para riesgo. Esta pestaña es el inverso deliberado.
       </div>
@@ -1205,15 +1205,15 @@ function Riesgos({ d, loading }: { d: any; loading: boolean }) {
         </BarChart>
       </ChartFrame>
 
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-        <div className="p-3 font-bold border-b border-slate-700">
-          Detalle <span className="text-xs text-slate-500 font-normal">
+      <div className="bg-zinc-800 rounded-xl border border-zinc-700 overflow-hidden">
+        <div className="p-3 font-bold border-b border-zinc-700">
+          Detalle <span className="text-xs text-zinc-500 font-normal">
             (máx. 200, mayor monto primero)</span>
         </div>
         <div className="overflow-x-auto max-h-[560px]">
           <table className="w-full text-sm">
-            <thead className="bg-slate-900 sticky top-0">
-              <tr className="text-left text-xs text-slate-400">
+            <thead className="bg-zinc-900 sticky top-0">
+              <tr className="text-left text-xs text-zinc-400">
                 <th className="p-2">Tipo</th><th className="p-2">Fecha</th>
                 <th className="p-2">Detalle</th><th className="p-2">Motivo</th>
                 <th className="p-2">Usuario</th><th className="p-2 text-right">Monto</th>
@@ -1221,13 +1221,13 @@ function Riesgos({ d, loading }: { d: any; loading: boolean }) {
             </thead>
             <tbody>
               {d.detalle.map((r: any, i: number) => (
-                <tr key={i} className="border-t border-slate-700/60 hover:bg-slate-700/40">
+                <tr key={i} className="border-t border-zinc-700/60 hover:bg-zinc-700/40">
                   <td className="p-2 text-xs">{RISK_LABEL[r.tipo] ?? r.tipo}</td>
-                  <td className="p-2 text-xs text-slate-400">{r.fecha}</td>
+                  <td className="p-2 text-xs text-zinc-400">{r.fecha}</td>
                   <td className="p-2">{r.detalle}</td>
-                  <td className="p-2 text-xs text-slate-400">{r.motivo ?? '—'}</td>
+                  <td className="p-2 text-xs text-zinc-400">{r.motivo ?? '—'}</td>
                   <td className="p-2 text-xs">{r.usuario ?? '—'}
-                    <span className="text-slate-500"> {r.rol ? `(${r.rol})` : ''}</span></td>
+                    <span className="text-zinc-500"> {r.rol ? `(${r.rol})` : ''}</span></td>
                   <td className="p-2 text-right font-mono">{formatMXN(r.monto_cents)}</td>
                 </tr>
               ))}

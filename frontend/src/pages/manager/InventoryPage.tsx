@@ -49,7 +49,7 @@ const EVENT_TYPE_COLORS: Record<string, string> = {
   SALE_DEDUCTION:     'text-red-400',
   SALE_CONSUMPTION:   'text-red-400',
   VOID_REVERSAL:      'text-green-400',
-  MANUAL_ADJUSTMENT:  'text-sky-400',
+  MANUAL_ADJUSTMENT:  'text-zinc-300',
   WASTE:              'text-red-500',
   COUNT_ADJUSTMENT:   'text-violet-400',
   BOTTLE_OPENING:     'text-amber-400',
@@ -104,7 +104,7 @@ function SupplierSelect({ value, onChange }: { value: string; onChange: (v: stri
           if (e.target.value === '__add__') { setAdding(true); setNewName('') }
           else { onChange(e.target.value); setAdding(false) }
         }}
-        className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+        className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm"
       >
         <option value="">— sin proveedor —</option>
         {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
@@ -118,10 +118,10 @@ function SupplierSelect({ value, onChange }: { value: string; onChange: (v: stri
             onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') { setAdding(false); setNewName('') } }}
             placeholder="Nombre del proveedor"
             autoFocus
-            className="flex-1 bg-slate-700 border border-blue-500 rounded-lg px-3 py-1.5 text-sm"
+            className="flex-1 bg-zinc-700 border border-blue-500 rounded-lg px-3 py-1.5 text-sm"
           />
           <button onClick={handleSave} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-semibold">✓</button>
-          <button onClick={() => { setAdding(false); setNewName('') }} className="px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded-lg text-xs">✕</button>
+          <button onClick={() => { setAdding(false); setNewName('') }} className="px-3 py-1 bg-zinc-600 hover:bg-zinc-500 rounded-lg text-xs">✕</button>
         </div>
       )}
     </div>
@@ -514,9 +514,9 @@ export default function InventoryPage() {
 
   const UnitSelect = ({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) => (
     <div>
-      <label className="text-xs text-slate-400 block mb-1">{label}</label>
+      <label className="text-xs text-zinc-400 block mb-1">{label}</label>
       <select value={value} onChange={e => onChange(e.target.value)}
-        className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+        className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
         {units.filter(u => u.active).map(u => (
           <option key={u.key} value={u.key}>{getUnitName(u.key)}</option>
         ))}
@@ -527,7 +527,7 @@ export default function InventoryPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-slate-950 page-root">
+    <div className="min-h-screen bg-zinc-950 page-root">
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-3xl mx-auto p-4">
@@ -538,18 +538,18 @@ export default function InventoryPage() {
           <div className="flex gap-2">
             {isAdmin && (
               <button onClick={() => setShowCatalog(true)}
-                className="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300">
+                className="bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-300">
                 ⚙️ {t('inventory.unitCatalog')}
               </button>
             )}
             {isAdmin && (
               <button onClick={() => setShowSupplierCatalog(true)}
-                className="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300">
+                className="bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-300">
                 🏭 Proveedores
               </button>
             )}
             <button onClick={() => setShowNew(true)}
-              className="bg-sky-600 hover:bg-sky-500 px-4 py-1.5 rounded-lg text-sm font-semibold">
+              className="bg-white text-zinc-900 hover:bg-zinc-200 px-4 py-1.5 rounded-lg text-sm font-semibold">
               + {t('inventory.addItem')}
             </button>
           </div>
@@ -561,11 +561,11 @@ export default function InventoryPage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder={t('inventory.search')}
-            className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm placeholder-slate-500"
+            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm placeholder-zinc-500"
           />
           <button onClick={() => setLowStockOnly(v => !v)}
             className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap ${
-              lowStockOnly ? 'bg-red-700 border-red-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'
+              lowStockOnly ? 'bg-red-700 border-red-600 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'
             }`}>
             ⚠ {t('inventory.lowStockOnly')}
           </button>
@@ -576,7 +576,7 @@ export default function InventoryPage() {
           {CATEGORY_ORDER.map(cat => (
             <button key={cat} onClick={() => setTab(cat)}
               className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
-                tab === cat ? 'bg-yellow-600 border-yellow-500 text-slate-900' : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-500'
+                tab === cat ? 'bg-yellow-600 border-yellow-500 text-zinc-900' : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-500'
               }`}>
               {CATEGORY_LABELS[cat]}
             </button>
@@ -592,14 +592,14 @@ export default function InventoryPage() {
                 const pct = Math.round((box.cigs_sold / box.cigs_per_box) * 100)
                 const isLow = box.cigs_remaining <= 3
                 return (
-                  <div key={box.id} className={`bg-slate-800 rounded-lg p-3 border ${isLow ? 'border-red-700' : 'border-slate-700'}`}>
+                  <div key={box.id} className={`bg-zinc-800 rounded-lg p-3 border ${isLow ? 'border-red-700' : 'border-zinc-700'}`}>
                     <div className="flex justify-between items-center mb-1">
                       <span className="font-semibold text-sm">{box.brand}</span>
                       <span className={`text-xs font-bold ${isLow ? 'text-red-400' : 'text-orange-300'}`}>
                         {box.cigs_remaining}/{box.cigs_per_box} restantes
                       </span>
                     </div>
-                    <div className="w-full bg-slate-700 rounded-full h-2">
+                    <div className="w-full bg-zinc-700 rounded-full h-2">
                       <div className={`h-2 rounded-full ${isLow ? 'bg-red-500' : 'bg-orange-500'}`}
                         style={{ width: `${pct}%` }} />
                     </div>
@@ -618,7 +618,7 @@ export default function InventoryPage() {
             )
             return (
               <div key={item.id}
-                className={`bg-slate-800 rounded-xl px-3 py-2.5 flex items-center gap-3 border ${item.is_low ? 'border-red-700' : 'border-slate-700'}`}>
+                className={`bg-zinc-800 rounded-xl px-3 py-2.5 flex items-center gap-3 border ${item.is_low ? 'border-red-700' : 'border-zinc-700'}`}>
 
                 {/* Name + meta — grows to fill space */}
                 <div className="flex-1 min-w-0">
@@ -632,7 +632,7 @@ export default function InventoryPage() {
                       <span className="text-[10px] text-orange-400">🚬 {item.shots_per_bottle}</span>
                     )}
                   </div>
-                  <div className="text-xs text-slate-500 leading-tight mt-0.5">
+                  <div className="text-xs text-zinc-500 leading-tight mt-0.5">
                     {getUnitName(item.base_unit_key)} · {CATEGORY_LABELS[item.category]?.replace(/^.+ /, '') ?? item.category}
                     {item.unit_cost_cents > 0 && <span className="ml-2">{formatMXN(item.unit_cost_cents)}/u</span>}
                   </div>
@@ -641,7 +641,7 @@ export default function InventoryPage() {
                 {/* Stock badge */}
                 <div className={`text-right font-mono font-bold text-base leading-tight flex-shrink-0 ${item.is_low ? 'text-red-400' : 'text-white'}`}>
                   {fmtQty(item.stock_quantity)}
-                  <div className="text-[10px] font-normal text-slate-400">{getUnitName(item.base_unit_key)}</div>
+                  <div className="text-[10px] font-normal text-zinc-400">{getUnitName(item.base_unit_key)}</div>
                 </div>
 
                 {/* Action buttons — primary/frequent actions only; the rest live behind ⋮ */}
@@ -659,22 +659,22 @@ export default function InventoryPage() {
                     📦 Reabastecer
                   </button>
                   <button onClick={() => openAdjust(item)} title="Ajustar stock"
-                    className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs text-slate-300">
+                    className="bg-zinc-700 hover:bg-zinc-600 px-2 py-1 rounded text-xs text-zinc-300">
                     ⚡
                   </button>
                   <button onClick={() => setOverflowOpenId(id => id === item.id ? null : item.id)} title="Más acciones"
-                    className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs text-slate-300">⋮</button>
+                    className="bg-zinc-700 hover:bg-zinc-600 px-2 py-1 rounded text-xs text-zinc-300">⋮</button>
 
                   {overflowOpenId === item.id && (
-                    <div className="absolute right-0 top-full mt-1 z-10 bg-slate-800 border border-slate-600 rounded-lg shadow-2xl py-1 w-44 text-sm">
+                    <div className="absolute right-0 top-full mt-1 z-10 bg-zinc-800 border border-zinc-600 rounded-lg shadow-2xl py-1 w-44 text-sm">
                       <button onClick={() => { openEdit(item); setOverflowOpenId(null) }}
-                        className="w-full text-left px-3 py-2 hover:bg-slate-700">✏️ Editar</button>
+                        className="w-full text-left px-3 py-2 hover:bg-zinc-700">✏️ Editar</button>
                       <button onClick={() => { setViewingMovements(item); setOverflowOpenId(null) }}
-                        className="w-full text-left px-3 py-2 hover:bg-slate-700 text-slate-300">📋 Movimientos</button>
+                        className="w-full text-left px-3 py-2 hover:bg-zinc-700 text-zinc-300">📋 Movimientos</button>
                       {inMenu
                         ? <div className="w-full text-left px-3 py-2 text-emerald-400">✅ En el menú</div>
                         : <button onClick={() => { setAddToMenu(item); setMenuForm({ category_id: '', price_cents: 0, requires_flavor: false }); setOverflowOpenId(null) }}
-                            className="w-full text-left px-3 py-2 hover:bg-slate-700">🍽️ Agregar al menú</button>
+                            className="w-full text-left px-3 py-2 hover:bg-zinc-700">🍽️ Agregar al menú</button>
                       }
                       {isAdmin && (
                         <button onClick={() => { handleDelete(item); setOverflowOpenId(null) }}
@@ -688,7 +688,7 @@ export default function InventoryPage() {
           })}
 
           {filtered.length === 0 && (
-            <div className="text-center text-slate-500 py-10">
+            <div className="text-center text-zinc-500 py-10">
               {debouncedSearch ? `Sin resultados para "${debouncedSearch}"` : 'Sin artículos en esta categoría'}
             </div>
           )}
@@ -698,9 +698,9 @@ export default function InventoryPage() {
       {/* ── Restock Modal ──────────────────────────────────────────────────── */}
       {restocking && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-emerald-700">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-emerald-700">
             <h2 className="font-bold mb-1 text-emerald-300">📦 {t('inventory.restock')}</h2>
-            <p className="text-slate-400 text-sm mb-4">
+            <p className="text-zinc-400 text-sm mb-4">
               {restocking.name} · {t('inventory.currentStock')}: {fmtQty(restocking.stock_quantity)} {getUnitName(restocking.base_unit_key)}
             </p>
 
@@ -708,23 +708,23 @@ export default function InventoryPage() {
               /* Food portion mode */
               <div className="space-y-3">
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">{t('inventory.portionCount')} *</label>
+                  <label className="text-xs text-zinc-400 block mb-1">{t('inventory.portionCount')} *</label>
                   <input type="number" min={0.01} step="any" value={restockPortionCount}
                     onChange={e => setRestockPortionCount(e.target.value)}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                     placeholder="ej. 45" autoFocus />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">{t('inventory.totalBatchCost')} *</label>
+                  <label className="text-xs text-zinc-400 block mb-1">{t('inventory.totalBatchCost')} *</label>
                   <input type="number" min={0} step="0.01" value={restockTotalCostPesos}
                     onChange={e => setRestockTotalCostPesos(e.target.value)}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                     placeholder="0.00" />
-                  <p className="text-xs text-slate-500 mt-1">⚠ Verifica el precio actual antes de registrar.</p>
+                  <p className="text-xs text-zinc-500 mt-1">⚠ Verifica el precio actual antes de registrar.</p>
                 </div>
                 {restockPreview && (
-                  <div className="bg-slate-700/50 rounded-lg p-3 text-sm space-y-1">
-                    <div className="text-slate-400">
+                  <div className="bg-zinc-700/50 rounded-lg p-3 text-sm space-y-1">
+                    <div className="text-zinc-400">
                       Costo por porción: <span className="text-white font-semibold">{formatMXN(restockPreview.costPerBase)}</span>
                     </div>
                     <div className="text-emerald-300 font-semibold">
@@ -738,47 +738,47 @@ export default function InventoryPage() {
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">
+                    <label className="text-xs text-zinc-400 block mb-1">
                       Cantidad ({restocking.purchase_unit_key ? getUnitName(restocking.purchase_unit_key) : getUnitName(restocking.base_unit_key)}) *
                     </label>
                     <input type="number" min={0.01} step="any" value={restockPurchaseQty}
                       onChange={e => setRestockPurchaseQty(e.target.value)}
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                       placeholder="ej. 5" autoFocus />
                   </div>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">
+                    <label className="text-xs text-zinc-400 block mb-1">
                       Uds/paquete
                       {restocking.purchase_pack_size > 1 && (
-                        <span className="text-slate-500 ml-1">(pred: {restocking.purchase_pack_size})</span>
+                        <span className="text-zinc-500 ml-1">(pred: {restocking.purchase_pack_size})</span>
                       )}
                     </label>
                     <input type="number" min={0.0001} step="any"
                       value={restockPackOverride}
                       onChange={e => setRestockPackOverride(e.target.value)}
                       placeholder={String(restocking.purchase_pack_size)}
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2" />
                   </div>
                 </div>
 
                 {restockPreview && (
-                  <div className="bg-slate-700/30 rounded-lg px-3 py-2 text-sm text-emerald-300">
+                  <div className="bg-zinc-700/30 rounded-lg px-3 py-2 text-sm text-emerald-300">
                     → {fmtQty(restockPreview.delta)} {getUnitName(restocking.base_unit_key)} al inventario
                   </div>
                 )}
 
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">{t('inventory.costPerPurchaseUnit')} *</label>
+                  <label className="text-xs text-zinc-400 block mb-1">{t('inventory.costPerPurchaseUnit')} *</label>
                   <input type="number" min={0} step="0.01" value={restockCostPesos}
                     onChange={e => setRestockCostPesos(e.target.value)}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                     placeholder="0.00" />
-                  <p className="text-xs text-slate-500 mt-1">⚠ Verifica el precio actual antes de registrar.</p>
+                  <p className="text-xs text-zinc-500 mt-1">⚠ Verifica el precio actual antes de registrar.</p>
                 </div>
 
                 {restockPreview && restockCostPesos && (
-                  <div className="bg-slate-700/50 rounded-lg p-3 text-sm space-y-1">
-                    <div className="text-slate-400">
+                  <div className="bg-zinc-700/50 rounded-lg p-3 text-sm space-y-1">
+                    <div className="text-zinc-400">
                       Por {getUnitName(restocking.base_unit_key)}: <span className="text-white font-semibold">{formatMXN(restockPreview.costPerBase)}</span>
                     </div>
                     <div className="text-emerald-300 font-semibold">
@@ -790,14 +790,14 @@ export default function InventoryPage() {
             )}
 
             <div className="mt-3">
-              <label className="text-xs text-slate-400 block mb-1">Nota (opcional)</label>
+              <label className="text-xs text-zinc-400 block mb-1">Nota (opcional)</label>
               <input value={restockNote} onChange={e => setRestockNote(e.target.value)}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm"
                 placeholder="ej. Pedido de proveedor" />
             </div>
 
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setRestocking(null)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => setRestocking(null)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               <button onClick={handleRestock} disabled={saving}
                 className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-bold disabled:opacity-50">
                 {saving ? 'Guardando…' : 'Registrar'}
@@ -810,14 +810,14 @@ export default function InventoryPage() {
       {/* ── Adjust Modal ───────────────────────────────────────────────────── */}
       {adjusting && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-600">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-zinc-600">
             <h2 className="font-bold mb-1">{t('inventory.adjust')}</h2>
-            <p className="text-slate-400 text-sm mb-4">
+            <p className="text-zinc-400 text-sm mb-4">
               {adjusting.name} · {fmtQty(adjusting.stock_quantity)} {getUnitName(adjusting.base_unit_key)}
             </p>
 
             <div className="mb-3">
-              <label className="text-xs text-slate-400 block mb-1">Tipo de ajuste</label>
+              <label className="text-xs text-zinc-400 block mb-1">Tipo de ajuste</label>
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { value: 'MANUAL_ADJUSTMENT', label: t('inventory.manualAdj'),   color: 'sky' },
@@ -828,7 +828,7 @@ export default function InventoryPage() {
                     className={`py-2 px-1 rounded-lg text-xs font-semibold border transition-colors ${
                       adjustType === value
                         ? `bg-${color}-700 border-${color}-600 text-white`
-                        : 'bg-slate-700 border-slate-600 text-slate-400'
+                        : 'bg-zinc-700 border-zinc-600 text-zinc-400'
                     }`}>
                     {label}
                   </button>
@@ -838,33 +838,33 @@ export default function InventoryPage() {
 
             {adjustType === 'MANUAL_ADJUSTMENT' && (
               <div className="mb-3">
-                <label className="text-xs text-slate-400 block mb-1">Cambio (+ o -)</label>
+                <label className="text-xs text-zinc-400 block mb-1">Cambio (+ o -)</label>
                 <input type="number" step="any" value={adjustDelta} onChange={e => setAdjustDelta(e.target.value)}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                   placeholder={`+10 o -5 ${getUnitName(adjusting.base_unit_key)}`} autoFocus />
               </div>
             )}
 
             {adjustType === 'WASTE' && (
               <div className="mb-3">
-                <label className="text-xs text-slate-400 block mb-1">
+                <label className="text-xs text-zinc-400 block mb-1">
                   Cantidad a dar de baja ({getUnitName(adjusting.base_unit_key)})
                 </label>
                 <input type="number" min={0.01} step="any" value={adjustWaste}
                   onChange={e => setAdjustWaste(e.target.value)}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                   placeholder="ej. 1" autoFocus />
               </div>
             )}
 
             {adjustType === 'COUNT_ADJUSTMENT' && (
               <div className="mb-3">
-                <label className="text-xs text-slate-400 block mb-1">
+                <label className="text-xs text-zinc-400 block mb-1">
                   Cantidad contada ({getUnitName(adjusting.base_unit_key)})
                 </label>
                 <input type="number" min={0} step="any" value={adjustCounted}
                   onChange={e => setAdjustCounted(e.target.value)}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                   autoFocus />
                 {adjustCounted !== '' && (
                   <p className="text-xs mt-1">
@@ -879,16 +879,16 @@ export default function InventoryPage() {
             )}
 
             <div className="mb-4">
-              <label className="text-xs text-slate-400 block mb-1">Motivo *</label>
+              <label className="text-xs text-zinc-400 block mb-1">Motivo *</label>
               <input value={adjustReason} onChange={e => setAdjustReason(e.target.value)}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                 placeholder="ej. Derrame, corrección de conteo…" />
             </div>
 
             <div className="flex gap-3">
-              <button onClick={() => setAdjusting(null)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => setAdjusting(null)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               <button onClick={handleAdjust} disabled={!adjustReason.trim() || saving}
-                className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg font-bold disabled:opacity-50">Guardar</button>
+                className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-bold disabled:opacity-50">Guardar</button>
             </div>
           </div>
         </div>
@@ -897,20 +897,20 @@ export default function InventoryPage() {
       {/* ── Open Bottle Modal ─────────────────────────────────────────────── */}
       {openingBottle && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-amber-700">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-amber-700">
             <h2 className="font-bold mb-1 text-amber-300">🍾 Abrir Botella</h2>
-            <p className="text-slate-300 mb-2">
+            <p className="text-zinc-300 mb-2">
               ¿Abrir <span className="font-bold text-white">{openingBottle.name}</span>?
             </p>
-            <p className="text-sm text-slate-400 mb-5">
+            <p className="text-sm text-zinc-400 mb-5">
               Consume 1 botella sellada y añade{' '}
               <span className="text-amber-300 font-bold">{openingBottle.shots_per_bottle} copas</span> al inventario.
               Botellas restantes: <span className="font-bold text-white">{fmtQty(openingBottle.stock_quantity)}</span>
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setOpeningBottle(null)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => setOpeningBottle(null)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               <button onClick={handleOpenBottle} disabled={saving || openingBottle.stock_quantity < 1}
-                className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg font-bold disabled:opacity-50 text-slate-900">
+                className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg font-bold disabled:opacity-50 text-zinc-900">
                 Abrir Botella
               </button>
             </div>
@@ -921,18 +921,18 @@ export default function InventoryPage() {
       {/* ── Open Box Modal ────────────────────────────────────────────────── */}
       {openingBox && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-orange-700">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-orange-700">
             <h2 className="font-bold mb-1 text-orange-300">🚬 Abrir Caja</h2>
-            <p className="text-slate-300 mb-2">
+            <p className="text-zinc-300 mb-2">
               ¿Abrir <span className="font-bold text-white">{openingBox.name}</span>?
             </p>
-            <p className="text-sm text-slate-400 mb-5">
+            <p className="text-sm text-zinc-400 mb-5">
               Consume 1 caja y añade{' '}
               <span className="text-orange-300 font-bold">{openingBox.shots_per_bottle} cigarros</span>.
               Cajas restantes: <span className="font-bold text-white">{fmtQty(openingBox.stock_quantity)}</span>
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setOpeningBox(null)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => setOpeningBox(null)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               <button onClick={handleOpenBox} disabled={saving || openingBox.stock_quantity < 1}
                 className="flex-1 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-bold disabled:opacity-50">
                 Abrir Caja
@@ -945,32 +945,32 @@ export default function InventoryPage() {
       {/* ── New Item Modal ────────────────────────────────────────────────── */}
       {showNew && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-600 my-4">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-zinc-600 my-4">
             <h2 className="font-bold mb-4">Agregar Artículo de Inventario</h2>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Nombre *</label>
+                <label className="text-xs text-zinc-400 block mb-1">Nombre *</label>
                 <input value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                   placeholder="ej. Corona Botella" autoFocus />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">SKU</label>
+                  <label className="text-xs text-zinc-400 block mb-1">SKU</label>
                   <input value={newItem.sku} onChange={e => setNewItem({ ...newItem, sku: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm"
                     placeholder="opcional" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">{t('inventory.supplier')}</label>
+                  <label className="text-xs text-zinc-400 block mb-1">{t('inventory.supplier')}</label>
                   <SupplierSelect value={newItem.supplier} onChange={v => setNewItem({ ...newItem, supplier: v })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">Categoría</label>
+                  <label className="text-xs text-zinc-400 block mb-1">Categoría</label>
                   <select value={newItem.category} onChange={e => setNewItem({ ...newItem, category: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
                     {['beer','spirit','mixer','food','cigarette','other'].map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]?.replace(/^.+ /, '') ?? c}</option>)}
                   </select>
                 </div>
@@ -979,40 +979,40 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">Cant. Inicial</label>
+                  <label className="text-xs text-zinc-400 block mb-1">Cant. Inicial</label>
                   <input type="number" min={0} step="any" value={newItem.stock_quantity}
                     onChange={e => setNewItem({ ...newItem, stock_quantity: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">Umbral Stock Bajo</label>
+                  <label className="text-xs text-zinc-400 block mb-1">Umbral Stock Bajo</label>
                   <input type="number" min={0} step="any" value={newItem.low_stock_threshold}
                     onChange={e => setNewItem({ ...newItem, low_stock_threshold: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2" />
                 </div>
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">{t('inventory.initialCost')}</label>
+                <label className="text-xs text-zinc-400 block mb-1">{t('inventory.initialCost')}</label>
                 <input type="number" min={0} step="0.01" value={newItem.initial_cost_pesos}
                   onChange={e => setNewItem({ ...newItem, initial_cost_pesos: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                   placeholder="ej. 25.50 (por unidad base)" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <UnitSelect label={t('inventory.purchaseUnit')} value={newItem.purchase_unit_key}
                   onChange={v => setNewItem({ ...newItem, purchase_unit_key: v })} />
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">{t('inventory.packSize')}</label>
+                  <label className="text-xs text-zinc-400 block mb-1">{t('inventory.packSize')}</label>
                   <input type="number" min={0.0001} step="any" value={newItem.purchase_pack_size}
                     onChange={e => setNewItem({ ...newItem, purchase_pack_size: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                     placeholder="ej. 12 (botellas/caja)" />
                 </div>
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Tipo de artículo</label>
+                <label className="text-xs text-zinc-400 block mb-1">Tipo de artículo</label>
                 <select value={newItem.item_type} onChange={e => setNewItem({ ...newItem, item_type: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
                   <option value="STANDARD">Estándar</option>
                   <option value="BOTTLE">Botella (licor)</option>
                   <option value="CIG_BOX">Caja de cigarros</option>
@@ -1022,20 +1022,20 @@ export default function InventoryPage() {
               {(newItem.item_type === 'BOTTLE' || newItem.item_type === 'CIG_BOX') && (
                 <>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">
+                    <label className="text-xs text-zinc-400 block mb-1">
                       {newItem.item_type === 'CIG_BOX' ? 'Cigarros por caja' : 'Shots por botella'}
                     </label>
                     <input type="number" min={1} value={newItem.shots_per_bottle}
                       onChange={e => setNewItem({ ...newItem, shots_per_bottle: e.target.value })}
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                       placeholder={newItem.item_type === 'CIG_BOX' ? '20' : '15'} />
                   </div>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">
+                    <label className="text-xs text-zinc-400 block mb-1">
                       {newItem.item_type === 'CIG_BOX' ? 'Artículo individual que produce' : 'Copa/Shot que produce'}
                     </label>
                     <select value={newItem.yields_item_id} onChange={e => setNewItem({ ...newItem, yields_item_id: e.target.value })}
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
                       <option value="">— Sin vincular —</option>
                       {items.filter(i =>
                         newItem.item_type === 'CIG_BOX' ? i.item_type === 'CIG_SINGLE' : i.item_type === 'STANDARD'
@@ -1047,9 +1047,9 @@ export default function InventoryPage() {
             </div>
             <div className="flex gap-3 mt-5">
               <button onClick={() => { setShowNew(false); setNewItem({ ...BLANK_NEW }) }}
-                className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+                className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               <button onClick={handleCreate} disabled={!newItem.name.trim() || !newItem.base_unit_key || saving}
-                className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg font-bold disabled:opacity-50">Agregar</button>
+                className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-bold disabled:opacity-50">Agregar</button>
             </div>
           </div>
         </div>
@@ -1058,34 +1058,34 @@ export default function InventoryPage() {
       {/* ── Edit Item Modal ───────────────────────────────────────────────── */}
       {editing && editForm && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-sky-700 my-4">
-            <h2 className="font-bold mb-1 text-sky-300">✏️ Editar Artículo</h2>
-            <p className="text-xs text-slate-400 mb-4">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-zinc-600 my-4">
+            <h2 className="font-bold mb-1 text-zinc-200">✏️ Editar Artículo</h2>
+            <p className="text-xs text-zinc-400 mb-4">
               WAC actual: <span className="text-white">{formatMXN(editing.unit_cost_cents)}/{getUnitName(editing.base_unit_key)}</span>
               {' '}· Para actualizar el costo, usa Reabastecer.
             </p>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Nombre *</label>
+                <label className="text-xs text-zinc-400 block mb-1">Nombre *</label>
                 <input value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" autoFocus />
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2" autoFocus />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">SKU</label>
+                  <label className="text-xs text-zinc-400 block mb-1">SKU</label>
                   <input value={editForm.sku} onChange={e => setEditForm({ ...editForm, sku: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">{t('inventory.supplier')}</label>
+                  <label className="text-xs text-zinc-400 block mb-1">{t('inventory.supplier')}</label>
                   <SupplierSelect value={editForm.supplier} onChange={v => setEditForm({ ...editForm, supplier: v })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">Categoría</label>
+                  <label className="text-xs text-zinc-400 block mb-1">Categoría</label>
                   <select value={editForm.category} onChange={e => setEditForm({ ...editForm, category: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
                     {['beer','spirit','mixer','food','cigarette','other'].map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]?.replace(/^.+ /,'') ?? c}</option>)}
                   </select>
                 </div>
@@ -1094,34 +1094,34 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">Umbral Stock Bajo</label>
+                  <label className="text-xs text-zinc-400 block mb-1">Umbral Stock Bajo</label>
                   <input type="number" min={0} step="any" value={editForm.low_stock_threshold}
                     onChange={e => setEditForm({ ...editForm, low_stock_threshold: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">{t('inventory.packSize')}</label>
+                  <label className="text-xs text-zinc-400 block mb-1">{t('inventory.packSize')}</label>
                   <input type="number" min={0.0001} step="any" value={editForm.purchase_pack_size}
                     onChange={e => setEditForm({ ...editForm, purchase_pack_size: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2" />
                 </div>
               </div>
               <UnitSelect label={t('inventory.purchaseUnit')} value={editForm.purchase_unit_key}
                 onChange={v => setEditForm({ ...editForm, purchase_unit_key: v })} />
               <div>
-                <label className="text-xs text-slate-400 block mb-1">
+                <label className="text-xs text-zinc-400 block mb-1">
                   Costo por {editForm.purchase_unit_key ? getUnitName(editForm.purchase_unit_key) : 'unidad de compra'} ($)
                 </label>
                 <input type="number" min={0} step="0.01" value={editForm.purchase_cost_pesos}
                   onChange={e => setEditForm({ ...editForm, purchase_cost_pesos: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                   placeholder="0.00" />
-                <p className="text-xs text-slate-500 mt-1">Precio de compra de referencia — se pre-llena en Reabastecer.</p>
+                <p className="text-xs text-zinc-500 mt-1">Precio de compra de referencia — se pre-llena en Reabastecer.</p>
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Tipo de artículo</label>
+                <label className="text-xs text-zinc-400 block mb-1">Tipo de artículo</label>
                 <select value={editForm.item_type} onChange={e => setEditForm({ ...editForm, item_type: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
                   <option value="STANDARD">Estándar</option>
                   <option value="BOTTLE">Botella (licor)</option>
                   <option value="CIG_BOX">Caja de cigarros</option>
@@ -1131,19 +1131,19 @@ export default function InventoryPage() {
               {(editForm.item_type === 'BOTTLE' || editForm.item_type === 'CIG_BOX') && (
                 <>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">
+                    <label className="text-xs text-zinc-400 block mb-1">
                       {editForm.item_type === 'CIG_BOX' ? 'Cigarros por caja' : 'Shots por botella'}
                     </label>
                     <input type="number" min={1} value={editForm.shots_per_bottle}
                       onChange={e => setEditForm({ ...editForm, shots_per_bottle: e.target.value })}
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2" />
                   </div>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">
+                    <label className="text-xs text-zinc-400 block mb-1">
                       {editForm.item_type === 'CIG_BOX' ? 'Artículo individual' : 'Copa/Shot producido'}
                     </label>
                     <select value={editForm.yields_item_id} onChange={e => setEditForm({ ...editForm, yields_item_id: e.target.value })}
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
                       <option value="">— Sin vincular —</option>
                       {items.filter(i =>
                         editForm.item_type === 'CIG_BOX' ? i.item_type === 'CIG_SINGLE' : i.item_type === 'STANDARD' && i.id !== editing.id
@@ -1154,13 +1154,13 @@ export default function InventoryPage() {
               )}
             </div>
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setEditing(null)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => setEditing(null)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               {isAdmin && (
                 <button onClick={() => { setEditing(null); handleDelete(editing!) }}
                   className="py-2 px-3 bg-red-900 hover:bg-red-700 text-red-300 rounded-lg text-sm">🗑</button>
               )}
               <button onClick={handleEdit} disabled={!editForm.name.trim() || saving}
-                className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg font-bold disabled:opacity-50">Guardar</button>
+                className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-bold disabled:opacity-50">Guardar</button>
             </div>
           </div>
         </div>
@@ -1169,28 +1169,28 @@ export default function InventoryPage() {
       {/* ── Movements Modal ───────────────────────────────────────────────── */}
       {viewingMovements && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl w-full max-w-2xl border border-slate-600 flex flex-col max-h-[85vh]">
-            <div className="flex items-center justify-between p-4 border-b border-slate-700">
+          <div className="bg-zinc-800 rounded-2xl w-full max-w-2xl border border-zinc-600 flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between p-4 border-b border-zinc-700">
               <div>
                 <h2 className="font-bold">📋 {t('inventory.movements')}: {viewingMovements.name}</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-zinc-400 mt-0.5">
                   Stock actual: {fmtQty(viewingMovements.stock_quantity)} {getUnitName(viewingMovements.base_unit_key)}
                   {viewingMovements.unit_cost_cents > 0 && ` · WAC: ${formatMXN(viewingMovements.unit_cost_cents)}`}
                 </p>
               </div>
-              <button onClick={() => setViewingMovements(null)} className="text-slate-400 hover:text-white text-xl px-2">✕</button>
+              <button onClick={() => setViewingMovements(null)} className="text-zinc-400 hover:text-white text-xl px-2">✕</button>
             </div>
 
             <div className="overflow-y-auto flex-1 p-4">
-              {loadingMovements && <div className="text-center text-slate-400 py-8">Cargando…</div>}
+              {loadingMovements && <div className="text-center text-zinc-400 py-8">Cargando…</div>}
               {!loadingMovements && (movements as any[]).length === 0 && (
-                <div className="text-center text-slate-500 py-8">Sin movimientos registrados</div>
+                <div className="text-center text-zinc-500 py-8">Sin movimientos registrados</div>
               )}
               {!loadingMovements && (movements as any[]).length > 0 && (
                 <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-xs text-slate-400 border-b border-slate-700">
+                    <tr className="text-xs text-zinc-400 border-b border-zinc-700">
                       <th className="text-left pb-2 pr-2">Fecha</th>
                       <th className="text-left pb-2 pr-2">Tipo</th>
                       <th className="text-right pb-2 pr-2">Δ</th>
@@ -1206,8 +1206,8 @@ export default function InventoryPage() {
                       const unitLabel = getUnitName(viewingMovements.base_unit_key)
                       const evLabel = (t as any)(`inventory.eventType.${m.event_type}`, { defaultValue: m.event_type })
                       return (
-                        <tr key={m.id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
-                          <td className="py-2 text-xs text-slate-400 whitespace-nowrap pr-2">
+                        <tr key={m.id} className="border-b border-zinc-700/50 hover:bg-zinc-700/30">
+                          <td className="py-2 text-xs text-zinc-400 whitespace-nowrap pr-2">
                             {(() => {
                               const d = new Date(m.created_at)
                               if (!m.created_at || d.getFullYear() < 2000) return '—'
@@ -1217,22 +1217,22 @@ export default function InventoryPage() {
                               })
                             })()}
                           </td>
-                          <td className={`py-2 text-xs font-medium whitespace-nowrap pr-2 ${EVENT_TYPE_COLORS[m.event_type] ?? 'text-slate-300'}`}>
+                          <td className={`py-2 text-xs font-medium whitespace-nowrap pr-2 ${EVENT_TYPE_COLORS[m.event_type] ?? 'text-zinc-300'}`}>
                             {evLabel}
                           </td>
                           <td className={`py-2 text-right font-mono font-bold pr-2 text-xs ${pos ? 'text-green-400' : 'text-red-400'}`}>
                             {pos ? '+' : ''}{fmtQty(m.quantity_delta)} {unitLabel}
                           </td>
-                          <td className="py-2 text-right font-mono text-slate-200 text-xs pr-2">
+                          <td className="py-2 text-right font-mono text-zinc-200 text-xs pr-2">
                             {m.quantity_after != null ? `${fmtQty(m.quantity_after)} ${unitLabel}` : '—'}
                           </td>
-                          <td className="py-2 text-right text-xs text-slate-400 pr-2">
+                          <td className="py-2 text-right text-xs text-zinc-400 pr-2">
                             {m.unit_cost_cents != null ? formatMXN(m.unit_cost_cents) : '—'}
                           </td>
-                          <td className="py-2 text-xs text-slate-400 whitespace-nowrap pr-2">
+                          <td className="py-2 text-xs text-zinc-400 whitespace-nowrap pr-2">
                             {m.performer_name ?? '—'}
                           </td>
-                          <td className="py-2 text-xs text-slate-400 truncate max-w-[120px]">
+                          <td className="py-2 text-xs text-zinc-400 truncate max-w-[120px]">
                             {m.reason || (m.reference_id ? `Ticket …${m.reference_id.slice(-6)}` : '—')}
                           </td>
                         </tr>
@@ -1244,9 +1244,9 @@ export default function InventoryPage() {
               )}
             </div>
 
-            <div className="p-4 border-t border-slate-700 flex justify-between items-center">
-              <span className="text-xs text-slate-500">{(movements as any[]).length} movimiento{(movements as any[]).length !== 1 ? 's' : ''} (últimos 200)</span>
-              <button onClick={() => setViewingMovements(null)} className="px-4 py-1.5 border border-slate-600 rounded-lg text-sm">Cerrar</button>
+            <div className="p-4 border-t border-zinc-700 flex justify-between items-center">
+              <span className="text-xs text-zinc-500">{(movements as any[]).length} movimiento{(movements as any[]).length !== 1 ? 's' : ''} (últimos 200)</span>
+              <button onClick={() => setViewingMovements(null)} className="px-4 py-1.5 border border-zinc-600 rounded-lg text-sm">Cerrar</button>
             </div>
           </div>
         </div>
@@ -1255,19 +1255,19 @@ export default function InventoryPage() {
       {/* ── Agregar al Menú modal ─────────────────────────────────────────── */}
       {addToMenu && (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-emerald-700 shadow-xl">
-            <div className="p-5 border-b border-slate-700">
+          <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-emerald-700 shadow-xl">
+            <div className="p-5 border-b border-zinc-700">
               <h2 className="text-lg font-bold">🍽️ Agregar al Menú</h2>
-              <p className="text-slate-400 text-sm mt-1">
+              <p className="text-zinc-400 text-sm mt-1">
                 <span className="text-white font-semibold">{addToMenu.name}</span>
                 {' '}— al vender se descuenta 1 {getUnitName(addToMenu.base_unit_key)}
               </p>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Categoría del menú *</label>
+                <label className="text-xs text-zinc-400 block mb-1">Categoría del menú *</label>
                 <select value={menuForm.category_id} onChange={e => setMenuForm({ ...menuForm, category_id: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2">
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2">
                   <option value="">— selecciona categoría —</option>
                   {(menuCategories as any[]).map((c: any) => (
                     <option key={c.id} value={c.id}>{c.name} ({c.routing})</option>
@@ -1275,24 +1275,24 @@ export default function InventoryPage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Precio de venta (centavos) *</label>
+                <label className="text-xs text-zinc-400 block mb-1">Precio de venta (centavos) *</label>
                 <div className="flex items-center gap-2">
                   <input type="number" min={0} value={menuForm.price_cents}
                     onChange={e => setMenuForm({ ...menuForm, price_cents: parseInt(e.target.value) || 0 })}
-                    className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono"
+                    className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 font-mono"
                     placeholder="ej. 5000 = $50.00" />
-                  <span className="text-slate-400 text-sm">{formatMXN(menuForm.price_cents)}</span>
+                  <span className="text-zinc-400 text-sm">{formatMXN(menuForm.price_cents)}</span>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <input type="checkbox" id="add-flavor" checked={menuForm.requires_flavor}
                   onChange={e => setMenuForm({ ...menuForm, requires_flavor: e.target.checked })} className="w-4 h-4" />
-                <label htmlFor="add-flavor" className="text-sm text-slate-300">Requiere selección de sabor</label>
+                <label htmlFor="add-flavor" className="text-sm text-zinc-300">Requiere selección de sabor</label>
               </div>
             </div>
-            <div className="flex gap-3 p-5 border-t border-slate-700">
+            <div className="flex gap-3 p-5 border-t border-zinc-700">
               <button onClick={() => setAddToMenu(null)}
-                className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-300">Cancelar</button>
+                className="flex-1 py-2.5 border border-zinc-600 rounded-xl text-zinc-300">Cancelar</button>
               <button onClick={handleAddToMenu} disabled={!menuForm.category_id || menuForm.price_cents <= 0 || saving}
                 className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold disabled:opacity-50">
                 {saving ? 'Agregando…' : '✅ Agregar al Menú'}
@@ -1367,43 +1367,43 @@ function UnitCatalogModal({ onClose, isAdmin, units, getUnitName }: {
 
   return (
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-2xl w-full max-w-lg border border-slate-600 shadow-xl flex flex-col max-h-[85vh]">
-        <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+      <div className="bg-zinc-800 rounded-2xl w-full max-w-lg border border-zinc-600 shadow-xl flex flex-col max-h-[85vh]">
+        <div className="p-5 border-b border-zinc-700 flex items-center justify-between">
           <h2 className="text-lg font-bold">⚙️ {t('inventory.unitCatalog')}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white text-2xl">&times;</button>
         </div>
 
         <div className="overflow-y-auto flex-1 p-4 space-y-2">
-          <div className="grid grid-cols-[90px_1fr_1fr_80px_40px] gap-2 text-xs text-slate-400 px-2 pb-1">
+          <div className="grid grid-cols-[90px_1fr_1fr_80px_40px] gap-2 text-xs text-zinc-400 px-2 pb-1">
             <span>Clave</span><span>Español</span><span>English</span><span>Activo</span><span></span>
           </div>
           {units.map(u => {
             const row = getRow(u)
             return (
-              <div key={u.key} className={`grid grid-cols-[90px_1fr_1fr_80px_40px] gap-2 items-center rounded-lg px-2 py-1.5 ${isDirty(u) ? 'bg-slate-700/70' : 'bg-slate-700/30'}`}>
-                <span className="font-mono text-xs text-slate-300">{u.key}</span>
+              <div key={u.key} className={`grid grid-cols-[90px_1fr_1fr_80px_40px] gap-2 items-center rounded-lg px-2 py-1.5 ${isDirty(u) ? 'bg-zinc-700/70' : 'bg-zinc-700/30'}`}>
+                <span className="font-mono text-xs text-zinc-300">{u.key}</span>
                 {isAdmin ? (
                   <>
                     <input value={row.name_es} onChange={e => patch(u.key, 'name_es', e.target.value)}
-                      className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm w-full" />
+                      className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm w-full" />
                     <input value={row.name_en} onChange={e => patch(u.key, 'name_en', e.target.value)}
-                      className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm w-full" />
+                      className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm w-full" />
                     <div className="flex items-center justify-center">
                       <button onClick={() => patch(u.key, 'active', !row.active)}
-                        className={`px-3 py-1 rounded text-xs font-semibold ${row.active ? 'bg-emerald-800 text-emerald-300' : 'bg-slate-700 text-slate-300'}`}>
+                        className={`px-3 py-1 rounded text-xs font-semibold ${row.active ? 'bg-emerald-800 text-emerald-300' : 'bg-zinc-700 text-zinc-300'}`}>
                         {row.active ? 'Activo' : 'Inactivo'}
                       </button>
                     </div>
                     <button disabled={!isDirty(u) || saving === u.key} onClick={() => saveRow(u.key)}
-                      className="bg-sky-700 hover:bg-sky-600 rounded px-2 py-1 text-xs font-bold disabled:opacity-30">
+                      className="bg-zinc-700 hover:bg-white hover:text-zinc-900 rounded px-2 py-1 text-xs font-bold disabled:opacity-30">
                       {saving === u.key ? '…' : '✓'}
                     </button>
                   </>
                 ) : (
                   <>
-                    <span className="text-sm text-slate-300">{u.name_es}</span>
-                    <span className="text-sm text-slate-300">{u.name_en}</span>
-                    <span className={`text-xs text-center ${u.active ? 'text-emerald-400' : 'text-slate-500'}`}>
+                    <span className="text-sm text-zinc-300">{u.name_es}</span>
+                    <span className="text-sm text-zinc-300">{u.name_en}</span>
+                    <span className={`text-xs text-center ${u.active ? 'text-emerald-400' : 'text-zinc-500'}`}>
                       {u.active ? 'Activo' : 'Inactivo'}
                     </span>
                     <span />
@@ -1415,36 +1415,36 @@ function UnitCatalogModal({ onClose, isAdmin, units, getUnitName }: {
 
           {isAdmin && (
             showAdd ? (
-              <div className="bg-slate-700/50 rounded-xl border border-slate-600 p-4 space-y-3 mt-2">
-                <p className="text-xs text-slate-400 font-semibold">Nueva Unidad</p>
+              <div className="bg-zinc-700/50 rounded-xl border border-zinc-600 p-4 space-y-3 mt-2">
+                <p className="text-xs text-zinc-400 font-semibold">Nueva Unidad</p>
                 <div className="grid grid-cols-3 gap-2">
                   <input value={newKey} onChange={e => setNewKey(e.target.value)}
-                    placeholder="clave (ej. frasco)" className="bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm" />
+                    placeholder="clave (ej. frasco)" className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1.5 text-sm" />
                   <input value={newEs} onChange={e => setNewEs(e.target.value)}
-                    placeholder="Español" className="bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm" />
+                    placeholder="Español" className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1.5 text-sm" />
                   <input value={newEn} onChange={e => setNewEn(e.target.value)}
-                    placeholder="English" className="bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm" />
+                    placeholder="English" className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1.5 text-sm" />
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => { setShowAdd(false); setNewKey(''); setNewEs(''); setNewEn('') }}
-                    className="flex-1 py-1.5 border border-slate-600 rounded text-sm">Cancelar</button>
+                    className="flex-1 py-1.5 border border-zinc-600 rounded text-sm">Cancelar</button>
                   <button onClick={addUnit} disabled={adding}
-                    className="flex-1 py-1.5 bg-sky-600 hover:bg-sky-500 rounded text-sm font-bold disabled:opacity-50">
+                    className="flex-1 py-1.5 bg-white text-zinc-900 hover:bg-zinc-200 rounded text-sm font-bold disabled:opacity-50">
                     {adding ? 'Creando…' : 'Crear'}
                   </button>
                 </div>
               </div>
             ) : (
               <button onClick={() => setShowAdd(true)}
-                className="w-full py-2 border border-dashed border-slate-600 rounded-xl text-slate-400 hover:text-white hover:border-slate-400 text-sm mt-2">
+                className="w-full py-2 border border-dashed border-zinc-600 rounded-xl text-zinc-400 hover:text-white hover:border-zinc-400 text-sm mt-2">
                 + Nueva Unidad
               </button>
             )
           )}
         </div>
 
-        <div className="p-4 border-t border-slate-700">
-          <button onClick={onClose} className="w-full py-2 border border-slate-600 rounded-lg text-sm">Cerrar</button>
+        <div className="p-4 border-t border-zinc-700">
+          <button onClick={onClose} className="w-full py-2 border border-zinc-600 rounded-lg text-sm">Cerrar</button>
         </div>
       </div>
     </div>
@@ -1519,36 +1519,36 @@ function SupplierCatalogModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-2xl w-full max-w-lg border border-slate-600 shadow-xl flex flex-col max-h-[85dvh]">
-        <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+      <div className="bg-zinc-800 rounded-2xl w-full max-w-lg border border-zinc-600 shadow-xl flex flex-col max-h-[85dvh]">
+        <div className="p-5 border-b border-zinc-700 flex items-center justify-between">
           <h2 className="text-lg font-bold">🏭 Catálogo de Proveedores</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white text-2xl">&times;</button>
         </div>
 
         <div className="overflow-y-scroll flex-1 p-4 space-y-2">
-          <div className="grid grid-cols-[1fr_130px_50px_36px] gap-2 text-xs text-slate-400 px-2 pb-1">
+          <div className="grid grid-cols-[1fr_130px_50px_36px] gap-2 text-xs text-zinc-400 px-2 pb-1">
             <span>Nombre</span><span>Teléfono</span><span></span><span></span>
           </div>
 
           {suppliers.map(s => {
             const row = getRow(s)
             return (
-              <div key={s.id} className={`grid grid-cols-[1fr_130px_50px_36px] gap-2 items-center rounded-lg px-2 py-1.5 ${isDirty(s) ? 'bg-slate-700/70' : 'bg-slate-700/30'}`}>
+              <div key={s.id} className={`grid grid-cols-[1fr_130px_50px_36px] gap-2 items-center rounded-lg px-2 py-1.5 ${isDirty(s) ? 'bg-zinc-700/70' : 'bg-zinc-700/30'}`}>
                 <input
                   value={row.name}
                   onChange={e => patch(s.id, 'name', e.target.value)}
-                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm w-full"
+                  className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm w-full"
                 />
                 <input
                   value={row.contact_phone}
                   onChange={e => patch(s.id, 'contact_phone', e.target.value)}
                   placeholder="tel. opcional"
-                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm w-full"
+                  className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm w-full"
                 />
                 <button
                   disabled={!isDirty(s) || saving === s.id}
                   onClick={() => saveRow(s.id)}
-                  className="bg-sky-700 hover:bg-sky-600 rounded px-2 py-1 text-xs font-bold disabled:opacity-30">
+                  className="bg-zinc-700 hover:bg-white hover:text-zinc-900 rounded px-2 py-1 text-xs font-bold disabled:opacity-30">
                   {saving === s.id ? '…' : '✓'}
                 </button>
                 <button
@@ -1561,39 +1561,39 @@ function SupplierCatalogModal({ onClose }: { onClose: () => void }) {
           })}
 
           {suppliers.length === 0 && (
-            <div className="text-center text-slate-500 py-6 text-sm">Sin proveedores registrados</div>
+            <div className="text-center text-zinc-500 py-6 text-sm">Sin proveedores registrados</div>
           )}
 
           {showAdd ? (
-            <div className="bg-slate-700/50 rounded-xl border border-slate-600 p-4 space-y-3 mt-2">
-              <p className="text-xs text-slate-400 font-semibold">Nuevo Proveedor</p>
+            <div className="bg-zinc-700/50 rounded-xl border border-zinc-600 p-4 space-y-3 mt-2">
+              <p className="text-xs text-zinc-400 font-semibold">Nuevo Proveedor</p>
               <div className="grid grid-cols-2 gap-2">
                 <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSupplier()}
                   placeholder="Nombre *" autoFocus
-                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm" />
+                  className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1.5 text-sm" />
                 <input value={newPhone} onChange={e => setNewPhone(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSupplier()}
                   placeholder="Teléfono (opcional)"
-                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm" />
+                  className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1.5 text-sm" />
               </div>
               <div className="flex gap-2">
                 <button onClick={() => { setShowAdd(false); setNewName(''); setNewPhone('') }}
-                  className="flex-1 py-1.5 border border-slate-600 rounded text-sm">Cancelar</button>
+                  className="flex-1 py-1.5 border border-zinc-600 rounded text-sm">Cancelar</button>
                 <button onClick={addSupplier} disabled={adding}
-                  className="flex-1 py-1.5 bg-sky-600 hover:bg-sky-500 rounded text-sm font-bold disabled:opacity-50">
+                  className="flex-1 py-1.5 bg-white text-zinc-900 hover:bg-zinc-200 rounded text-sm font-bold disabled:opacity-50">
                   {adding ? 'Creando…' : 'Crear'}
                 </button>
               </div>
             </div>
           ) : (
             <button onClick={() => setShowAdd(true)}
-              className="w-full py-2 border border-dashed border-slate-600 rounded-xl text-slate-400 hover:text-white hover:border-slate-400 text-sm mt-2">
+              className="w-full py-2 border border-dashed border-zinc-600 rounded-xl text-zinc-400 hover:text-white hover:border-zinc-400 text-sm mt-2">
               + Nuevo Proveedor
             </button>
           )}
         </div>
 
-        <div className="p-4 border-t border-slate-700">
-          <button onClick={onClose} className="w-full py-2 border border-slate-600 rounded-lg text-sm">Cerrar</button>
+        <div className="p-4 border-t border-zinc-700">
+          <button onClick={onClose} className="w-full py-2 border border-zinc-600 rounded-lg text-sm">Cerrar</button>
         </div>
       </div>
     </div>

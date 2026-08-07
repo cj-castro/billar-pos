@@ -281,16 +281,16 @@ export default function PromotionsPage() {
   const PromoFormFields = (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs text-slate-400 mb-1">Nombre</label>
+        <label className="block text-xs text-zinc-400 mb-1">Nombre</label>
         <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
           placeholder="ej. 2x1 Cubetazo"
-          className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+          className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
       </div>
 
       <div>
-        <label className="block text-xs text-slate-400 mb-1">Tipo de promoción</label>
+        <label className="block text-xs text-zinc-400 mb-1">Tipo de promoción</label>
         <select value={form.promo_type} onChange={e => setForm(f => ({ ...f, promo_type: e.target.value }))}
-          className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+          className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
           <option value="BOGO">{TYPE_LABELS.BOGO}</option>
           <option value="QTY_PERCENT_DISCOUNT">{TYPE_LABELS.QTY_PERCENT_DISCOUNT}</option>
         </select>
@@ -298,11 +298,11 @@ export default function PromotionsPage() {
 
       {/* Scope */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">Aplica a</label>
+        <label className="block text-xs text-zinc-400 mb-1">Aplica a</label>
         <div className="flex gap-2 mb-2">
           {(['ITEM', 'CATEGORY'] as const).map(s => (
             <button key={s} type="button" onClick={() => setForm(f => ({ ...f, scope: s }))}
-              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${form.scope === s ? 'bg-sky-700 border-sky-500' : 'bg-transparent border-slate-600 text-slate-400'}`}>
+              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${form.scope === s ? 'bg-zinc-700 border-zinc-400' : 'bg-transparent border-zinc-600 text-zinc-400'}`}>
               {s === 'ITEM' ? 'Productos' : 'Categoría'}
             </button>
           ))}
@@ -312,7 +312,7 @@ export default function PromotionsPage() {
           <>
             <select value={form.applies_to_item_id}
               onChange={e => setForm(f => ({ ...f, applies_to_item_id: e.target.value }))}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+              className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
               <option value="">— Seleccionar producto —</option>
               {(items as any[]).map((i: any) => (
                 <option key={i.id} value={i.id}>{i.name} · {money(i.price_cents)}</option>
@@ -321,10 +321,10 @@ export default function PromotionsPage() {
 
             {/* Extra eligible products */}
             <div className="mt-2">
-              <label className="block text-xs text-slate-500 mb-1">
+              <label className="block text-xs text-zinc-500 mb-1">
                 Productos adicionales elegibles (opcional)
               </label>
-              <div className="max-h-28 overflow-y-auto bg-slate-900/50 rounded-lg border border-slate-700 p-2 space-y-1">
+              <div className="max-h-28 overflow-y-auto bg-zinc-900/50 rounded-lg border border-zinc-700 p-2 space-y-1">
                 {(items as any[])
                   .filter((i: any) => i.id !== form.applies_to_item_id)
                   .map((i: any) => (
@@ -345,7 +345,7 @@ export default function PromotionsPage() {
         ) : (
           <select value={form.applies_to_category_id}
             onChange={e => setForm(f => ({ ...f, applies_to_category_id: e.target.value }))}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
             <option value="">— Seleccionar categoría —</option>
             {(categories as any[]).map((c: any) => (
               <option key={c.id} value={c.id}>{c.name}</option>
@@ -357,82 +357,82 @@ export default function PromotionsPage() {
       {/* Quantity rules */}
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Cantidad requerida</label>
+          <label className="block text-xs text-zinc-400 mb-1">Cantidad requerida</label>
           <input type="number" min={1} value={form.required_quantity}
             onChange={e => setForm(f => ({ ...f, required_quantity: Number(e.target.value) }))}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
         </div>
         {form.promo_type === 'BOGO' ? (
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Unidades gratis</label>
+            <label className="block text-xs text-zinc-400 mb-1">Unidades gratis</label>
             <input type="number" min={1} value={form.free_quantity}
               onChange={e => setForm(f => ({ ...f, free_quantity: Number(e.target.value) }))}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+              className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
           </div>
         ) : (
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Unidades con descuento</label>
+            <label className="block text-xs text-zinc-400 mb-1">Unidades con descuento</label>
             <input type="number" min={1} value={form.discounted_quantity}
               onChange={e => setForm(f => ({ ...f, discounted_quantity: Number(e.target.value) }))}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+              className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
           </div>
         )}
       </div>
 
       {form.promo_type === 'QTY_PERCENT_DISCOUNT' && (
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Porcentaje de descuento (%)</label>
+          <label className="block text-xs text-zinc-400 mb-1">Porcentaje de descuento (%)</label>
           <input type="number" min={1} max={100} value={form.discount_value}
             onChange={e => setForm(f => ({ ...f, discount_value: Number(e.target.value) }))}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Máx. por cuenta</label>
+          <label className="block text-xs text-zinc-400 mb-1">Máx. por cuenta</label>
           <input type="number" min={1} placeholder="Sin límite"
             value={form.max_applications_per_ticket}
             onChange={e => setForm(f => ({ ...f, max_applications_per_ticket: e.target.value }))}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Prioridad</label>
+          <label className="block text-xs text-zinc-400 mb-1">Prioridad</label>
           <input type="number" value={form.priority}
             onChange={e => setForm(f => ({ ...f, priority: Number(e.target.value) }))}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Vigente desde</label>
+          <label className="block text-xs text-zinc-400 mb-1">Vigente desde</label>
           <input type="date" value={form.valid_from}
             onChange={e => setForm(f => ({ ...f, valid_from: e.target.value }))}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Vigente hasta</label>
+          <label className="block text-xs text-zinc-400 mb-1">Vigente hasta</label>
           <input type="date" value={form.valid_to}
             onChange={e => setForm(f => ({ ...f, valid_to: e.target.value }))}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Horario desde</label>
+          <label className="block text-xs text-zinc-400 mb-1">Horario desde</label>
           <input type="time" value={form.happy_hour_start}
             onChange={e => setForm(f => ({ ...f, happy_hour_start: e.target.value }))}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Horario hasta</label>
+          <label className="block text-xs text-zinc-400 mb-1">Horario hasta</label>
           <input type="time" value={form.happy_hour_end}
             onChange={e => setForm(f => ({ ...f, happy_hour_end: e.target.value }))}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
         </div>
-        <p className="col-span-2 text-xs text-slate-500 -mt-1">
+        <p className="col-span-2 text-xs text-zinc-500 -mt-1">
           {form.happy_hour_start && form.happy_hour_end
             ? (form.happy_hour_start > form.happy_hour_end
                 ? `Solo aplica de ${form.happy_hour_start} a ${form.happy_hour_end} del día siguiente.`
@@ -447,7 +447,7 @@ export default function PromotionsPage() {
             onChange={e => setForm(f => ({ ...f, requires_confirmation: e.target.checked }))} />
           <span>
             Preguntar antes de aplicar
-            <span className="block text-xs text-slate-500">
+            <span className="block text-xs text-zinc-500">
               {form.requires_confirmation
                 ? 'El mesero verá la promoción en la cuenta y decidirá si la aplica.'
                 : 'La promoción se aplica automáticamente al cumplirse la cantidad.'}
@@ -464,7 +464,7 @@ export default function PromotionsPage() {
             onChange={e => setForm(f => ({ ...f, combine_across_items: e.target.checked }))} />
           <span>
             Combinar productos distintos para alcanzar la cantidad
-            <span className="block text-xs text-slate-500">
+            <span className="block text-xs text-zinc-500">
               {form.combine_across_items
                 ? '⚠️ Cualquier mezcla de productos elegibles activa la promoción; el descuento se aplica al más barato de cada grupo.'
                 : 'La cantidad debe alcanzarse con el mismo producto (recomendado).'}
@@ -479,9 +479,9 @@ export default function PromotionsPage() {
       </div>
 
       {preview && (
-        <div className="bg-slate-900/60 border border-green-800 rounded-xl p-3 text-xs">
+        <div className="bg-zinc-900/60 border border-green-800 rounded-xl p-3 text-xs">
           <div className="text-green-400 font-semibold mb-1.5">Vista previa</div>
-          <div className="flex justify-between text-slate-300">
+          <div className="flex justify-between text-zinc-300">
             <span>{preview.qty} × {preview.name}</span>
             <span className="font-mono">{money(preview.gross)}</span>
           </div>
@@ -489,7 +489,7 @@ export default function PromotionsPage() {
             <span>Descuento</span>
             <span className="font-mono">-{money(preview.discount)}</span>
           </div>
-          <div className="flex justify-between font-bold border-t border-slate-700 mt-1 pt-1">
+          <div className="flex justify-between font-bold border-t border-zinc-700 mt-1 pt-1">
             <span>Paga</span>
             <span className="font-mono">{money(preview.total)}</span>
           </div>
@@ -499,23 +499,23 @@ export default function PromotionsPage() {
   )
 
   return (
-    <div className="min-h-screen bg-slate-950 page-root">
+    <div className="min-h-screen bg-zinc-950 page-root">
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-2xl mx-auto p-4">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight">🏷️ Promociones</h1>
-            <p className="text-xs text-slate-400 mt-0.5">2x1 y descuentos por cantidad — se aplican solos en la cuenta</p>
+            <p className="text-xs text-zinc-400 mt-0.5">2x1 y descuentos por cantidad — se aplican solos en la cuenta</p>
           </div>
           <button onClick={openNew}
-            className="bg-sky-600 hover:bg-sky-500 px-4 py-1.5 rounded-lg text-sm font-semibold">
+            className="bg-white text-zinc-900 hover:bg-zinc-200 px-4 py-1.5 rounded-lg text-sm font-semibold">
             + Nueva
           </button>
         </div>
 
         {(promos as any[]).length === 0 && (
-          <div className="text-center text-slate-500 py-16">
+          <div className="text-center text-zinc-500 py-16">
             <div className="text-4xl mb-3">🏷️</div>
             <div>Sin promociones</div>
             <div className="text-xs mt-1">Crea un 2x1 o un descuento por cantidad</div>
@@ -528,21 +528,21 @@ export default function PromotionsPage() {
             const editable = QUANTITY_TYPES.includes(p.promo_type)
             return (
               <div key={p.id}
-                className={`bg-slate-800 rounded-2xl border p-4 ${active ? 'border-slate-700' : 'border-slate-800 opacity-60'}`}>
+                className={`bg-zinc-800 rounded-2xl border p-4 ${active ? 'border-zinc-700' : 'border-zinc-800 opacity-60'}`}>
                 <div className="flex items-start gap-2">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold">{p.name}</span>
-                      <span className="text-xs bg-sky-900 text-sky-300 px-1.5 py-0.5 rounded-full">
+                      <span className="text-xs bg-zinc-800 text-zinc-200 px-1.5 py-0.5 rounded-full">
                         {TYPE_LABELS[p.promo_type] || p.promo_type}
                       </span>
-                      {!active && <span className="text-xs text-slate-500 italic">inactiva</span>}
+                      {!active && <span className="text-xs text-zinc-500 italic">inactiva</span>}
                       {p.is_stackable && <span className="text-xs bg-violet-900 text-violet-300 px-1.5 py-0.5 rounded-full">Acumulable</span>}
                       {p.requires_confirmation && <span className="text-xs bg-amber-900 text-amber-300 px-1.5 py-0.5 rounded-full">Requiere confirmación</span>}
                     </div>
-                    <div className="text-xs text-slate-400 mt-1">{describe(p)}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{scopeLabel(p)}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">
+                    <div className="text-xs text-zinc-400 mt-1">{describe(p)}</div>
+                    <div className="text-xs text-zinc-500 mt-0.5">{scopeLabel(p)}</div>
+                    <div className="text-xs text-zinc-500 mt-0.5">
                       {p.max_applications_per_ticket
                         ? `Máx. ${p.max_applications_per_ticket} por cuenta`
                         : 'Sin límite por cuenta'}
@@ -553,7 +553,7 @@ export default function PromotionsPage() {
                   <div className="flex gap-1.5 shrink-0">
                     {editable && (
                       <button onClick={() => openEdit(p)}
-                        className="bg-slate-700 hover:bg-sky-700 px-3 py-1.5 rounded-lg text-sm" title="Editar">✏️</button>
+                        className="bg-zinc-700 hover:bg-zinc-700 px-3 py-1.5 rounded-lg text-sm" title="Editar">✏️</button>
                     )}
                     <button onClick={() => handleToggle(p)}
                       className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${active ? 'bg-yellow-900 hover:bg-yellow-700 text-yellow-300' : 'bg-green-900 hover:bg-green-700 text-green-300'}`}
@@ -561,7 +561,7 @@ export default function PromotionsPage() {
                       {active ? '⏸' : '▶'}
                     </button>
                     <button onClick={() => handleDelete(p)}
-                      className="bg-slate-700 hover:bg-red-800 px-3 py-1.5 rounded-lg text-sm text-red-400" title="Eliminar">🗑</button>
+                      className="bg-zinc-700 hover:bg-red-800 px-3 py-1.5 rounded-lg text-sm text-red-400" title="Eliminar">🗑</button>
                   </div>
                 </div>
               </div>
@@ -573,13 +573,13 @@ export default function PromotionsPage() {
       {/* ── New Promotion Modal ──────────────────────────────────────────────── */}
       {showNew && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-md border border-sky-700 max-h-[90vh] overflow-y-auto">
-            <h2 className="font-bold mb-4 text-sky-300">+ Nueva Promoción</h2>
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-md border border-zinc-600 max-h-[90vh] overflow-y-auto">
+            <h2 className="font-bold mb-4 text-zinc-200">+ Nueva Promoción</h2>
             {PromoFormFields}
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setShowNew(false)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => setShowNew(false)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               <button onClick={handleCreate} disabled={!form.name.trim() || saving}
-                className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg font-bold disabled:opacity-50">
+                className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-bold disabled:opacity-50">
                 {saving ? 'Creando…' : 'Crear'}
               </button>
             </div>
@@ -590,17 +590,17 @@ export default function PromotionsPage() {
       {/* ── Edit Promotion Modal ─────────────────────────────────────────────── */}
       {editing && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-md border border-slate-600 max-h-[90vh] overflow-y-auto">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-md border border-zinc-600 max-h-[90vh] overflow-y-auto">
             <h2 className="font-bold mb-4">✏️ Editar: {editing.name}</h2>
             {isQuantityForm ? PromoFormFields : (
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-zinc-400">
                 Este tipo de promoción no se edita desde esta pantalla.
               </p>
             )}
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setEditing(null)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => setEditing(null)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               <button onClick={handleUpdate} disabled={!form.name.trim() || saving}
-                className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg font-bold disabled:opacity-50">
+                className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-bold disabled:opacity-50">
                 {saving ? 'Guardando…' : 'Guardar'}
               </button>
             </div>

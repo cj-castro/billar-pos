@@ -31,21 +31,21 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white page-root">
+    <div className="min-h-screen bg-zinc-950 text-white page-root">
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-lg mx-auto p-6">
         <h1 className="text-2xl font-extrabold tracking-tight mb-6">⚙️ {t('settings.title')}</h1>
 
-        <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 mb-4">
+        <div className="bg-zinc-800 rounded-2xl p-5 border border-zinc-700 mb-4">
           <div className="font-semibold mb-4">🌐 {t('settings.language')}</div>
           <div className="flex gap-3">
             <button
               onClick={() => handleChange('es')}
               className={`flex-1 py-4 rounded-xl font-bold text-lg border-2 transition-all ${
                 lang === 'es'
-                  ? 'bg-sky-600 border-sky-400 text-white'
-                  : 'bg-slate-700 border-slate-600 hover:border-sky-600'
+                  ? 'bg-white border-zinc-500 text-zinc-900'
+                  : 'bg-zinc-700 border-zinc-600 hover:border-white'
               }`}
             >
               🇲🇽 {t('settings.spanish')}
@@ -54,8 +54,8 @@ export default function SettingsPage() {
               onClick={() => handleChange('en')}
               className={`flex-1 py-4 rounded-xl font-bold text-lg border-2 transition-all ${
                 lang === 'en'
-                  ? 'bg-sky-600 border-sky-400 text-white'
-                  : 'bg-slate-700 border-slate-600 hover:border-sky-600'
+                  ? 'bg-white border-zinc-500 text-zinc-900'
+                  : 'bg-zinc-700 border-zinc-600 hover:border-white'
               }`}
             >
               🇺🇸 {t('settings.english')}
@@ -63,9 +63,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <div className="bg-zinc-800 rounded-2xl p-5 border border-zinc-700">
           <div className="font-semibold mb-1">🔔 Alerta sonora KDS</div>
-          <div className="text-sm text-slate-400 mb-4">
+          <div className="text-sm text-zinc-400 mb-4">
             Activa o desactiva el beep de alerta en las pantallas de cocina y barra cuando hay
             pedidos en espera. El efecto es inmediato en todos los dispositivos.
           </div>
@@ -75,7 +75,7 @@ export default function SettingsPage() {
             className={`w-full py-4 rounded-xl font-bold text-lg border-2 transition-all disabled:opacity-40 ${
               kdsSound !== false
                 ? 'bg-green-700 border-green-500 text-white'
-                : 'bg-slate-700 border-slate-600 text-slate-300'
+                : 'bg-zinc-700 border-zinc-600 text-zinc-300'
             }`}
           >
             {kdsSound !== false ? '🔔 Sonido activo — toca para desactivar' : '🔕 Sonido desactivado — toca para activar'}

@@ -161,7 +161,7 @@ export default function TableManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white page-root">
+    <div className="min-h-screen bg-zinc-950 text-white page-root">
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-4xl mx-auto p-4">
@@ -171,9 +171,9 @@ export default function TableManagementPage() {
         <div className="flex gap-2 mb-6">
           {(Object.keys(TYPE_LABELS) as ResourceType[]).map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === t ? 'bg-sky-600' : 'bg-slate-800 hover:bg-slate-700'}`}>
+              className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === t ? 'bg-white text-zinc-900' : 'bg-zinc-800 hover:bg-zinc-700'}`}>
               {TYPE_LABELS[t]}
-              <span className="ml-2 bg-slate-700 text-slate-300 text-xs px-1.5 py-0.5 rounded-full">
+              <span className="ml-2 bg-zinc-700 text-zinc-300 text-xs px-1.5 py-0.5 rounded-full">
                 {allResources.filter(r => r.type === t && r.is_active).length}
               </span>
             </button>
@@ -188,7 +188,7 @@ export default function TableManagementPage() {
           </button>
         </div>
 
-        {isLoading && <div className="text-slate-400 text-center py-12">Loading…</div>}
+        {isLoading && <div className="text-zinc-400 text-center py-12">Loading…</div>}
 
         {/* Active resources */}
         <div className="space-y-3">
@@ -200,17 +200,17 @@ export default function TableManagementPage() {
             const poolDirty = !!poolEdits
 
             return (
-              <div key={r.id} className="bg-slate-800 rounded-xl p-4 border border-slate-700">
+              <div key={r.id} className="bg-zinc-800 rounded-xl p-4 border border-zinc-700">
                 {/* Header row */}
                 <div className="flex items-center gap-3 mb-3">
                   <span className="text-lg">{TYPE_ICONS[r.type]}</span>
                   <input
                     value={nameEdits?.name ?? r.name}
                     onChange={e => patchName(r.id, 'name', e.target.value)}
-                    className="bg-slate-700 rounded-lg px-3 py-1.5 text-sm font-semibold flex-1"
+                    className="bg-zinc-700 rounded-lg px-3 py-1.5 text-sm font-semibold flex-1"
                     placeholder="Display name"
                   />
-                  <span className="font-mono text-xs text-slate-400 bg-slate-700 px-2 py-1 rounded">{r.code}</span>
+                  <span className="font-mono text-xs text-zinc-400 bg-zinc-700 px-2 py-1 rounded">{r.code}</span>
                   {nameDirty && (
                     <button onClick={() => handleSaveName(r)} disabled={savingId === r.id}
                       className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-xs font-bold">
@@ -218,7 +218,7 @@ export default function TableManagementPage() {
                     </button>
                   )}
                   <button onClick={() => handleToggleActive(r)}
-                    className="px-3 py-1 bg-slate-600 hover:bg-orange-600 rounded-lg text-xs text-slate-300 hover:text-white"
+                    className="px-3 py-1 bg-zinc-600 hover:bg-orange-600 rounded-lg text-xs text-zinc-300 hover:text-white"
                     title="Deactivate (hide from floor)">
                     Deactivate
                   </button>
@@ -226,32 +226,32 @@ export default function TableManagementPage() {
 
                 {/* Pool billing config */}
                 {r.type === 'POOL_TABLE' && (
-                  <div className="bg-slate-900 rounded-lg p-3 mt-1">
-                    <div className="text-xs text-slate-400 mb-2 font-semibold">Billing Config</div>
+                  <div className="bg-zinc-900 rounded-lg p-3 mt-1">
+                    <div className="text-xs text-zinc-400 mb-2 font-semibold">Billing Config</div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-xs text-slate-500 mb-1">Mode</label>
+                        <label className="block text-xs text-zinc-500 mb-1">Mode</label>
                         <select
                           value={(poolEdits?.billing_mode ?? poolBase.billing_mode) as string}
                           onChange={e => patchPool(r.id, 'billing_mode', e.target.value)}
-                          className="w-full bg-slate-700 rounded-lg px-2 py-1.5 text-xs">
+                          className="w-full bg-zinc-700 rounded-lg px-2 py-1.5 text-xs">
                           {BILLING_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs text-slate-500 mb-1">Rate (pesos/hr)</label>
+                        <label className="block text-xs text-zinc-500 mb-1">Rate (pesos/hr)</label>
                         <input type="number" min={0}
                           value={poolEdits?.rate_cents ?? poolBase.rate_cents}
                           onChange={e => patchPool(r.id, 'rate_cents', e.target.value)}
-                          className="w-full bg-slate-700 rounded-lg px-2 py-1.5 text-xs" />
-                        <div className="text-xs text-slate-500 mt-0.5">= ${(Number(poolEdits?.rate_cents ?? poolBase.rate_cents) / 100).toFixed(2)}/hr</div>
+                          className="w-full bg-zinc-700 rounded-lg px-2 py-1.5 text-xs" />
+                        <div className="text-xs text-zinc-500 mt-0.5">= ${(Number(poolEdits?.rate_cents ?? poolBase.rate_cents) / 100).toFixed(2)}/hr</div>
                       </div>
                       <div>
-                        <label className="block text-xs text-slate-500 mb-1">Free First (min)</label>
+                        <label className="block text-xs text-zinc-500 mb-1">Free First (min)</label>
                         <input type="number" min={0}
                           value={poolEdits?.promo_free_minutes ?? poolBase.promo_free_minutes}
                           onChange={e => patchPool(r.id, 'promo_free_minutes', e.target.value)}
-                          className="w-full bg-slate-700 rounded-lg px-2 py-1.5 text-xs" />
+                          className="w-full bg-zinc-700 rounded-lg px-2 py-1.5 text-xs" />
                       </div>
                     </div>
                     {poolDirty && (
@@ -276,15 +276,15 @@ export default function TableManagementPage() {
         {/* Inactive section */}
         {inactive.length > 0 && (
           <div className="mt-8">
-            <div className="text-sm text-slate-500 font-semibold mb-3">Deactivated</div>
+            <div className="text-sm text-zinc-500 font-semibold mb-3">Deactivated</div>
             <div className="space-y-2">
               {inactive.map(r => (
-                <div key={r.id} className="bg-slate-900 rounded-xl p-3 flex items-center gap-3 opacity-60">
+                <div key={r.id} className="bg-zinc-900 rounded-xl p-3 flex items-center gap-3 opacity-60">
                   <span>{TYPE_ICONS[r.type]}</span>
-                  <span className="font-mono text-xs text-slate-400">{r.code}</span>
-                  <span className="text-slate-400 text-sm flex-1">{r.name}</span>
+                  <span className="font-mono text-xs text-zinc-400">{r.code}</span>
+                  <span className="text-zinc-400 text-sm flex-1">{r.name}</span>
                   <button onClick={() => handleToggleActive(r)}
-                    className="px-3 py-1 bg-sky-700 hover:bg-sky-600 rounded-lg text-xs">
+                    className="px-3 py-1 bg-zinc-700 hover:bg-white hover:text-zinc-900 rounded-lg text-xs">
                     Reactivate
                   </button>
                   <button onClick={() => handleDelete(r)}
@@ -298,7 +298,7 @@ export default function TableManagementPage() {
         )}
 
         {active.length === 0 && !isLoading && (
-          <div className="text-center py-16 text-slate-500">
+          <div className="text-center py-16 text-zinc-500">
             <div className="text-4xl mb-3">{TYPE_ICONS[tab]}</div>
             <p>No active {TYPE_LABELS[tab].toLowerCase()}.</p>
             <button onClick={openAddModal} className="mt-4 px-6 py-2 bg-green-600 hover:bg-green-500 rounded-xl text-sm font-bold">
@@ -311,7 +311,7 @@ export default function TableManagementPage() {
       {/* Add Modal */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-md border border-slate-700">
+          <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-md border border-zinc-700">
             <h2 className="text-lg font-bold mb-4">Add {TYPE_LABELS[addForm.type]}</h2>
 
             {/* Type switcher inside modal */}
@@ -322,7 +322,7 @@ export default function TableManagementPage() {
                   const existing = allResources.filter(r => r.type === t && r.is_active).length
                   setAddForm(f => ({ ...f, type: t, code: `${prefix}${existing + 1}`, name: `${TYPE_ICONS[t]} ${t === 'POOL_TABLE' ? 'Pool Table' : t === 'REGULAR_TABLE' ? 'Table' : 'Bar'} ${existing + 1}` }))
                 }}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${addForm.type === t ? 'bg-sky-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${addForm.type === t ? 'bg-white text-zinc-900' : 'bg-zinc-700 hover:bg-zinc-600'}`}>
                   {TYPE_ICONS[t]}
                 </button>
               ))}
@@ -330,54 +330,54 @@ export default function TableManagementPage() {
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Code (e.g. BT6, T15, Bar-05)</label>
+                <label className="block text-xs text-zinc-400 mb-1">Code (e.g. BT6, T15, Bar-05)</label>
                 <input
                   value={addForm.code}
                   onChange={e => setAddForm(f => ({ ...f, code: e.target.value }))}
-                  className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm font-mono uppercase"
+                  className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm font-mono uppercase"
                   placeholder="BT6"
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Display Name</label>
+                <label className="block text-xs text-zinc-400 mb-1">Display Name</label>
                 <input
                   value={addForm.name}
                   onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))}
-                  className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm"
+                  className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm"
                   placeholder="Pool Table 6"
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Sort Order</label>
+                <label className="block text-xs text-zinc-400 mb-1">Sort Order</label>
                 <input type="number" min={0}
                   value={addForm.sort_order}
                   onChange={e => setAddForm(f => ({ ...f, sort_order: Number(e.target.value) }))}
-                  className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm"
+                  className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
 
               {addForm.type === 'POOL_TABLE' && (
-                <div className="bg-slate-900 rounded-xl p-3 space-y-3 border border-slate-700">
-                  <div className="text-xs text-slate-400 font-semibold">Billing Config</div>
+                <div className="bg-zinc-900 rounded-xl p-3 space-y-3 border border-zinc-700">
+                  <div className="text-xs text-zinc-400 font-semibold">Billing Config</div>
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Billing Mode</label>
+                    <label className="block text-xs text-zinc-500 mb-1">Billing Mode</label>
                     <select value={addForm.billing_mode} onChange={e => setAddForm(f => ({ ...f, billing_mode: e.target.value }))}
-                      className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm">
+                      className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm">
                       {BILLING_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Rate (pesos/hr) — e.g. 8600 = $86/hr</label>
+                    <label className="block text-xs text-zinc-500 mb-1">Rate (pesos/hr) — e.g. 8600 = $86/hr</label>
                     <input type="number" min={0} value={addForm.rate_cents}
                       onChange={e => setAddForm(f => ({ ...f, rate_cents: Number(e.target.value) }))}
-                      className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm" />
-                    <div className="text-xs text-slate-500 mt-0.5">= ${(addForm.rate_cents / 100).toFixed(2)} / hour</div>
+                      className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm" />
+                    <div className="text-xs text-zinc-500 mt-0.5">= ${(addForm.rate_cents / 100).toFixed(2)} / hour</div>
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Free First Minutes (0 = no promo)</label>
+                    <label className="block text-xs text-zinc-500 mb-1">Free First Minutes (0 = no promo)</label>
                     <input type="number" min={0} value={addForm.promo_free_minutes}
                       onChange={e => setAddForm(f => ({ ...f, promo_free_minutes: Number(e.target.value) }))}
-                      className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm" />
+                      className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm" />
                   </div>
                 </div>
               )}
@@ -385,7 +385,7 @@ export default function TableManagementPage() {
 
             <div className="flex gap-3 mt-5">
               <button onClick={() => setShowAdd(false)}
-                className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm">Cancel</button>
+                className="flex-1 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-xl text-sm">Cancel</button>
               <button onClick={handleAdd}
                 className="flex-1 py-2 bg-green-600 hover:bg-green-500 rounded-xl font-bold text-sm">
                 Add {TYPE_ICONS[addForm.type]} {addForm.code || '…'}

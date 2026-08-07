@@ -128,29 +128,29 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
   // ── UI helpers ──────────────────────────────────────────────────────────
   const PaymentBtn = ({ value, current, onClick }: { value: 'CASH' | 'CARD'; current: 'CASH' | 'CARD'; onClick: () => void }) => (
     <button onClick={onClick}
-      className={`py-2 rounded-lg font-semibold text-sm ${current === value ? 'bg-sky-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
+      className={`py-2 rounded-lg font-semibold text-sm ${current === value ? 'bg-white text-zinc-900' : 'bg-zinc-700 text-zinc-300'}`}>
       {value === 'CASH' ? '💵 Efectivo' : '💳 Tarjeta'}
     </button>
   )
 
   return (
     <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
-      <div className="bg-slate-800 rounded-t-2xl sm:rounded-2xl w-full max-w-md border border-slate-600 shadow-xl max-h-[92dvh] flex flex-col">
-        <div className="p-5 border-b border-slate-700">
+      <div className="bg-zinc-800 rounded-t-2xl sm:rounded-2xl w-full max-w-md border border-zinc-600 shadow-xl max-h-[92dvh] flex flex-col">
+        <div className="p-5 border-b border-zinc-700">
           <h2 className="text-lg font-bold">✏️ Editar Pago — Ticket Cerrado</h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-zinc-400 mt-1">
             El total no se modifica. Sólo método de pago y propinas.
             Para cambiar artículos, usa "Reabrir".
           </p>
-          <p className="text-xs text-slate-500 mt-1">
-            Total del ticket: <span className="font-mono text-sky-300">${pesos(ticket.total_cents)}</span>
+          <p className="text-xs text-zinc-500 mt-1">
+            Total del ticket: <span className="font-mono text-zinc-200">${pesos(ticket.total_cents)}</span>
           </p>
         </div>
 
         <div className="p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
           {/* PIN */}
           <div>
-            <label className="text-xs text-slate-400 block mb-1">PIN de Gerente *</label>
+            <label className="text-xs text-zinc-400 block mb-1">PIN de Gerente *</label>
             <input
               type="password"
               inputMode="numeric"
@@ -158,27 +158,27 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
               value={pin}
               onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
               autoFocus
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-lg font-mono text-center tracking-widest"
+              className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-lg font-mono text-center tracking-widest"
               placeholder="••••"
             />
           </div>
 
           {/* PAYMENT */}
-          <div className="border-t border-slate-700 pt-4">
+          <div className="border-t border-zinc-700 pt-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-bold text-slate-200">💰 Método de Pago</span>
-              <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+              <span className="text-sm font-bold text-zinc-200">💰 Método de Pago</span>
+              <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
                 <input type="checkbox"
                   checked={splitPayment}
                   onChange={e => setSplitPayment(e.target.checked)}
-                  className="accent-sky-500" />
+                  className="accent-white" />
                 Pago dividido (2 métodos)
               </label>
             </div>
 
             <div className="space-y-2">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">{splitPayment ? 'Método 1' : 'Método'}</label>
+                <label className="text-xs text-zinc-400 block mb-1">{splitPayment ? 'Método 1' : 'Método'}</label>
                 <div className="grid grid-cols-2 gap-2">
                   <PaymentBtn value="CASH" current={paymentType} onClick={() => setPaymentType('CASH')} />
                   <PaymentBtn value="CARD" current={paymentType} onClick={() => setPaymentType('CARD')} />
@@ -188,15 +188,15 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
               {splitPayment && (
                 <>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Recibido método 1 (MXN)</label>
+                    <label className="text-xs text-zinc-400 block mb-1">Recibido método 1 (MXN)</label>
                     <input type="number" step="0.01" min="0"
                       value={tendered}
                       onChange={e => setTendered(e.target.value)}
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono" />
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 font-mono" />
                   </div>
 
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Método 2</label>
+                    <label className="text-xs text-zinc-400 block mb-1">Método 2</label>
                     <div className="grid grid-cols-2 gap-2">
                       <PaymentBtn value="CASH" current={paymentType2} onClick={() => setPaymentType2('CASH')} />
                       <PaymentBtn value="CARD" current={paymentType2} onClick={() => setPaymentType2('CARD')} />
@@ -204,14 +204,14 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
                   </div>
 
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Recibido método 2 (MXN)</label>
+                    <label className="text-xs text-zinc-400 block mb-1">Recibido método 2 (MXN)</label>
                     <input type="number" step="0.01" min="0"
                       value={tendered2}
                       onChange={e => setTendered2(e.target.value)}
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono" />
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 font-mono" />
                   </div>
 
-                  <div className="text-xs text-slate-500">
+                  <div className="text-xs text-zinc-500">
                     Suma recibida: <span className="font-mono">${pesos(toCents(tendered) + toCents(tendered2))}</span>
                     {' · '}Total + propina: <span className="font-mono">${pesos(ticket.total_cents + toCents(tipTotal))}</span>
                   </div>
@@ -221,25 +221,25 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
           </div>
 
           {/* TIP */}
-          <div className="border-t border-slate-700 pt-4">
-            <div className="text-sm font-bold text-slate-200 mb-2">🪙 Propina</div>
+          <div className="border-t border-zinc-700 pt-4">
+            <div className="text-sm font-bold text-zinc-200 mb-2">🪙 Propina</div>
 
             <div className="space-y-2">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Monto total propina (MXN)</label>
+                <label className="text-xs text-zinc-400 block mb-1">Monto total propina (MXN)</label>
                 <input type="number" step="0.01" min="0"
                   value={tipTotal}
                   onChange={e => setTipTotal(e.target.value)}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono" />
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 font-mono" />
               </div>
 
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Origen</label>
+                <label className="text-xs text-zinc-400 block mb-1">Origen</label>
                 <div className="grid grid-cols-3 gap-2">
                   {([['CASH', '💵 Efectivo'], ['CARD', '💳 Tarjeta'], ['SPLIT', '🔀 Mixto']] as const).map(([opt, label]) => (
                     <button key={opt}
                       onClick={() => setTipSource(opt)}
-                      className={`py-1.5 rounded-lg text-xs font-semibold ${tipSource === opt ? 'bg-amber-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                      className={`py-1.5 rounded-lg text-xs font-semibold ${tipSource === opt ? 'bg-amber-600 text-white' : 'bg-zinc-700 text-zinc-300'}`}>
                       {label}
                     </button>
                   ))}
@@ -249,20 +249,20 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
               {tipSource === 'SPLIT' && (
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">💵 Efectivo</label>
+                    <label className="text-xs text-zinc-400 block mb-1">💵 Efectivo</label>
                     <input type="number" step="0.01" min="0"
                       value={tipCash}
                       onChange={e => setTipCash(e.target.value)}
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono" />
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 font-mono" />
                   </div>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">💳 Tarjeta</label>
+                    <label className="text-xs text-zinc-400 block mb-1">💳 Tarjeta</label>
                     <input type="number" step="0.01" min="0"
                       value={tipCard}
                       onChange={e => setTipCard(e.target.value)}
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono" />
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 font-mono" />
                   </div>
-                  <div className="col-span-2 text-xs text-slate-500">
+                  <div className="col-span-2 text-xs text-zinc-500">
                     Suma: <span className="font-mono">${pesos(toCents(tipCash) + toCents(tipCard))}</span>
                     {' · '}Total propina: <span className="font-mono">${pesos(toCents(tipTotal))}</span>
                   </div>
@@ -272,13 +272,13 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
           </div>
 
           {/* REASON */}
-          <div className="border-t border-slate-700 pt-4">
-            <label className="text-xs text-slate-400 block mb-1">Razón del cambio *</label>
+          <div className="border-t border-zinc-700 pt-4">
+            <label className="text-xs text-zinc-400 block mb-1">Razón del cambio *</label>
             <textarea
               value={reason}
               onChange={e => setReason(e.target.value)}
               rows={2}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+              className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm"
               placeholder="ej. Cliente pagó parte en efectivo, parte tarjeta — se cobró sólo tarjeta"
             />
           </div>
@@ -287,39 +287,39 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
 
           <button
             onClick={loadHistory}
-            className="w-full text-xs text-slate-400 hover:text-slate-200 underline">
+            className="w-full text-xs text-zinc-400 hover:text-zinc-200 underline">
             {showHistory ? '▼' : '▶'} Historial de cambios
           </button>
           {showHistory && history && (
-            <div className="bg-slate-900 rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto text-xs">
-              {history.length === 0 && <div className="text-slate-500">Sin cambios previos.</div>}
+            <div className="bg-zinc-900 rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto text-xs">
+              {history.length === 0 && <div className="text-zinc-500">Sin cambios previos.</div>}
               {history.map(h => (
-                <div key={h.id} className="border-b border-slate-700 pb-2 last:border-0">
-                  <div className="text-slate-300 font-semibold">{new Date(h.created_at).toLocaleString('es-MX')}</div>
+                <div key={h.id} className="border-b border-zinc-700 pb-2 last:border-0">
+                  <div className="text-zinc-300 font-semibold">{new Date(h.created_at).toLocaleString('es-MX')}</div>
                   {h.before_state && h.after_state && Object.keys(h.after_state).map(k => (
-                    <div key={k} className="text-slate-400">
+                    <div key={k} className="text-zinc-400">
                       {k}: <span className="text-red-300">{String(h.before_state[k] ?? '—')}</span>
                       {' → '}
                       <span className="text-green-300">{String(h.after_state[k] ?? '—')}</span>
                     </div>
                   ))}
-                  {h.reason && <div className="text-slate-500 italic mt-0.5">{h.reason}</div>}
+                  {h.reason && <div className="text-zinc-500 italic mt-0.5">{h.reason}</div>}
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        <div className="flex gap-3 p-5 border-t border-slate-700">
+        <div className="flex gap-3 p-5 border-t border-zinc-700">
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700">
+            className="flex-1 py-2.5 border border-zinc-600 rounded-xl text-zinc-300 hover:bg-zinc-700">
             Cancelar
           </button>
           <button
             onClick={submit}
             disabled={saving || !pin || !reason.trim()}
-            className="flex-1 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold disabled:opacity-50">
+            className="flex-1 py-2.5 bg-white text-zinc-900 hover:bg-zinc-200 rounded-xl font-bold disabled:opacity-50">
             {saving ? 'Guardando…' : 'Guardar'}
           </button>
         </div>

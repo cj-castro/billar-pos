@@ -13,7 +13,7 @@ const NEXT_STATUS: Record<string, string> = { SENT: 'IN_PROGRESS', IN_PROGRESS: 
 const STATUS_CONFIG = {
   SENT:        { label: 'En espera',      tabBg: 'bg-amber-500',  headerBg: 'bg-amber-900/40',  border: 'border-amber-700',   dot: 'bg-amber-400',  btnBg: 'bg-blue-700 hover:bg-blue-600',    btnLabel: 'En Preparación →' },
   IN_PROGRESS: { label: 'En preparación', tabBg: 'bg-blue-600',   headerBg: 'bg-blue-900/40',   border: 'border-blue-700',    dot: 'bg-blue-400',   btnBg: 'bg-green-700 hover:bg-green-600',  btnLabel: '✓ Marcar Listo'   },
-  READY:       { label: 'Listo',          tabBg: 'bg-green-600',  headerBg: 'bg-green-900/40',  border: 'border-green-700',   dot: 'bg-green-400',  btnBg: 'bg-slate-600 hover:bg-slate-500',  btnLabel: 'Entregar ✓'       },
+  READY:       { label: 'Listo',          tabBg: 'bg-green-600',  headerBg: 'bg-green-900/40',  border: 'border-green-700',   dot: 'bg-green-400',  btnBg: 'bg-zinc-600 hover:bg-zinc-500',  btnLabel: 'Entregar ✓'       },
 }
 
 function groupModifiers(modifiers: Array<{ name: string }>) {
@@ -42,7 +42,7 @@ function QueueCard({ item, status, onStatusChange, onPrint }: {
   const showPrintBtn = (status === 'SENT' || item.needs_reprint) && !!onPrint
 
   return (
-    <div className={`bg-slate-800 rounded-2xl border ${cfg.border} overflow-hidden shadow-lg ${status === 'SENT' ? 'animate-pulse shadow-amber-500/20 shadow-lg' : ''}`}>
+    <div className={`bg-zinc-800 rounded-2xl border ${cfg.border} overflow-hidden shadow-lg ${status === 'SENT' ? 'animate-pulse shadow-amber-500/20 shadow-lg' : ''}`}>
       <div className={`flex items-center justify-between px-4 py-2.5 ${cfg.headerBg} border-b ${cfg.border}`}>
         <span className="font-black text-xl tracking-widest text-white">{item.resource_code}</span>
         <div className="flex items-center gap-2">
@@ -50,18 +50,18 @@ function QueueCard({ item, status, onStatusChange, onPrint }: {
             <button
               onClick={handlePrint}
               disabled={printing}
-              className="text-slate-300 hover:text-white active:scale-90 transition-transform text-base disabled:opacity-40"
+              className="text-zinc-300 hover:text-white active:scale-90 transition-transform text-base disabled:opacity-40"
               title="Reimprimir orden"
             >
               {printing ? '⏳' : '🖨️'}
             </button>
           )}
-          <span className="text-xs text-slate-400 font-medium">{timeAgo}</span>
+          <span className="text-xs text-zinc-400 font-medium">{timeAgo}</span>
         </div>
       </div>
       <div className="px-4 py-3 space-y-2">
         <div className="font-bold text-base leading-snug">
-          <span className="text-sky-300 font-black mr-1">{item.quantity}×</span>
+          <span className="text-zinc-200 font-black mr-1">{item.quantity}×</span>
           {item.menu_item_name}
         </div>
         {mods.length > 0 && (
@@ -69,7 +69,7 @@ function QueueCard({ item, status, onStatusChange, onPrint }: {
             {mods.map((m) => (
               <div key={m.name} className="flex items-center gap-2 text-sm">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${cfg.dot}`} />
-                <span className="text-slate-300">{m.count > 1 ? `${m.name} ×${m.count}` : m.name}</span>
+                <span className="text-zinc-300">{m.count > 1 ? `${m.name} ×${m.count}` : m.name}</span>
               </div>
             ))}
           </div>
@@ -113,7 +113,7 @@ function QueueColumn({ items, status, onStatusChange, onPrint }: {
           <QueueCard key={item.id} item={item} status={status} onStatusChange={onStatusChange} onPrint={onPrint} />
         ))}
         {filtered.length === 0 && (
-          <div className="text-center py-10 text-slate-600 text-sm">Sin artículos</div>
+          <div className="text-center py-10 text-zinc-600 text-sm">Sin artículos</div>
         )}
       </div>
     </div>
@@ -169,14 +169,14 @@ export default function BarQueuePage() {
   const activeItems = (items as any[]).filter((i: any) => i.status === activeTab)
 
   return (
-    <div className="min-h-screen bg-slate-950 page-root">
+    <div className="min-h-screen bg-zinc-950 page-root">
       <NavBar />
       <div className="p-3 sm:p-4">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-extrabold tracking-tight">🍺 {t('queue.bar')}</h1>
           <button
             onClick={() => refetch()}
-            className="text-slate-400 hover:text-white active:scale-90 transition-transform text-xl"
+            className="text-zinc-400 hover:text-white active:scale-90 transition-transform text-xl"
             title="Actualizar"
           >
             🔄
@@ -195,7 +195,7 @@ export default function BarQueuePage() {
                   key={s}
                   onClick={() => setActiveTab(s)}
                   className={`flex-1 flex flex-col items-center py-3 rounded-xl border font-bold transition-all ${
-                    active ? `${c.tabBg} text-white border-transparent` : 'bg-slate-800 text-slate-400 border-slate-700'
+                    active ? `${c.tabBg} text-white border-transparent` : 'bg-zinc-800 text-zinc-400 border-zinc-700'
                   }`}
                 >
                   <span className="text-2xl font-black leading-none">{n}</span>
@@ -210,7 +210,7 @@ export default function BarQueuePage() {
               <QueueCard key={item.id} item={item} status={activeTab} onStatusChange={handleStatusChange} onPrint={handlePrint} />
             ))}
             {activeItems.length === 0 && (
-              <div className="text-center py-20 text-slate-600">
+              <div className="text-center py-20 text-zinc-600">
                 <div className="text-5xl mb-3">✅</div>
                 <div className="font-semibold text-lg">Todo al día</div>
                 <div className="text-sm mt-1">Sin artículos en "{activeCfg.label}"</div>

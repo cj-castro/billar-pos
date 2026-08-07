@@ -276,18 +276,18 @@ export default function MenuManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white page-root">
+    <div className="min-h-screen bg-zinc-950 text-white page-root">
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-4xl mx-auto p-4">
 
-        <div className="sticky top-0 z-20 bg-slate-950 flex items-center justify-between py-3 mb-4 border-b border-slate-800">
+        <div className="sticky top-0 z-20 bg-zinc-950 flex items-center justify-between py-3 mb-4 border-b border-zinc-800">
           <h1 className="text-2xl font-extrabold tracking-tight">🍽️ Gestión del Menú</h1>
           <div className="flex gap-2">
-            <button onClick={() => setShowCatManager(true)} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-semibold text-sm">
+            <button onClick={() => setShowCatManager(true)} className="bg-zinc-700 hover:bg-zinc-600 px-4 py-2 rounded-xl font-semibold text-sm">
               🗂 Categorías
             </button>
-            <button onClick={() => setShowAdd(true)} className="bg-sky-600 hover:bg-sky-500 px-4 py-2 rounded-xl font-semibold text-sm">
+            <button onClick={() => setShowAdd(true)} className="bg-white text-zinc-900 hover:bg-zinc-200 px-4 py-2 rounded-xl font-semibold text-sm">
               + Agregar Artículo
             </button>
           </div>
@@ -300,7 +300,7 @@ export default function MenuManagementPage() {
             placeholder="🔍 Buscar artículo por nombre..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-sky-500"
+            className="w-full bg-zinc-800 border border-zinc-600 rounded-xl px-4 py-2 text-sm text-white placeholder-zinc-400 focus:outline-none focus:border-zinc-400"
           />
         </div>
 
@@ -317,13 +317,13 @@ export default function MenuManagementPage() {
                 <span className={`text-xs px-2 py-0.5 rounded font-medium ${cat.routing === 'KITCHEN' ? 'bg-orange-900 text-orange-300' : 'bg-blue-900 text-blue-300'}`}>
                   {cat.routing}
                 </span>
-                <span className="text-slate-500 text-sm">{catItems.length} items</span>
+                <span className="text-zinc-500 text-sm">{catItems.length} items</span>
               </div>
 
-              <div className="bg-slate-800 rounded-xl overflow-x-auto">
+              <div className="bg-zinc-800 rounded-xl overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-slate-700 text-slate-300">
+                    <tr className="bg-zinc-700 text-zinc-300">
                       <th className="p-3 text-left">Producto</th>
                       <th className="p-3 text-right">Precio</th>
                       <th className="p-3 text-center">¿Sabor?</th>
@@ -333,34 +333,34 @@ export default function MenuManagementPage() {
                   </thead>
                   <tbody>
                     {catItems.length === 0 && (
-                      <tr><td colSpan={5} className="p-4 text-center text-slate-500">Sin productos</td></tr>
+                      <tr><td colSpan={5} className="p-4 text-center text-zinc-500">Sin productos</td></tr>
                     )}
                     {catItems.map((item: any) => {
                       const isEditing = editItem?.id === item.id
                       return (
                         <React.Fragment key={item.id}>
-                        <tr className={`border-t border-slate-700 ${!item.is_active ? 'opacity-50' : ''}`}>
+                        <tr className={`border-t border-zinc-700 ${!item.is_active ? 'opacity-50' : ''}`}>
                           {isEditing ? (
                             <>
                               <td className="p-2" colSpan={4}>
                                 <div className="flex flex-wrap gap-2 items-center">
-                                  <input className="flex-1 min-w-[120px] bg-slate-700 rounded px-2 py-1 text-sm"
+                                  <input className="flex-1 min-w-[120px] bg-zinc-700 rounded px-2 py-1 text-sm"
                                     placeholder="Nombre"
                                     value={editItem.name} onChange={e => setEditItem({ ...editItem, name: e.target.value })} />
                                   <input type="number" min={0}
-                                    className="w-24 bg-slate-700 rounded px-2 py-1 text-sm text-right font-mono"
+                                    className="w-24 bg-zinc-700 rounded px-2 py-1 text-sm text-right font-mono"
                                     placeholder="Precio (¢)"
                                     value={editItem.price_cents}
                                     onChange={e => setEditItem({ ...editItem, price_cents: parseInt(e.target.value) || 0 })} />
                                   <select
-                                    className="bg-slate-700 rounded px-2 py-1 text-sm"
+                                    className="bg-zinc-700 rounded px-2 py-1 text-sm"
                                     value={editItem.category_id}
                                     onChange={e => setEditItem({ ...editItem, category_id: e.target.value })}>
                                     {(categories as any[]).map((c: any) => (
                                       <option key={c.id} value={c.id}>{c.name}</option>
                                     ))}
                                   </select>
-                                  <label className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
+                                  <label className="flex items-center gap-1 text-xs text-zinc-300 cursor-pointer">
                                     <input type="checkbox" checked={editItem.requires_flavor}
                                       onChange={e => setEditItem({ ...editItem, requires_flavor: e.target.checked })} />
                                     Flavor req.
@@ -371,7 +371,7 @@ export default function MenuManagementPage() {
                                 <div className="flex gap-1 justify-center">
                                   <button onClick={() => handleSaveEdit(item, { name: editItem.name, price_cents: editItem.price_cents, requires_flavor: editItem.requires_flavor, category_id: editItem.category_id })}
                                     disabled={saving} className="bg-green-600 hover:bg-green-500 px-2 py-1 rounded text-xs font-bold">✓ Guardar</button>
-                                  <button onClick={() => setEditItem(null)} className="bg-slate-600 hover:bg-slate-500 px-2 py-1 rounded text-xs">✕</button>
+                                  <button onClick={() => setEditItem(null)} className="bg-zinc-600 hover:bg-zinc-500 px-2 py-1 rounded text-xs">✕</button>
                                 </div>
                               </td>
                             </>
@@ -388,9 +388,9 @@ export default function MenuManagementPage() {
                               <td className="p-3 text-center">
                                 <div className="flex gap-1 justify-center flex-wrap">
                                   <button onClick={() => { setEditItem({ ...item }); setEditItemGroups(item.modifier_groups?.map((g: any) => g.id) ?? []) }}
-                                    className="bg-slate-600 hover:bg-slate-500 px-2 py-1 rounded text-xs font-semibold">Editar</button>
+                                    className="bg-zinc-600 hover:bg-zinc-500 px-2 py-1 rounded text-xs font-semibold">Editar</button>
                                   <button onClick={() => openRecipe(item)}
-                                    className={`px-2 py-1 rounded text-xs font-semibold ${item.ingredient_count > 0 ? 'bg-emerald-700 hover:bg-emerald-600' : 'bg-slate-600 hover:bg-slate-500'}`}>
+                                    className={`px-2 py-1 rounded text-xs font-semibold ${item.ingredient_count > 0 ? 'bg-emerald-700 hover:bg-emerald-600' : 'bg-zinc-600 hover:bg-zinc-500'}`}>
                                     📦{item.ingredient_count > 0 ? ` ${item.ingredient_count}` : ''}
                                   </button>
                                   {isAdmin && (
@@ -404,9 +404,9 @@ export default function MenuManagementPage() {
                           )}
                         </tr>
                         {isEditing && (
-                          <tr className="border-t border-slate-600 bg-slate-900">
+                          <tr className="border-t border-zinc-600 bg-zinc-900">
                             <td colSpan={5} className="px-3 py-2">
-                              <div className="text-xs text-slate-400 mb-1 font-semibold">Grupos de Modificadores</div>
+                              <div className="text-xs text-zinc-400 mb-1 font-semibold">Grupos de Modificadores</div>
                               <div className="flex flex-wrap gap-3">
                                 {(modifierGroups as any[]).map((g: any) => (
                                   <label key={g.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
@@ -440,20 +440,20 @@ export default function MenuManagementPage() {
       {/* ── Inventario Modal ─────────────────────────────────────────────────── */}
       {recipeItem && (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl w-full max-w-lg border border-emerald-700 shadow-xl max-h-[90vh] flex flex-col">
-            <div className="p-5 border-b border-slate-700 flex items-center justify-between flex-shrink-0">
+          <div className="bg-zinc-800 rounded-2xl w-full max-w-lg border border-emerald-700 shadow-xl max-h-[90vh] flex flex-col">
+            <div className="p-5 border-b border-zinc-700 flex items-center justify-between flex-shrink-0">
               <div>
                 <h2 className="text-lg font-bold">📦 Inventario: {recipeItem.name}</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Artículos que se descuentan del inventario al ordenar este producto</p>
+                <p className="text-xs text-zinc-400 mt-0.5">Artículos que se descuentan del inventario al ordenar este producto</p>
               </div>
-              <button onClick={() => { setRecipeItem(null); setRecipeItemFull(null) }} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+              <button onClick={() => { setRecipeItem(null); setRecipeItemFull(null) }} className="text-zinc-400 hover:text-white text-2xl">&times;</button>
             </div>
             <div className="p-5 overflow-y-auto">
 
               {/* ── Insumos base ──────────────────────────── */}
-              <p className="text-xs text-slate-400 font-semibold uppercase mb-2">Insumos base (siempre se descuentan)</p>
+              <p className="text-xs text-zinc-400 font-semibold uppercase mb-2">Insumos base (siempre se descuentan)</p>
               {recipeIngredients.length === 0 ? (
-                <p className="text-slate-500 text-sm mb-4 pl-1">Sin insumos vinculados — agrega abajo.</p>
+                <p className="text-zinc-500 text-sm mb-4 pl-1">Sin insumos vinculados — agrega abajo.</p>
               ) : (
                 <div className="space-y-2 mb-4">
                   {recipeIngredients.map((ing: any) => {
@@ -461,13 +461,13 @@ export default function MenuManagementPage() {
                       ? String(Math.round(parseFloat(ing.quantity)))
                       : parseFloat(ing.quantity).toFixed(2)
                     return (
-                      <div key={ing.id} className="flex items-center justify-between bg-slate-700 rounded-lg px-3 py-2">
+                      <div key={ing.id} className="flex items-center justify-between bg-zinc-700 rounded-lg px-3 py-2">
                         <span className="text-sm font-medium">{ing.inventory_item_name}</span>
                         <div className="flex items-center gap-3">
                           <span className="text-sm text-emerald-300 font-mono">
                             {qtyDisplay} {ing.deduction_unit_key}
                           </span>
-                          <span className="text-xs text-slate-500">
+                          <span className="text-xs text-zinc-500">
                             ({ing.stock_quantity != null ? parseFloat(ing.stock_quantity).toFixed(0) : '?'} disp.)
                           </span>
                           <button onClick={() => handleDeleteIngredient(ing.id)} className="text-red-400 hover:text-red-300 text-sm">✕</button>
@@ -481,7 +481,7 @@ export default function MenuManagementPage() {
               {/* ── Descuento por modificador ──────────────────────── */}
               {recipeItemFull?.modifier_groups?.length > 0 && recipeItemFull.modifier_groups.map((group: any) => (
                 <div key={group.id} className="mb-4">
-                  <p className="text-xs text-sky-400 font-semibold uppercase mb-2">
+                  <p className="text-xs text-zinc-300 font-semibold uppercase mb-2">
                     🎛 {group.name} — el mesero elige
                     {group.allow_multiple && <span className="ml-1 text-yellow-400">({group.max_selections} selecciones)</span>}
                   </p>
@@ -490,9 +490,9 @@ export default function MenuManagementPage() {
                       const rule = mod.inventory_rules?.[0]
                       const isEditing = editingModifierId === mod.id
                       return (
-                        <div key={mod.id} className="bg-slate-700/60 rounded-lg px-3 py-2">
+                        <div key={mod.id} className="bg-zinc-700/60 rounded-lg px-3 py-2">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm font-medium text-slate-200">{mod.name}</span>
+                            <span className="text-sm font-medium text-zinc-200">{mod.name}</span>
                             <div className="flex items-center gap-2 flex-shrink-0">
                               {rule && !isEditing && (
                                 <>
@@ -502,7 +502,7 @@ export default function MenuManagementPage() {
                                   <button onClick={() => {
                                     setEditingModifierId(mod.id)
                                     setModRuleForm({ inventory_item_id: rule.inventory_item_id, quantity: String(parseFloat(rule.quantity)) })
-                                  }} className="text-sky-400 hover:text-sky-300 text-xs px-1">✎</button>
+                                  }} className="text-zinc-300 hover:text-white text-xs px-1">✎</button>
                                   <button onClick={() => handleClearModifierRule(mod.id)}
                                     className="text-red-400 hover:text-red-300 text-xs px-1">✕</button>
                                 </>
@@ -511,7 +511,7 @@ export default function MenuManagementPage() {
                                 <button onClick={() => {
                                   setEditingModifierId(mod.id)
                                   setModRuleForm({ inventory_item_id: '', quantity: '1' })
-                                }} className="text-xs text-sky-500 hover:text-sky-400 border border-sky-700 rounded px-2 py-0.5">
+                                }} className="text-xs text-zinc-300 hover:text-white border border-zinc-600 rounded px-2 py-0.5">
                                   + vincular
                                 </button>
                               )}
@@ -522,7 +522,7 @@ export default function MenuManagementPage() {
                               <select
                                 value={modRuleForm.inventory_item_id}
                                 onChange={e => setModRuleForm({ ...modRuleForm, inventory_item_id: e.target.value })}
-                                className="flex-1 bg-slate-600 border border-slate-500 rounded px-2 py-1.5 text-xs min-w-0">
+                                className="flex-1 bg-zinc-600 border border-zinc-500 rounded px-2 py-1.5 text-xs min-w-0">
                                 <option value="">— artículo de inventario —</option>
                                 {(inventoryItems as any[]).map((inv: any) => (
                                   <option key={inv.id} value={inv.id}>
@@ -534,34 +534,34 @@ export default function MenuManagementPage() {
                                 type="number" min={0.001} step={0.1}
                                 value={modRuleForm.quantity}
                                 onChange={e => setModRuleForm({ ...modRuleForm, quantity: e.target.value })}
-                                className="w-16 bg-slate-600 border border-slate-500 rounded px-2 py-1.5 text-xs text-center font-mono"
+                                className="w-16 bg-zinc-600 border border-zinc-500 rounded px-2 py-1.5 text-xs text-center font-mono"
                               />
-                              <span className="text-xs text-slate-400">
+                              <span className="text-xs text-zinc-400">
                                 {(inventoryItems as any[]).find((i: any) => i.id === modRuleForm.inventory_item_id)?.base_unit_key ?? 'unit'}
                               </span>
                               <button onClick={() => handleSaveModifierRule(mod.id)} disabled={savingRule}
                                 className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 px-2 py-1 rounded text-xs font-bold">✓</button>
                               <button onClick={() => setEditingModifierId(null)}
-                                className="text-slate-400 hover:text-white px-2 py-1 rounded text-xs">✕</button>
+                                className="text-zinc-400 hover:text-white px-2 py-1 rounded text-xs">✕</button>
                             </div>
                           )}
                         </div>
                       )
                     })}
                   </div>
-                  <p className="text-xs text-slate-500 mt-1.5 pl-1">
+                  <p className="text-xs text-zinc-500 mt-1.5 pl-1">
                     Cada selección descuenta automáticamente el inventario correspondiente.
                   </p>
                 </div>
               ))}
 
               {/* ── Agregar insumo base ──────────────────────────── */}
-              <div className="border-t border-slate-700 pt-4 mt-2">
-                <p className="text-xs text-slate-400 mb-2 font-semibold">AGREGAR INSUMO BASE</p>
+              <div className="border-t border-zinc-700 pt-4 mt-2">
+                <p className="text-xs text-zinc-400 mb-2 font-semibold">AGREGAR INSUMO BASE</p>
                 <div className="flex gap-2">
                   <select value={addIngr.inventory_item_id}
                     onChange={e => setAddIngr({ ...addIngr, inventory_item_id: e.target.value })}
-                    className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm min-w-0">
+                    className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-2 text-sm min-w-0">
                     <option value="">— selecciona artículo de inventario —</option>
                     {(inventoryItems as any[]).map((inv: any) => (
                       <option key={inv.id} value={inv.id}>
@@ -579,9 +579,9 @@ export default function MenuManagementPage() {
                       })()}
                       value={addIngr.quantity}
                       onChange={e => setAddIngr({ ...addIngr, quantity: e.target.value })}
-                      className="w-20 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm text-center font-mono"
+                      className="w-20 bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-2 text-sm text-center font-mono"
                     />
-                    <span className="text-xs text-slate-400 whitespace-nowrap">
+                    <span className="text-xs text-zinc-400 whitespace-nowrap">
                       {(() => {
                         const sel = (inventoryItems as any[]).find((i: any) => i.id === addIngr.inventory_item_id)
                         return sel?.base_unit_key ?? ''
@@ -600,28 +600,28 @@ export default function MenuManagementPage() {
       {/* ── Category Manager Modal ──────────────────────────────────────────── */}
       {showCatManager && (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl w-full max-w-lg border border-slate-600 shadow-xl max-h-[90vh] flex flex-col">
-            <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+          <div className="bg-zinc-800 rounded-2xl w-full max-w-lg border border-zinc-600 shadow-xl max-h-[90vh] flex flex-col">
+            <div className="p-5 border-b border-zinc-700 flex items-center justify-between">
               <h2 className="text-lg font-bold">🗂 Categorías del Menú</h2>
               <button onClick={() => { setShowCatManager(false); setShowAddCat(false); setEditCat(null) }}
-                className="text-slate-400 hover:text-white text-2xl">&times;</button>
+                className="text-zinc-400 hover:text-white text-2xl">&times;</button>
             </div>
             <div className="p-5 overflow-y-auto flex-1 space-y-2">
               {(categories as any[]).map((cat: any) => (
-                <div key={cat.id} className="flex items-center justify-between bg-slate-700 rounded-xl px-4 py-3">
+                <div key={cat.id} className="flex items-center justify-between bg-zinc-700 rounded-xl px-4 py-3">
                   {editCat?.id === cat.id ? (
                     <div className="flex items-center gap-2 flex-1 mr-2">
                       <input value={editCat.name} onChange={e => setEditCat({ ...editCat, name: e.target.value })}
-                        className="flex-1 bg-slate-600 rounded px-2 py-1 text-sm" />
+                        className="flex-1 bg-zinc-600 rounded px-2 py-1 text-sm" />
                       <select value={editCat.routing} onChange={e => setEditCat({ ...editCat, routing: e.target.value })}
-                        className="bg-slate-600 rounded px-2 py-1 text-sm">
+                        className="bg-zinc-600 rounded px-2 py-1 text-sm">
                         <option value="BAR">BAR</option>
                         <option value="KITCHEN">KITCHEN</option>
                       </select>
                       <button onClick={handleSaveCat} disabled={saving}
                         className="bg-green-600 hover:bg-green-500 px-3 py-1 rounded text-xs font-bold">✓</button>
                       <button onClick={() => setEditCat(null)}
-                        className="bg-slate-600 hover:bg-slate-500 px-3 py-1 rounded text-xs">✕</button>
+                        className="bg-zinc-600 hover:bg-zinc-500 px-3 py-1 rounded text-xs">✕</button>
                     </div>
                   ) : (
                     <>
@@ -630,13 +630,13 @@ export default function MenuManagementPage() {
                         <span className={`ml-2 text-xs px-2 py-0.5 rounded font-medium ${cat.routing === 'KITCHEN' ? 'bg-orange-900 text-orange-300' : 'bg-blue-900 text-blue-300'}`}>
                           {cat.routing}
                         </span>
-                        <span className="ml-2 text-xs text-slate-400">
+                        <span className="ml-2 text-xs text-zinc-400">
                           {(items as any[]).filter((i: any) => i.category_id === cat.id).length} productos
                         </span>
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => setEditCat({ ...cat })}
-                          className="bg-slate-600 hover:bg-sky-700 px-3 py-1 rounded text-xs font-semibold">✏️</button>
+                          className="bg-zinc-600 hover:bg-zinc-700 px-3 py-1 rounded text-xs font-semibold">✏️</button>
                         {isAdmin && (
                           <button onClick={() => handleDeleteCat(cat)}
                             className="bg-red-900 hover:bg-red-800 px-3 py-1 rounded text-xs font-semibold text-red-300">🗑</button>
@@ -649,29 +649,29 @@ export default function MenuManagementPage() {
 
               {/* Add new category */}
               {showAddCat ? (
-                <div className="bg-slate-700/50 rounded-xl border border-slate-600 p-4 space-y-3">
-                  <p className="text-xs text-slate-400 font-semibold uppercase">Nueva Categoría</p>
+                <div className="bg-zinc-700/50 rounded-xl border border-zinc-600 p-4 space-y-3">
+                  <p className="text-xs text-zinc-400 font-semibold uppercase">Nueva Categoría</p>
                   <input value={newCat.name} onChange={e => setNewCat({ ...newCat, name: e.target.value })}
-                    placeholder="Nombre de categoría" className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+                    placeholder="Nombre de categoría" className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm" />
                   <div className="flex gap-3 items-center">
                     <select value={newCat.routing} onChange={e => setNewCat({ ...newCat, routing: e.target.value })}
-                      className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+                      className="bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm">
                       <option value="BAR">BAR (bebidas)</option>
                       <option value="KITCHEN">KITCHEN (cocina)</option>
                     </select>
                     <input type="number" value={newCat.sort_order} onChange={e => setNewCat({ ...newCat, sort_order: parseInt(e.target.value) || 0 })}
-                      className="w-20 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm text-center" placeholder="Orden" />
+                      className="w-20 bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-2 text-sm text-center" placeholder="Orden" />
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => { setShowAddCat(false); setNewCat({ ...BLANK_CAT }) }}
-                      className="flex-1 py-2 border border-slate-600 rounded-lg text-sm">Cancelar</button>
+                      className="flex-1 py-2 border border-zinc-600 rounded-lg text-sm">Cancelar</button>
                     <button onClick={handleCreateCat} disabled={!newCat.name.trim() || saving}
-                      className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg text-sm font-bold disabled:opacity-50">Crear</button>
+                      className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg text-sm font-bold disabled:opacity-50">Crear</button>
                   </div>
                 </div>
               ) : (
                 <button onClick={() => setShowAddCat(true)}
-                  className="w-full py-2.5 border border-dashed border-slate-600 rounded-xl text-slate-400 hover:text-white hover:border-slate-400 text-sm">
+                  className="w-full py-2.5 border border-dashed border-zinc-600 rounded-xl text-zinc-400 hover:text-white hover:border-zinc-400 text-sm">
                   + Nueva Categoría
                 </button>
               )}
@@ -683,15 +683,15 @@ export default function MenuManagementPage() {
       {/* ── Deactivate Confirmation ──────────────────────────────────────────── */}
       {confirmDeactivate && (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-red-700 shadow-xl p-6">
+          <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-red-700 shadow-xl p-6">
             <h2 className="text-lg font-bold text-red-400 mb-2">⚠️ ¿Desactivar Artículo?</h2>
-            <p className="text-slate-300 mb-5">
+            <p className="text-zinc-300 mb-5">
               <span className="font-bold text-white">{confirmDeactivate.name}</span> se ocultará del menú de pedidos.
               Puedes reactivarlo en cualquier momento.
             </p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmDeactivate(null)}
-                className="flex-1 py-2.5 border border-slate-600 rounded-xl hover:bg-slate-700">Cancelar</button>
+                className="flex-1 py-2.5 border border-zinc-600 rounded-xl hover:bg-zinc-700">Cancelar</button>
               <button onClick={confirmDoDeactivate}
                 className="flex-1 py-2.5 bg-red-700 hover:bg-red-600 rounded-xl font-bold">Desactivar</button>
             </div>
@@ -702,15 +702,15 @@ export default function MenuManagementPage() {
       {/* ── Add Item Modal ──────────────────────────────────────────────────── */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-2xl w-full max-w-md border border-slate-600 shadow-xl">
-            <div className="p-5 border-b border-slate-700">
+          <div className="bg-zinc-800 rounded-2xl w-full max-w-md border border-zinc-600 shadow-xl">
+            <div className="p-5 border-b border-zinc-700">
               <h2 className="text-lg font-bold">Agregar Artículo al Menú</h2>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Categoría *</label>
+                <label className="text-xs text-zinc-400 block mb-1">Categoría *</label>
                 <select value={newItem.category_id} onChange={e => setNewItem({ ...newItem, category_id: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2">
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2">
                   <option value="">— selecciona categoría —</option>
                   {categories.map((c: any) => (
                     <option key={c.id} value={c.id}>{c.name} ({c.routing})</option>
@@ -718,34 +718,34 @@ export default function MenuManagementPage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Nombre del producto *</label>
+                <label className="text-xs text-zinc-400 block mb-1">Nombre del producto *</label>
                 <input value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" placeholder="ej. Alitas de pollo" />
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2" placeholder="ej. Alitas de pollo" />
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Precio (centavos) *</label>
+                <label className="text-xs text-zinc-400 block mb-1">Precio (centavos) *</label>
                 <div className="flex items-center gap-2">
                   <input type="number" min={0} value={newItem.price_cents}
                     onChange={e => setNewItem({ ...newItem, price_cents: parseInt(e.target.value) || 0 })}
-                    className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono" placeholder="1200" />
-                  <span className="text-slate-400 text-sm">= {cents(newItem.price_cents)}</span>
+                    className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 font-mono" placeholder="1200" />
+                  <span className="text-zinc-400 text-sm">= {cents(newItem.price_cents)}</span>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <input type="checkbox" id="req-flavor" checked={newItem.requires_flavor}
                   onChange={e => setNewItem({ ...newItem, requires_flavor: e.target.checked })} className="w-4 h-4" />
-                <label htmlFor="req-flavor" className="text-sm text-slate-300">Requiere selección de sabor</label>
+                <label htmlFor="req-flavor" className="text-sm text-zinc-300">Requiere selección de sabor</label>
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Orden de aparición</label>
+                <label className="text-xs text-zinc-400 block mb-1">Orden de aparición</label>
                 <input type="number" min={0} value={newItem.sort_order}
                   onChange={e => setNewItem({ ...newItem, sort_order: parseInt(e.target.value) || 0 })}
-                  className="w-24 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
+                  className="w-24 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2" />
               </div>
               {(modifierGroups as any[]).length > 0 && (
                 <div>
-                  <label className="text-xs text-slate-400 block mb-2">Grupos de modificadores (sabores, extras…)</label>
-                  <div className="bg-slate-700 rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto">
+                  <label className="text-xs text-zinc-400 block mb-2">Grupos de modificadores (sabores, extras…)</label>
+                  <div className="bg-zinc-700 rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto">
                     {(modifierGroups as any[]).map((g: any) => (
                       <label key={g.id} className="flex items-center gap-2 text-sm cursor-pointer">
                         <input type="checkbox"
@@ -766,11 +766,11 @@ export default function MenuManagementPage() {
 
               {/* ── Inventario vinculado ────────────────────── */}
               <div>
-                <label className="text-xs text-slate-400 block mb-2">📦 Inventario que se descuenta al vender (opcional)</label>
+                <label className="text-xs text-zinc-400 block mb-2">📦 Inventario que se descuenta al vender (opcional)</label>
                 {newItemIngredients.length > 0 && (
                   <div className="space-y-1.5 mb-2">
                     {newItemIngredients.map((ing, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-slate-700 rounded-lg px-3 py-1.5 text-sm">
+                      <div key={idx} className="flex items-center justify-between bg-zinc-700 rounded-lg px-3 py-1.5 text-sm">
                         <span>{ing.name} <span className="text-emerald-300 font-mono">×{ing.quantity} {ing.unit}</span></span>
                         <button onClick={() => setNewItemIngredients(prev => prev.filter((_, i) => i !== idx))}
                           className="text-red-400 hover:text-red-300 text-xs">✕</button>
@@ -781,7 +781,7 @@ export default function MenuManagementPage() {
                 <div className="flex gap-2">
                   <select value={newIngrPick.inventory_item_id}
                     onChange={e => setNewIngrPick({ ...newIngrPick, inventory_item_id: e.target.value })}
-                    className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm min-w-0">
+                    className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-2 text-sm min-w-0">
                     <option value="">— selecciona artículo —</option>
                     {(inventoryItems as any[]).filter(inv => !newItemIngredients.find(i => i.inventory_item_id === inv.id)).map((inv: any) => (
                       <option key={inv.id} value={inv.id}>
@@ -797,7 +797,7 @@ export default function MenuManagementPage() {
                     })()}
                     value={newIngrPick.quantity}
                     onChange={e => setNewIngrPick({ ...newIngrPick, quantity: e.target.value })}
-                    className="w-16 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm text-center font-mono" />
+                    className="w-16 bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-2 text-sm text-center font-mono" />
                   <button
                     onClick={() => {
                       if (!newIngrPick.inventory_item_id) return
@@ -814,11 +814,11 @@ export default function MenuManagementPage() {
                 </div>
               </div>
             </div>
-            <div className="flex gap-3 p-5 border-t border-slate-700">
+            <div className="flex gap-3 p-5 border-t border-zinc-700">
               <button onClick={() => { setShowAdd(false); setNewItem({ ...BLANK_ITEM }); setNewItemGroups([]) }}
-                className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700">Cancelar</button>
+                className="flex-1 py-2.5 border border-zinc-600 rounded-xl text-zinc-300 hover:bg-zinc-700">Cancelar</button>
               <button onClick={handleCreate} disabled={!newItem.name.trim() || !newItem.category_id || saving}
-                className="flex-1 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold disabled:opacity-50">
+                className="flex-1 py-2.5 bg-white text-zinc-900 hover:bg-zinc-200 rounded-xl font-bold disabled:opacity-50">
                 {saving ? 'Añadiendo…' : 'Agregar Artículo'}
               </button>
             </div>

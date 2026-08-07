@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useLanguage } from '../hooks/useLanguage'
 import { useQuery } from '@tanstack/react-query'
 import client from '../api/client'
+import { IconBall8, IconHouse, IconFlame, IconMug, IconChart, IconUser, IconLock, IconTrend, IconDoor } from './Icon'
 
 export default function NavBar() {
   const { user, logout } = useAuthStore()
@@ -43,7 +44,7 @@ export default function NavBar() {
   // Badge for desktop nav links
   const Badge = ({ count }: { count: number }) =>
     count > 0 ? (
-      <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+      <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold leading-none">
         {count > 99 ? '99+' : count}
       </span>
     ) : null
@@ -52,45 +53,55 @@ export default function NavBar() {
   const isActive = (path: string) => location.pathname.startsWith(path)
 
   const tabCls = (active: boolean) =>
-    `relative flex flex-col items-center justify-center flex-1 py-2 gap-0.5 text-[10px] font-semibold transition-colors
-     ${active ? 'text-sky-400' : 'text-slate-400 active:text-white'}`
+    `relative flex flex-col items-center justify-center flex-1 py-2 gap-1 text-[10px] font-semibold transition-colors
+     ${active ? 'text-white' : 'text-zinc-500 active:text-white'}`
 
   return (
     <>
       {/* ── Top bar ── */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-900 border-b border-slate-700 px-4 py-3 flex items-center justify-between">
-        {/* Logo */}
-        <Link to="/floor" className="flex items-center gap-2.5 flex-shrink-0" onClick={close}>
-          <img src="/logo.jpg" alt="Bola 8" className="w-10 h-10 rounded-full object-cover border-2 border-sky-500" />
-          <span className="text-xl font-extrabold text-sky-400 tracking-tight">Bola 8</span>
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-zinc-950 border-b border-zinc-800 px-4 py-2.5 flex items-center justify-between">
+        {/* Crest mark */}
+        <Link to="/floor" className="flex items-center gap-3 flex-shrink-0" onClick={close}>
+          <div className="w-9 h-9 rounded-full border border-dashed border-zinc-500 flex items-center justify-center relative">
+            <div className="absolute inset-[3px] rounded-full border border-zinc-600" />
+            <IconBall8 className="w-4 h-4 text-white relative" />
+          </div>
+          <div className="leading-none">
+            <div className="font-display font-extrabold text-lg tracking-tight text-white">BOLA 8</div>
+            <div className="text-[9px] tracking-[.22em] text-zinc-500 font-semibold uppercase mt-0.5">Pool Club</div>
+          </div>
         </Link>
 
         {/* Desktop nav links */}
         {user && (
-          <div className="hidden md:flex gap-5 text-sm items-center">
-            <Link to="/floor" className={`hover:text-white transition-colors ${isActive('/floor') ? 'text-white font-semibold' : 'text-slate-300'}`}>
+          <div className="hidden md:flex gap-6 text-sm items-center">
+            <Link to="/floor" className={`hover:text-white transition-colors ${isActive('/floor') ? 'text-white font-semibold' : 'text-zinc-400'}`}>
               {t('nav.floor')}
             </Link>
             {showKitchen && (
-              <Link to="/queue/kitchen" className={`hover:text-white transition-colors flex items-center gap-0.5 ${isActive('/queue/kitchen') ? 'text-white font-semibold' : 'text-slate-300'}`}>
+              <Link to="/queue/kitchen" className={`hover:text-white transition-colors flex items-center gap-0.5 ${isActive('/queue/kitchen') ? 'text-white font-semibold' : 'text-zinc-400'}`}>
                 {t('nav.kitchen')}<Badge count={kitchenCount} />
               </Link>
             )}
             {showBar && (
-              <Link to="/queue/bar" className={`hover:text-white transition-colors flex items-center gap-0.5 ${isActive('/queue/bar') ? 'text-white font-semibold' : 'text-slate-300'}`}>
+              <Link to="/queue/bar" className={`hover:text-white transition-colors flex items-center gap-0.5 ${isActive('/queue/bar') ? 'text-white font-semibold' : 'text-zinc-400'}`}>
                 {t('nav.bar')}<Badge count={barCount} />
               </Link>
             )}
             {showManager && (
-              <Link to="/manager" className={`hover:text-white transition-colors ${isActive('/manager') ? 'text-white font-semibold' : 'text-slate-300'}`}>
+              <Link to="/manager" className={`hover:text-white transition-colors ${isActive('/manager') ? 'text-white font-semibold' : 'text-zinc-400'}`}>
                 {t('nav.manager')}
               </Link>
             )}
             {showSafe && (
-              <Link to="/manager/safe" className="text-emerald-400 hover:text-emerald-300">🔐 Caja</Link>
+              <Link to="/manager/safe" className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300">
+                <IconLock className="w-3.5 h-3.5" />Caja
+              </Link>
             )}
             {showSafe && (
-              <Link to="/manager/earnings" className="text-violet-400 hover:text-violet-300">💹 Ganancias</Link>
+              <Link to="/manager/earnings" className="flex items-center gap-1.5 text-violet-400 hover:text-violet-300">
+                <IconTrend className="w-3.5 h-3.5" />Ganancias
+              </Link>
             )}
           </div>
         )}
@@ -98,10 +109,10 @@ export default function NavBar() {
         {/* Desktop right: user + lang + logout */}
         {user && (
           <div className="hidden md:flex items-center gap-3">
-            <span className="text-xs text-slate-400">{user.name} · <span className="text-sky-400 capitalize">{user.role.toLowerCase().replace('_', ' ')}</span></span>
-            <button onClick={toggleLang} className="text-base px-2 py-1 rounded hover:bg-slate-700">{lang === 'es' ? '🇲🇽' : '🇺🇸'}</button>
-            <button onClick={handleLogout} className="text-sm text-red-400 hover:text-red-300 border border-red-800 px-3 py-1 rounded">
-              {t('nav.logout')}
+            <span className="text-xs text-zinc-500">{user.name} · <span className="text-zinc-300 capitalize">{user.role.toLowerCase().replace('_', ' ')}</span></span>
+            <button onClick={toggleLang} className="text-base px-2 py-1 rounded hover:bg-zinc-800">{lang === 'es' ? '🇲🇽' : '🇺🇸'}</button>
+            <button onClick={handleLogout} className="flex items-center gap-1.5 text-sm text-zinc-300 hover:text-white border border-zinc-700 hover:border-zinc-500 px-3 py-1.5 rounded">
+              <IconDoor className="w-3.5 h-3.5" />{t('nav.logout')}
             </button>
           </div>
         )}
@@ -109,18 +120,18 @@ export default function NavBar() {
         {/* Mobile top-right: lang only */}
         {user && (
           <div className="flex md:hidden items-center gap-1">
-            <button onClick={toggleLang} className="text-base px-2 py-1 rounded hover:bg-slate-700">{lang === 'es' ? '🇲🇽' : '🇺🇸'}</button>
+            <button onClick={toggleLang} className="text-base px-2 py-1 rounded hover:bg-zinc-800">{lang === 'es' ? '🇲🇽' : '🇺🇸'}</button>
           </div>
         )}
       </nav>
 
       {/* ── Mobile bottom tab bar ── */}
       {user && (
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-900 border-t border-slate-700 flex items-stretch safe-area-inset-bottom">
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-zinc-950 border-t border-zinc-800 flex items-stretch safe-area-inset-bottom">
 
           {/* Floor */}
           <Link to="/floor" onClick={close} className={tabCls(isActive('/floor') && !isActive('/queue'))}>
-            <span className="text-xl">🏠</span>
+            <IconHouse className="w-5 h-5" />
             <span>{t('nav.floor')}</span>
           </Link>
 
@@ -128,11 +139,11 @@ export default function NavBar() {
           {showKitchen && (
             <Link to="/queue/kitchen" onClick={close} className={tabCls(isActive('/queue/kitchen'))}>
               {kitchenCount > 0 && (
-                <span className="absolute top-1 right-[calc(50%-18px)] min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+                <span className="absolute top-1 right-[calc(50%-18px)] min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-600 text-white text-[10px] font-bold leading-none">
                   {kitchenCount > 99 ? '99+' : kitchenCount}
                 </span>
               )}
-              <span className="text-xl">🍳</span>
+              <IconFlame className="w-5 h-5" />
               <span>{t('nav.kitchen')}</span>
             </Link>
           )}
@@ -141,11 +152,11 @@ export default function NavBar() {
           {showBar && (
             <Link to="/queue/bar" onClick={close} className={tabCls(isActive('/queue/bar'))}>
               {barCount > 0 && (
-                <span className="absolute top-1 right-[calc(50%-18px)] min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+                <span className="absolute top-1 right-[calc(50%-18px)] min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-600 text-white text-[10px] font-bold leading-none">
                   {barCount > 99 ? '99+' : barCount}
                 </span>
               )}
-              <span className="text-xl">🍺</span>
+              <IconMug className="w-5 h-5" />
               <span>{t('nav.bar')}</span>
             </Link>
           )}
@@ -153,14 +164,14 @@ export default function NavBar() {
           {/* Manager */}
           {showManager && (
             <Link to="/manager" onClick={close} className={tabCls(isActive('/manager'))}>
-              <span className="text-xl">📊</span>
+              <IconChart className="w-5 h-5" />
               <span>{t('nav.manager')}</span>
             </Link>
           )}
 
           {/* Account / logout */}
           <button onClick={() => setMenuOpen(o => !o)} className={tabCls(menuOpen)}>
-            <span className="text-xl">👤</span>
+            <IconUser className="w-5 h-5" />
             <span>{user.name.split(' ')[0]}</span>
           </button>
         </nav>
@@ -168,31 +179,31 @@ export default function NavBar() {
 
       {/* Mobile account popup (logout, safe, lang already in top bar) */}
       {menuOpen && user && (
-        <div className="md:hidden fixed bottom-[57px] left-0 right-0 z-40 bg-slate-900 border-t border-slate-700 shadow-2xl">
-          <div className="flex flex-col divide-y divide-slate-700">
-            <div className="px-4 py-3 text-sm text-slate-300">
+        <div className="md:hidden fixed bottom-[57px] left-0 right-0 z-40 bg-zinc-950 border-t border-zinc-800 shadow-2xl">
+          <div className="flex flex-col divide-y divide-zinc-800">
+            <div className="px-4 py-3 text-sm text-zinc-300">
               <span className="font-semibold">{user.name}</span>
-              <span className="ml-2 text-xs text-sky-400 capitalize">{user.role.toLowerCase().replace('_', ' ')}</span>
+              <span className="ml-2 text-xs text-zinc-400 capitalize">{user.role.toLowerCase().replace('_', ' ')}</span>
             </div>
             {showSafe && (
-              <Link to="/manager/safe" onClick={close} className="px-4 py-3 text-emerald-400 hover:bg-slate-800 active:bg-slate-700 text-sm">
-                🔐 Caja Fuerte
+              <Link to="/manager/safe" onClick={close} className="px-4 py-3 flex items-center gap-2 text-emerald-400 hover:bg-zinc-800 active:bg-zinc-700 text-sm">
+                <IconLock className="w-4 h-4" />Caja Fuerte
               </Link>
             )}
             {showSafe && (
-              <Link to="/manager/earnings" onClick={close} className="px-4 py-3 text-violet-400 hover:bg-slate-800 active:bg-slate-700 text-sm">
-                💹 Ganancias
+              <Link to="/manager/earnings" onClick={close} className="px-4 py-3 flex items-center gap-2 text-violet-400 hover:bg-zinc-800 active:bg-zinc-700 text-sm">
+                <IconTrend className="w-4 h-4" />Ganancias
               </Link>
             )}
-            <button onClick={handleLogout} className="px-4 py-3 text-left text-red-400 hover:bg-slate-800 active:bg-slate-700 text-sm">
-              🚪 {t('nav.logout')}
+            <button onClick={handleLogout} className="px-4 py-3 flex items-center gap-2 text-left text-red-400 hover:bg-zinc-800 active:bg-zinc-700 text-sm">
+              <IconDoor className="w-4 h-4" />{t('nav.logout')}
             </button>
           </div>
         </div>
       )}
 
       {/* Spacer — top */}
-      <div className="h-16" />
+      <div className="h-[57px]" />
     </>
   )
 }

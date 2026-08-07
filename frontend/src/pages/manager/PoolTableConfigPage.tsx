@@ -69,7 +69,7 @@ export default function PoolTableConfigPage() {
           const cur = { ...row, ...edits }
           const dirty = Object.keys(edits).length > 0
           return (
-            <div key={row.resource_id} className="bg-slate-800 rounded-xl p-4">
+            <div key={row.resource_id} className="bg-zinc-800 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="font-bold text-lg">{row.code}</span>
                 {dirty && (
@@ -84,11 +84,11 @@ export default function PoolTableConfigPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Billing Mode</label>
+                  <label className="block text-xs text-zinc-400 mb-1">Billing Mode</label>
                   <select
                     value={cur.billing_mode}
                     onChange={(e) => patch(row.resource_id, 'billing_mode', e.target.value)}
-                    className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm"
+                    className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm"
                   >
                     {BILLING_MODES.map((m) => (
                       <option key={m.value} value={m.value}>{m.label}</option>
@@ -96,26 +96,26 @@ export default function PoolTableConfigPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Rate (pesos / hr)</label>
+                  <label className="block text-xs text-zinc-400 mb-1">Rate (pesos / hr)</label>
                   <input
                     type="number"
                     min={0}
                     value={cur.rate_cents}
                     onChange={(e) => patch(row.resource_id, 'rate_cents', e.target.value)}
-                    className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm"
+                    className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm"
                   />
-                  <div className="text-xs text-slate-500 mt-0.5">
+                  <div className="text-xs text-zinc-500 mt-0.5">
                     = ${(Number(cur.rate_cents) / 100).toFixed(2)} / hr
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Free First Minutes (promo)</label>
+                  <label className="block text-xs text-zinc-400 mb-1">Free First Minutes (promo)</label>
                   <input
                     type="number"
                     min={0}
                     value={cur.promo_free_minutes}
                     onChange={(e) => patch(row.resource_id, 'promo_free_minutes', e.target.value)}
-                    className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm"
+                    className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm"
                   />
                 </div>
               </div>

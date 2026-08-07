@@ -167,7 +167,7 @@ export default function TicketPage() {
   const activeTimer = ticket?.timer_sessions?.find((s: any) => !s.end_time && s.status !== 'CANCELLED')
   const elapsed = useTimer(activeTimer?.start_time)
 
-  if (!ticket) return <div className="p-8 text-center text-slate-400">{t('common.loading')}</div>
+  if (!ticket) return <div className="p-8 text-center text-zinc-400">{t('common.loading')}</div>
 
   const changeQty = async (itemId: string, newQty: number, managerId?: string) => {
     try {
@@ -443,23 +443,23 @@ export default function TicketPage() {
   const liveTotal: number = Math.max(0, liveSubtotal - liveDiscount + livePoolCents)
 
   return (
-    <div className="min-h-screen bg-slate-950 page-root">
+    <div className="min-h-screen bg-zinc-950 page-root">
       <NavBar />
       <div className="max-w-2xl mx-auto p-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <button onClick={() => navigate('/floor')} className="text-sky-400 text-sm">← {t('nav.floor')}</button>
+          <button onClick={() => navigate('/floor')} className="text-zinc-300 text-sm">← {t('nav.floor')}</button>
           <div className="text-center">
             <div className="font-bold text-lg">{resource}</div>
-            <div className="text-xs text-slate-400">Ticket #{ticket.id?.slice(-6).toUpperCase()}</div>
+            <div className="text-xs text-zinc-400">Ticket #{ticket.id?.slice(-6).toUpperCase()}</div>
             {/* Customer name */}
             {ticket.status === 'OPEN' && !editingName && (
               <button
                 onClick={() => { setNameInput(ticket.customer_name || ''); setEditingName(true) }}
                 className="mt-1 text-sm text-yellow-300 hover:text-yellow-100 flex items-center gap-1 mx-auto"
               >
-                👤 {ticket.customer_name || <span className="text-slate-500">+ Agregar nombre</span>}
-                <span className="text-slate-500 text-xs">✏️</span>
+                👤 {ticket.customer_name || <span className="text-zinc-500">+ Agregar nombre</span>}
+                <span className="text-zinc-500 text-xs">✏️</span>
               </button>
             )}
             {ticket.status === 'OPEN' && editingName && (
@@ -469,11 +469,11 @@ export default function TicketPage() {
                   value={nameInput}
                   onChange={e => setNameInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') setEditingName(false) }}
-                  className="bg-slate-700 border border-yellow-500 rounded px-2 py-0.5 text-sm w-32 text-center"
+                  className="bg-zinc-700 border border-yellow-500 rounded px-2 py-0.5 text-sm w-32 text-center"
                   placeholder="Nombre del grupo…"
                 />
                 <button onClick={handleSaveName} className="text-green-400 text-sm font-bold">✓</button>
-                <button onClick={() => setEditingName(false)} className="text-slate-400 text-sm">✕</button>
+                <button onClick={() => setEditingName(false)} className="text-zinc-400 text-sm">✕</button>
               </div>
             )}
             {ticket.status === 'CLOSED' && ticket.customer_name && (
@@ -491,8 +491,8 @@ export default function TicketPage() {
             )}
             {/* Ticket type badges */}
             {ticket.ticket_type === 'EXPRESS' && (
-              <div className="mt-1 inline-flex items-center gap-1 bg-sky-900/50 border border-sky-700 rounded-full px-3 py-0.5">
-                <span className="text-sky-400 text-xs font-semibold">⚡ VENTA RÁPIDA</span>
+              <div className="mt-1 inline-flex items-center gap-1 bg-zinc-800/50 border border-zinc-600 rounded-full px-3 py-0.5">
+                <span className="text-zinc-300 text-xs font-semibold">⚡ VENTA RÁPIDA</span>
               </div>
             )}
             {ticket.ticket_type === 'DELIVERY' && (
@@ -508,14 +508,14 @@ export default function TicketPage() {
             {activeTimer && (
               <div className="text-right">
                 <div className="text-yellow-300 font-mono text-xl">{elapsed}</div>
-                <div className="text-xs text-slate-400">{t('ticket.poolTime')}</div>
+                <div className="text-xs text-zinc-400">{t('ticket.poolTime')}</div>
               </div>
             )}
             <div className="flex gap-2">
               <button
                 onClick={() => thermalPrint(ticket.id)}
                 disabled={printingThermal}
-                className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 px-3 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50"
+                className="flex items-center gap-1 bg-zinc-700 hover:bg-zinc-600 border border-zinc-600 px-3 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50"
               >
                 {printingThermal ? '⏳ Imprimiendo…' : '🖨️ Imprimir'}
               </button>
@@ -524,28 +524,28 @@ export default function TicketPage() {
         </div>
 
         {/* Line Items */}
-        <div className="bg-slate-800 rounded-xl mb-4">
-          <div className="flex items-center justify-between p-3 border-b border-slate-700">
+        <div className="bg-zinc-800 rounded-xl mb-4">
+          <div className="flex items-center justify-between p-3 border-b border-zinc-700">
             <span className="font-semibold text-sm">{t('ticket.items')}</span>
             {ticket.status === 'OPEN' && (
-              <button onClick={() => setShowAddItem(true)} className="bg-sky-600 hover:bg-sky-500 px-3 py-1 rounded-lg text-sm font-semibold">
+              <button onClick={() => setShowAddItem(true)} className="bg-white text-zinc-900 hover:bg-zinc-200 px-3 py-1 rounded-lg text-sm font-semibold">
                 + {t('ticket.addItems')}
               </button>
             )}
           </div>
           {openItems.length === 0 ? (
-            <div className="p-4 text-center text-slate-500 text-sm">{t('ticket.noItems')}</div>
+            <div className="p-4 text-center text-zinc-500 text-sm">{t('ticket.noItems')}</div>
           ) : (
             groupedItems.map((group) => (
-              <div key={group.ids.join(',')} className="flex items-start justify-between p-3 border-b border-slate-700 last:border-0">
+              <div key={group.ids.join(',')} className="flex items-start justify-between p-3 border-b border-zinc-700 last:border-0">
                 <div>
                   <div className="font-medium">{group.quantity}× {group.menu_item_name}</div>
                   {groupModifiers(group.modifiers, group.quantity).map((m) => (
-                    <div key={m.name} className="text-xs text-sky-300 ml-2">
+                    <div key={m.name} className="text-xs text-zinc-200 ml-2">
                       → {m.count > 1 ? `${m.name} ×${m.count}` : m.name}
                     </div>
                   ))}
-                  {group.notes && <div className="text-xs text-slate-400 ml-2 italic">{group.notes}</div>}
+                  {group.notes && <div className="text-xs text-zinc-400 ml-2 italic">{group.notes}</div>}
                   {Array.from(group.promotions.entries())
                     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
                     .map(([name]) => (
@@ -553,7 +553,7 @@ export default function TicketPage() {
                     ))}
                   <div className={`text-xs mt-0.5 ${
                     group.status === 'STAGED' ? 'text-yellow-400' :
-                    group.status === 'SERVED' ? 'text-green-400' : 'text-slate-400'
+                    group.status === 'SERVED' ? 'text-green-400' : 'text-zinc-400'
                   }`}>{group.status}{group.ids.length > 1 ? ` (${group.ids.length})` : ''}</div>
                   {ticket.status === 'OPEN' && (
                     <div className="flex items-center gap-2 mt-1">
@@ -565,12 +565,12 @@ export default function TicketPage() {
                         }}
                         disabled={group.lastQty <= 1}
                         title={group.lastQty > 1 ? 'Reducir cantidad' : 'Usa Anular para quitar este artículo'}
-                        className="w-6 h-6 rounded bg-slate-700 text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed"
+                        className="w-6 h-6 rounded bg-zinc-700 text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed"
                       >−</button>
                       <button
                         onClick={() => changeQty(group.lastId, group.lastQty + 1)}
                         title="Aumentar cantidad"
-                        className="w-6 h-6 rounded bg-slate-700 text-sm font-bold hover:bg-slate-600"
+                        className="w-6 h-6 rounded bg-zinc-700 text-sm font-bold hover:bg-zinc-600"
                       >+</button>
                     </div>
                   )}
@@ -646,7 +646,7 @@ export default function TicketPage() {
                 : (s.charge_cents ?? 0)
 
               return (
-                <div key={s.id} className="bg-slate-800 px-4 py-3 flex items-center justify-between border-t border-yellow-800/50">
+                <div key={s.id} className="bg-zinc-800 px-4 py-3 flex items-center justify-between border-t border-yellow-800/50">
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-white text-base">{s.resource_code}</span>
@@ -654,12 +654,12 @@ export default function TicketPage() {
                         <span className="text-xs bg-green-700 text-green-200 px-1.5 py-0.5 rounded font-medium animate-pulse">● LIVE</span>
                       )}
                     </div>
-                    <div className="text-xs text-slate-400">
+                    <div className="text-xs text-zinc-400">
                       {s.billing_mode === 'PER_MINUTE' ? 'Por minuto' :
                        s.billing_mode === 'ROUND_15' ? 'Redondeado 15 min' : 'Por bloque de hora'}
                       &nbsp;·&nbsp;{cents(s.rate_cents)}/hr
                     </div>
-                    <div className="text-sm text-slate-200 font-mono">
+                    <div className="text-sm text-zinc-200 font-mono">
                       ⏱ {isRunning ? elapsed || durationStr : durationStr}
                     </div>
                   </div>
@@ -667,7 +667,7 @@ export default function TicketPage() {
                     <div className={`font-mono font-bold text-2xl ${isRunning ? 'text-yellow-300' : 'text-yellow-100'}`}>
                       {cents(liveCost)}
                     </div>
-                    <div className="text-xs text-slate-500 mt-0.5">
+                    <div className="text-xs text-zinc-500 mt-0.5">
                       {isRunning ? 'est.' : 'cobrado'}
                     </div>
                   </div>
@@ -692,7 +692,7 @@ export default function TicketPage() {
                   <button
                     onClick={() => decidePromo(p.promotion_id, 'ACCEPTED')}
                     disabled={decidingPromo === p.promotion_id}
-                    className="px-3 py-2 rounded-lg text-sm font-bold bg-amber-500 text-slate-900 disabled:opacity-50">
+                    className="px-3 py-2 rounded-lg text-sm font-bold bg-amber-500 text-zinc-900 disabled:opacity-50">
                     Aplicar
                   </button>
                 </div>
@@ -702,9 +702,9 @@ export default function TicketPage() {
         )}
 
         {/* Totals */}
-        <div className="bg-slate-800 rounded-xl p-4 mb-4 space-y-1.5">
+        <div className="bg-zinc-800 rounded-xl p-4 mb-4 space-y-1.5">
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">{t('ticket.subtotal')} (items)</span>
+            <span className="text-zinc-400">{t('ticket.subtotal')} (items)</span>
             <span className="font-mono">{cents(liveSubtotal)}</span>
           </div>
           {(ticket.manual_discount_pct || 0) > 0 && (
@@ -731,9 +731,9 @@ export default function TicketPage() {
               <span className="font-mono">{cents(livePoolCents)}</span>
             </div>
           )}
-          <div className="flex justify-between items-center font-extrabold border-t border-slate-700 pt-3 mt-2">
+          <div className="flex justify-between items-center font-extrabold border-t border-zinc-700 pt-3 mt-2">
             <span className="text-lg">{t('ticket.total')}</span>
-            <span className="text-sky-400 font-mono text-3xl">{cents(liveTotal)}</span>
+            <span className="text-zinc-300 font-mono text-3xl">{cents(liveTotal)}</span>
           </div>
         </div>
 
@@ -741,8 +741,8 @@ export default function TicketPage() {
         {ticket.status === 'OPEN' && (
           <div className="flex flex-col gap-3">
             {/* Discount quick buttons */}
-            <div className="bg-slate-800 rounded-xl p-3 border border-slate-700">
-              <div className="text-xs text-slate-400 mb-2 font-semibold">{t('ticket.discount_label')}</div>
+            <div className="bg-zinc-800 rounded-xl p-3 border border-zinc-700">
+              <div className="text-xs text-zinc-400 mb-2 font-semibold">{t('ticket.discount_label')}</div>
               <div className="flex flex-wrap gap-2">
                 {[0, 5, 10, 15, 20, 25, 30, 50, 100].map(pct => (
                   <button
@@ -752,10 +752,10 @@ export default function TicketPage() {
                       (ticket.manual_discount_pct || 0) === pct
                         ? pct === 100 ? 'bg-purple-600 text-white ring-2 ring-purple-400' : 'bg-green-600 text-white'
                         : pct === 0
-                          ? 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                          ? 'bg-zinc-700 text-zinc-400 hover:bg-zinc-600'
                           : pct === 100
-                            ? 'bg-slate-700 hover:bg-purple-700 text-purple-300 border border-purple-700'
-                            : 'bg-slate-700 hover:bg-green-700 text-slate-200 hover:text-white'
+                            ? 'bg-zinc-700 hover:bg-purple-700 text-purple-300 border border-purple-700'
+                            : 'bg-zinc-700 hover:bg-green-700 text-zinc-200 hover:text-white'
                     }`}
                   >
                     {pct === 0 ? 'Sin descuento' : pct === 100 ? '🆓 100%' : `${pct}%`}
@@ -763,12 +763,12 @@ export default function TicketPage() {
                 ))}
               </div>
             </div>
-            <button onClick={() => setShowTransfer(true)} className="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-slate-900 rounded-xl font-bold text-lg">🔀 {t('ticket.transfer')}</button>
+            <button onClick={() => setShowTransfer(true)} className="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-zinc-900 rounded-xl font-bold text-lg">🔀 {t('ticket.transfer')}</button>
             {/* Join waiting list — only for floor tables (not pool) and not already queued */}
             {!isPoolTable && !ticket.waiting_list_entry && (
               <button
                 onClick={() => { setWlName(ticket.customer_name || ''); setWlSize(1); setShowJoinWaitlist(true) }}
-                className="w-full py-3 rounded-xl font-bold text-base border border-yellow-700/50 bg-slate-700 hover:bg-yellow-900 text-yellow-300 transition-colors"
+                className="w-full py-3 rounded-xl font-bold text-base border border-yellow-700/50 bg-zinc-700 hover:bg-yellow-900 text-yellow-300 transition-colors"
               >
                 ⏳ Unirse a lista de espera (pool)
               </button>
@@ -786,7 +786,7 @@ export default function TicketPage() {
               className={`w-full py-3 rounded-xl font-bold text-lg transition-colors ${
                 ticket.payment_requested
                   ? 'bg-amber-700 hover:bg-amber-600 text-white'
-                  : 'bg-amber-500 hover:bg-amber-400 text-slate-900'
+                  : 'bg-amber-500 hover:bg-amber-400 text-zinc-900'
               }`}
             >
               🧾 {ticket.payment_requested ? 'Cuenta Solicitada' : 'Pedir Cuenta'}
@@ -848,11 +848,11 @@ export default function TicketPage() {
         )}
 
         {ticket.status === 'CLOSED' && (
-          <div className="bg-slate-800 rounded-xl p-5 text-center space-y-3">
+          <div className="bg-zinc-800 rounded-xl p-5 text-center space-y-3">
             <div className="text-green-400 font-bold text-xl">✓ {t('ticket.status.closed')}</div>
-            <div className="text-slate-300">
+            <div className="text-zinc-300">
               {ticket.payment_type === 'CASH' ? '💵 Efectivo' : ticket.payment_type === 'EXTERNAL' ? '🛵 Rappi (externo)' : '💳 Tarjeta'} &nbsp;·&nbsp;
-              <span className="font-bold text-sky-400">{cents(ticket.total_cents)}</span>
+              <span className="font-bold text-zinc-300">{cents(ticket.total_cents)}</span>
             </div>
             {ticket.edited_after_close && (
               <div className="text-xs text-amber-300 bg-amber-900/30 rounded-lg px-3 py-1.5">
@@ -865,7 +865,7 @@ export default function TicketPage() {
             <button
               onClick={() => thermalPrint(ticket.id)}
               disabled={printingThermal}
-              className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-3 bg-white text-zinc-900 hover:bg-zinc-200 rounded-xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-50"
             >
               🖨️ {printingThermal ? 'Enviando…' : t('ticket.closed.printReceipt')}
             </button>
@@ -873,7 +873,7 @@ export default function TicketPage() {
             {hasPrinted(ticket.id) && (
               <button
                 onClick={() => setShowPinForReprint(ticket.id)}
-                className="w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold text-slate-300 flex items-center justify-center gap-2"
+                className="w-full py-2 bg-zinc-700 hover:bg-zinc-600 rounded-xl text-sm font-semibold text-zinc-300 flex items-center justify-center gap-2"
               >
                 🔄 Reimprimir (PIN)
               </button>
@@ -913,25 +913,25 @@ export default function TicketPage() {
       )}
       {voidQtyPicker && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
-          <div className="bg-slate-800 rounded-2xl border border-slate-600 p-6 w-full max-w-xs">
+          <div className="bg-zinc-800 rounded-2xl border border-zinc-600 p-6 w-full max-w-xs">
             <h3 className="font-bold text-lg mb-1">¿Cuántos anular?</h3>
-            <p className="text-sm text-slate-400 mb-4">{voidQtyPicker.name}</p>
+            <p className="text-sm text-zinc-400 mb-4">{voidQtyPicker.name}</p>
             <div className="flex items-center justify-center gap-6 mb-6">
               <button
                 onClick={() => setVoidQtyPicker(p => p && p.qty > 1 ? { ...p, qty: p.qty - 1 } : p)}
-                className="w-10 h-10 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold"
+                className="w-10 h-10 rounded-full bg-zinc-700 hover:bg-zinc-600 text-xl font-bold"
               >−</button>
               <span className="text-3xl font-mono w-10 text-center">{voidQtyPicker.qty}</span>
               <button
                 onClick={() => setVoidQtyPicker(p => p && p.qty < p.ids.length ? { ...p, qty: p.qty + 1 } : p)}
-                className="w-10 h-10 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold"
+                className="w-10 h-10 rounded-full bg-zinc-700 hover:bg-zinc-600 text-xl font-bold"
               >+</button>
             </div>
-            <p className="text-xs text-slate-500 text-center mb-4">máx: {voidQtyPicker.ids.length}</p>
+            <p className="text-xs text-zinc-500 text-center mb-4">máx: {voidQtyPicker.ids.length}</p>
             <div className="flex gap-3">
               <button
                 onClick={() => setVoidQtyPicker(null)}
-                className="flex-1 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm"
+                className="flex-1 py-2 rounded-xl bg-zinc-700 hover:bg-zinc-600 text-sm"
               >Cancelar</button>
               <button
                 onClick={() => {
@@ -969,7 +969,7 @@ export default function TicketPage() {
       {/* Void reason modal — replaces browser prompt() */}
       {showVoidReason && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80] p-4">
-          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 p-5 space-y-4">
+          <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-zinc-600 p-5 space-y-4">
             <div>
               <h2 className="font-bold text-lg">Motivo de Anulación</h2>
               <p className="text-sm text-red-400 mt-0.5">
@@ -983,12 +983,12 @@ export default function TicketPage() {
               onChange={(e) => setVoidReason(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') confirmVoid() }}
               placeholder="Motivo (opcional)"
-              className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm"
+              className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm"
             />
             <div className="flex gap-3">
               <button
                 onClick={() => { setShowVoidReason(null); setVoidReason('') }}
-                className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-bold"
+                className="flex-1 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-xl text-sm font-bold"
               >Cancelar</button>
               <button
                 onClick={confirmVoid}
@@ -1009,11 +1009,11 @@ export default function TicketPage() {
 
       {showPayment && (
         <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
-          <div className="bg-slate-800 rounded-t-2xl sm:rounded-2xl w-full max-w-sm border border-slate-600 flex flex-col max-h-[92dvh] sm:max-h-[90vh]">
+          <div className="bg-zinc-800 rounded-t-2xl sm:rounded-2xl w-full max-w-sm border border-zinc-600 flex flex-col max-h-[92dvh] sm:max-h-[90vh]">
             {/* Sticky header */}
-            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-700 shrink-0">
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-zinc-700 shrink-0">
               <h2 className="font-bold text-lg">{t('payment.title')}</h2>
-              <button onClick={() => setShowPayment(false)} className="text-slate-400 hover:text-white text-xl px-1">✕</button>
+              <button onClick={() => setShowPayment(false)} className="text-zinc-400 hover:text-white text-xl px-1">✕</button>
             </div>
 
             {/* Scrollable body */}
@@ -1030,8 +1030,8 @@ export default function TicketPage() {
 
               return (
                 <>
-                  <div className="bg-slate-900 rounded-xl p-3 mb-4 space-y-1.5 text-sm">
-                    <div className="flex justify-between text-slate-300">
+                  <div className="bg-zinc-900 rounded-xl p-3 mb-4 space-y-1.5 text-sm">
+                    <div className="flex justify-between text-zinc-300">
                       <span>{t('payment.items')}</span>
                       <span className="font-mono">{cents(liveSubtotal)}</span>
                     </div>
@@ -1047,7 +1047,7 @@ export default function TicketPage() {
                         <span className="font-mono">{cents(livePoolCents)}</span>
                       </div>
                     )}
-                    <div className={`flex justify-between font-bold border-t border-slate-700 pt-2 ${liveTip > 0 ? 'text-slate-300 text-base' : 'text-xl text-sky-400'}`}>
+                    <div className={`flex justify-between font-bold border-t border-zinc-700 pt-2 ${liveTip > 0 ? 'text-zinc-300 text-base' : 'text-xl text-zinc-300'}`}>
                       <span>{t('payment.subtotal')}</span>
                       <span className="font-mono">{cents(liveTotal)}</span>
                     </div>
@@ -1057,7 +1057,7 @@ export default function TicketPage() {
                           <span>💝 {t('payment.tip')}{tipMode === 'pct' && tipPct ? ` (${tipPct}%)` : ''}</span>
                           <span className="font-mono">+{cents(liveTip)}</span>
                         </div>
-                        <div className="flex justify-between font-extrabold text-xl text-sky-400 border-t border-slate-700 pt-2">
+                        <div className="flex justify-between font-extrabold text-xl text-zinc-300 border-t border-zinc-700 pt-2">
                           <span>{t('payment.grandTotal')}</span>
                           <span className="font-mono">{cents(grandTotal)}</span>
                         </div>
@@ -1070,7 +1070,7 @@ export default function TicketPage() {
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     {(['CASH', 'CARD'] as const).map((pt) => (
                       <button key={pt} onClick={() => { setPaymentType(pt); setSplitPayment(false); setTendered2(''); setTipSource(pt) }}
-                        className={`py-3 rounded-xl font-bold border-2 ${paymentType === pt && !splitPayment ? 'bg-sky-600 border-sky-400' : 'bg-slate-700 border-slate-600'}`}>
+                        className={`py-3 rounded-xl font-bold border-2 ${paymentType === pt && !splitPayment ? 'bg-white border-zinc-500 text-zinc-900' : 'bg-zinc-700 border-zinc-600'}`}>
                         {pt === 'CASH' ? t('payment.cash') : t('payment.card')}
                       </button>
                     ))}
@@ -1087,7 +1087,7 @@ export default function TicketPage() {
                         setTipSource('CASH')   // reset when going back to single
                       }
                     }}
-                    className={`w-full py-2 rounded-lg text-sm font-semibold border-2 transition-colors mb-4 ${splitPayment ? 'bg-purple-700 border-purple-400 text-white' : 'bg-slate-700 border-slate-600 text-slate-300'}`}
+                    className={`w-full py-2 rounded-lg text-sm font-semibold border-2 transition-colors mb-4 ${splitPayment ? 'bg-purple-700 border-purple-400 text-white' : 'bg-zinc-700 border-zinc-600 text-zinc-300'}`}
                   >
                     ➕ {splitPayment ? '✓ Pago Dividido (Efectivo + Tarjeta)' : 'Dividir Pago (Efectivo + Tarjeta)'}
                   </button>
@@ -1100,20 +1100,20 @@ export default function TicketPage() {
                       <div className="mb-4 bg-purple-900/30 border border-purple-700 rounded-xl p-3 space-y-2">
                         <div className="text-xs text-purple-300 font-semibold mb-2">División de Pago — Total: {cents(grandTotal)}</div>
                         <div>
-                          <label className="text-xs text-slate-400 block mb-1">💵 Efectivo recibido</label>
+                          <label className="text-xs text-zinc-400 block mb-1">💵 Efectivo recibido</label>
                           <input type="number" value={tendered2}
                             onChange={e => {
                               setTendered2(e.target.value)
                               setTendered(e.target.value) // keep primary tendered in sync
                             }}
-                            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono"
+                            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 font-mono"
                             placeholder="0.00"
                             autoFocus
                           />
                         </div>
-                        <div className="flex justify-between items-center bg-slate-800 rounded-lg px-3 py-2">
-                          <span className="text-sm text-slate-400">💳 Tarjeta (resto)</span>
-                          <span className={`font-mono font-bold text-base ${cardAmt > 0 ? 'text-sky-300' : 'text-green-400'}`}>{cents(cardAmt)}</span>
+                        <div className="flex justify-between items-center bg-zinc-800 rounded-lg px-3 py-2">
+                          <span className="text-sm text-zinc-400">💳 Tarjeta (resto)</span>
+                          <span className={`font-mono font-bold text-base ${cardAmt > 0 ? 'text-zinc-200' : 'text-green-400'}`}>{cents(cardAmt)}</span>
                         </div>
                         {cashAmt > grandTotal && (
                           <div className="text-xs text-amber-400">⚠ El efectivo supera el total — el resto se devuelve como cambio</div>
@@ -1123,8 +1123,8 @@ export default function TicketPage() {
                   })()}
 
                   {/* Tip section */}
-                  <div className="mb-4 bg-slate-700/50 rounded-xl p-3">
-                    <div className="text-sm text-slate-400 mb-2 font-semibold">💝 {t('payment.tip')}</div>
+                  <div className="mb-4 bg-zinc-700/50 rounded-xl p-3">
+                    <div className="text-sm text-zinc-400 mb-2 font-semibold">💝 {t('payment.tip')}</div>
                     <div className="flex gap-2 mb-2">
                       {[10, 15, 20].map(pct => {
                         const amt = Math.round(liveTotal * pct / 100)
@@ -1139,14 +1139,14 @@ export default function TicketPage() {
                                 setTendered(((liveTotal + newTip) / 100).toFixed(2))
                               }
                             }}
-                            className={`flex-1 py-2 rounded-lg text-sm font-bold border-2 ${isSelected ? 'bg-amber-600 border-amber-400' : 'bg-slate-700 border-slate-600'}`}>
+                            className={`flex-1 py-2 rounded-lg text-sm font-bold border-2 ${isSelected ? 'bg-amber-600 border-amber-400' : 'bg-zinc-700 border-zinc-600'}`}>
                             {pct}%<br/><span className="text-xs font-normal">{cents(amt)}</span>
                           </button>
                         )
                       })}
                       <button
                         onClick={() => { setTipMode('fixed'); setTipPct(null) }}
-                        className={`flex-1 py-2 rounded-lg text-sm font-bold border-2 ${tipMode === 'fixed' ? 'bg-amber-600 border-amber-400' : 'bg-slate-700 border-slate-600'}`}>
+                        className={`flex-1 py-2 rounded-lg text-sm font-bold border-2 ${tipMode === 'fixed' ? 'bg-amber-600 border-amber-400' : 'bg-zinc-700 border-zinc-600'}`}>
                         {t('payment.other')}
                       </button>
                     </div>
@@ -1159,20 +1159,20 @@ export default function TicketPage() {
                             setTendered(((liveTotal + fixedTip) / 100).toFixed(2))
                           }
                         }}
-                        className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono text-sm"
+                        className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 font-mono text-sm"
                         placeholder="Cantidad de propina ($)" />
                     )}
                     {liveTip === 0 && (
-                      <div className="text-xs text-slate-500 mt-1">{t('payment.noTip')}</div>
+                      <div className="text-xs text-zinc-500 mt-1">{t('payment.noTip')}</div>
                     )}
                     {/* Tip source — always show when tip > 0 */}
                     {liveTip > 0 && (
-                      <div className="mt-3 pt-3 border-t border-slate-600">
-                        <div className="text-xs text-slate-400 mb-2">¿La propina es en…?</div>
+                      <div className="mt-3 pt-3 border-t border-zinc-600">
+                        <div className="text-xs text-zinc-400 mb-2">¿La propina es en…?</div>
                         <div className="flex gap-2">
                           {(['CASH','CARD','SPLIT'] as const).map(src => (
                             <button key={src} onClick={() => { setTipSource(src); setSplitTipCash(''); setSplitTipCard('') }}
-                              className={`flex-1 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${tipSource === src ? 'bg-amber-700 border-amber-500 text-white' : 'bg-slate-700 border-slate-600 text-slate-300'}`}>
+                              className={`flex-1 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${tipSource === src ? 'bg-amber-700 border-amber-500 text-white' : 'bg-zinc-700 border-zinc-600 text-zinc-300'}`}>
                               {src === 'CASH' ? '💵 Efectivo' : src === 'CARD' ? '💳 Tarjeta' : '½ Ambos'}
                             </button>
                           ))}
@@ -1181,9 +1181,9 @@ export default function TicketPage() {
                         {/* Split tip amount inputs */}
                         {tipSource === 'SPLIT' && (
                           <div className="mt-3 space-y-2">
-                            <div className="text-xs text-slate-400 mb-1">Especifica cuánto de cada tipo:</div>
+                            <div className="text-xs text-zinc-400 mb-1">Especifica cuánto de cada tipo:</div>
                             <div className="flex gap-2 items-center">
-                              <label className="text-xs text-slate-400 w-20 shrink-0">💵 Efectivo</label>
+                              <label className="text-xs text-zinc-400 w-20 shrink-0">💵 Efectivo</label>
                               <input
                                 type="number"
                                 min="0"
@@ -1196,12 +1196,12 @@ export default function TicketPage() {
                                   const cardCents = Math.max(0, liveTip - cashCents)
                                   setSplitTipCard((cardCents / 100).toFixed(2))
                                 }}
-                                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 font-mono text-sm"
+                                className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-1.5 font-mono text-sm"
                                 placeholder="0.00"
                               />
                             </div>
                             <div className="flex gap-2 items-center">
-                              <label className="text-xs text-slate-400 w-20 shrink-0">💳 Tarjeta</label>
+                              <label className="text-xs text-zinc-400 w-20 shrink-0">💳 Tarjeta</label>
                               <input
                                 type="number"
                                 min="0"
@@ -1214,7 +1214,7 @@ export default function TicketPage() {
                                   const cashCents = Math.max(0, liveTip - cardCents)
                                   setSplitTipCash((cashCents / 100).toFixed(2))
                                 }}
-                                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 font-mono text-sm"
+                                className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-1.5 font-mono text-sm"
                                 placeholder="0.00"
                               />
                             </div>
@@ -1241,21 +1241,21 @@ export default function TicketPage() {
 
                   {paymentType === 'CASH' && !splitPayment && (
                     <div className="mb-4">
-                      <label className="text-sm text-slate-400 block mb-1">
-                        {t('payment.amountTendered')} <span className="text-xs text-slate-500">{t('payment.includesTip')}</span>
+                      <label className="text-sm text-zinc-400 block mb-1">
+                        {t('payment.amountTendered')} <span className="text-xs text-zinc-500">{t('payment.includesTip')}</span>
                       </label>
                       <input
                         type="number"
                         value={tendered}
                         onChange={(e) => setTendered(e.target.value)}
-                        className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-lg font-mono"
+                        className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-4 py-2 text-lg font-mono"
                         placeholder={(grandTotal / 100).toFixed(2)}
                       />
                       {/* Quick exact buttons */}
                       <div className="flex gap-2 mt-2">
                         {[grandTotal, ...([5,10,20,50,100].map(b => b * 100).filter(b => b > grandTotal).slice(0,3))].map((amt, i) => (
                           <button key={i} onClick={() => setTendered((amt / 100).toFixed(2))}
-                            className="flex-1 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-mono">
+                            className="flex-1 py-1 bg-zinc-700 hover:bg-zinc-600 rounded-lg text-xs font-mono">
                             ${(amt / 100).toFixed(2)}
                           </button>
                         ))}
@@ -1276,11 +1276,11 @@ export default function TicketPage() {
                   ) : (
                     /* Review step — static recap before charging, no live-editable controls */
                     <div className="space-y-3">
-                      <div className="bg-slate-900 rounded-xl p-4 space-y-3">
-                        <div className="text-xs text-slate-400 uppercase font-semibold">Revisa antes de cobrar</div>
+                      <div className="bg-zinc-900 rounded-xl p-4 space-y-3">
+                        <div className="text-xs text-zinc-400 uppercase font-semibold">Revisa antes de cobrar</div>
 
                         <div className="flex justify-between items-center">
-                          <span className="text-slate-300">Método de pago</span>
+                          <span className="text-zinc-300">Método de pago</span>
                           <span className="font-bold">
                             {splitPayment ? '➕ Dividido (Efectivo + Tarjeta)' : paymentType === 'CASH' ? '💵 Efectivo' : '💳 Tarjeta'}
                           </span>
@@ -1291,15 +1291,15 @@ export default function TicketPage() {
                           const cardAmt = Math.max(0, grandTotal - cashAmt)
                           return (
                             <div className="pl-3 border-l-2 border-purple-700 space-y-1 text-sm">
-                              <div className="flex justify-between text-slate-300"><span>💵 Efectivo</span><span className="font-mono">{cents(cashAmt)}</span></div>
-                              <div className="flex justify-between text-slate-300"><span>💳 Tarjeta</span><span className="font-mono">{cents(cardAmt)}</span></div>
+                              <div className="flex justify-between text-zinc-300"><span>💵 Efectivo</span><span className="font-mono">{cents(cashAmt)}</span></div>
+                              <div className="flex justify-between text-zinc-300"><span>💳 Tarjeta</span><span className="font-mono">{cents(cardAmt)}</span></div>
                             </div>
                           )
                         })()}
 
                         {!splitPayment && paymentType === 'CASH' && (
-                          <div className="pl-3 border-l-2 border-slate-700 space-y-1 text-sm">
-                            <div className="flex justify-between text-slate-300"><span>Recibido</span><span className="font-mono">{cents(tenderedCents)}</span></div>
+                          <div className="pl-3 border-l-2 border-zinc-700 space-y-1 text-sm">
+                            <div className="flex justify-between text-zinc-300"><span>Recibido</span><span className="font-mono">{cents(tenderedCents)}</span></div>
                             <div className={`flex justify-between font-semibold ${change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                               <span>{change >= 0 ? 'Cambio' : 'Falta'}</span>
                               <span className="font-mono">{cents(Math.abs(change))}</span>
@@ -1307,20 +1307,20 @@ export default function TicketPage() {
                           </div>
                         )}
 
-                        <div className="flex justify-between items-center pt-2 border-t border-slate-700">
-                          <span className="text-slate-300">Propina</span>
+                        <div className="flex justify-between items-center pt-2 border-t border-zinc-700">
+                          <span className="text-zinc-300">Propina</span>
                           <span className="font-bold text-amber-400">
                             {liveTip > 0 ? `${cents(liveTip)} — ${tipSource === 'CASH' ? '💵 Efectivo' : tipSource === 'CARD' ? '💳 Tarjeta' : '½ Ambos'}` : 'Sin propina'}
                           </span>
                         </div>
 
-                        <div className="flex justify-between items-center pt-3 border-t border-slate-700">
+                        <div className="flex justify-between items-center pt-3 border-t border-zinc-700">
                           <span className="font-bold text-lg">Total a cobrar</span>
-                          <span className="font-mono font-extrabold text-3xl text-sky-400">{cents(grandTotal)}</span>
+                          <span className="font-mono font-extrabold text-3xl text-zinc-300">{cents(grandTotal)}</span>
                         </div>
                       </div>
 
-                      <div className="text-xs text-slate-500 text-center">Confirma que todo esté correcto antes de cobrar.</div>
+                      <div className="text-xs text-zinc-500 text-center">Confirma que todo esté correcto antes de cobrar.</div>
                     </div>
                   )}
 
@@ -1357,19 +1357,19 @@ export default function TicketPage() {
               }
 
               return (
-                <div className="px-5 py-4 border-t border-slate-700 shrink-0 flex gap-3 bg-slate-800 rounded-b-2xl">
+                <div className="px-5 py-4 border-t border-zinc-700 shrink-0 flex gap-3 bg-zinc-800 rounded-b-2xl">
                   {paymentStep === 'configure' ? (
                     <>
-                      <button onClick={() => setShowPayment(false)} className="flex-1 py-3 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700 font-semibold">
+                      <button onClick={() => setShowPayment(false)} className="flex-1 py-3 border border-zinc-600 rounded-xl text-zinc-300 hover:bg-zinc-700 font-semibold">
                         {t('payment.cancel')}
                       </button>
-                      <button onClick={handleReview} className="flex-1 py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-lg">
+                      <button onClick={handleReview} className="flex-1 py-3 bg-white text-zinc-900 hover:bg-zinc-200 rounded-xl font-bold text-lg">
                         Revisar →
                       </button>
                     </>
                   ) : (
                     <>
-                      <button onClick={() => setPaymentStep('configure')} className="flex-1 py-3 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700 font-semibold">
+                      <button onClick={() => setPaymentStep('configure')} className="flex-1 py-3 border border-zinc-600 rounded-xl text-zinc-300 hover:bg-zinc-700 font-semibold">
                         ← Editar
                       </button>
                       <button onClick={handleClose} disabled={closingLoading} className="flex-1 py-3 bg-green-600 hover:bg-green-500 rounded-xl font-extrabold text-xl disabled:opacity-50">
@@ -1387,25 +1387,25 @@ export default function TicketPage() {
       {/* ── Ticket Closed Overlay ─────────────────────────────────────────── */}
       {closedTicket && (
         <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-[60] p-4">
-          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-green-700 shadow-2xl shadow-green-900/40 overflow-hidden">
+          <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-green-700 shadow-2xl shadow-green-900/40 overflow-hidden">
             <div className="bg-green-700/30 p-6 text-center border-b border-green-700">
               <img src="/logo.jpg" alt="Bola 8 Pool Club" className="w-20 h-20 rounded-full object-cover mx-auto mb-3 border-2 border-green-500 shadow-lg" />
               <div className="text-2xl font-extrabold text-green-400">{t('ticket.closed.title')}</div>
-              <div className="text-slate-300 text-sm mt-1">#{closedTicket.id?.slice(-6).toUpperCase()}</div>
+              <div className="text-zinc-300 text-sm mt-1">#{closedTicket.id?.slice(-6).toUpperCase()}</div>
             </div>
             <div className="p-5 space-y-3">
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">{t('ticket.closed.table')}</span>
+                <span className="text-zinc-400">{t('ticket.closed.table')}</span>
                 <span className="font-semibold">{closedTicket.resource_code}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">{t('ticket.closed.payment')}</span>
+                <span className="text-zinc-400">{t('ticket.closed.payment')}</span>
                 <span className="font-semibold">
                   {closedTicket.payment_type === 'CASH' ? t('payment.cash') : t('payment.card')}
                   {closedTicket.payment_type_2 && ` + ${closedTicket.payment_type_2 === 'CASH' ? t('payment.cash') : t('payment.card')}`}
                 </span>
               </div>
-              <div className="flex justify-between text-lg font-bold border-t border-slate-700 pt-3">
+              <div className="flex justify-between text-lg font-bold border-t border-zinc-700 pt-3">
                 <span>{t('ticket.closed.total')}</span>
                 <span className="text-green-400">{cents(closedTicket.total_cents)}</span>
               </div>
@@ -1434,7 +1434,7 @@ export default function TicketPage() {
               <button
                 onClick={() => thermalPrint(closedTicket.id)}
                 disabled={printingThermal}
-                className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 bg-white text-zinc-900 hover:bg-zinc-200 rounded-xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 🖨️ {printingThermal ? 'Enviando…' : t('ticket.closed.printReceipt')}
               </button>
@@ -1442,14 +1442,14 @@ export default function TicketPage() {
               {hasPrinted(closedTicket.id) && (
                 <button
                   onClick={() => setShowPinForReprint(closedTicket.id)}
-                  className="w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold text-slate-300 flex items-center justify-center gap-2"
+                  className="w-full py-2 bg-zinc-700 hover:bg-zinc-600 rounded-xl text-sm font-semibold text-zinc-300 flex items-center justify-center gap-2"
                 >
                   🔄 Reimprimir (PIN)
                 </button>
               )}
               <button
                 onClick={() => navigate('/floor')}
-                className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-semibold text-base"
+                className="w-full py-3 bg-zinc-700 hover:bg-zinc-600 rounded-xl font-semibold text-base"
               >
                 {t('ticket.closed.backToFloor')}
               </button>
@@ -1461,34 +1461,34 @@ export default function TicketPage() {
       {/* Join Waiting List Modal */}
       {showJoinWaitlist && (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-[60] p-4">
-          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
-            <div className="p-5 border-b border-slate-700">
+          <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-zinc-600 shadow-xl">
+            <div className="p-5 border-b border-zinc-700">
               <h2 className="text-lg font-bold">⏳ Lista de Espera — Pool</h2>
-              <p className="text-slate-400 text-sm mt-1">Agrega esta mesa a la cola para mesa de billar.</p>
+              <p className="text-zinc-400 text-sm mt-1">Agrega esta mesa a la cola para mesa de billar.</p>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Nombre</label>
+                <label className="text-xs text-zinc-400 block mb-1">Nombre</label>
                 <input value={wlName} onChange={e => setWlName(e.target.value)}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-lg"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-lg"
                   placeholder={ticket.customer_name || ticket.resource_code} autoFocus />
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Personas</label>
+                <label className="text-xs text-zinc-400 block mb-1">Personas</label>
                 <div className="flex gap-2">
                   {[1,2,3,4,5,6].map(n => (
                     <button key={n} onClick={() => setWlSize(n)}
-                      className={`flex-1 py-2 rounded-lg border text-sm font-bold ${wlSize === n ? 'bg-sky-700 border-sky-500 text-white' : 'bg-slate-700 border-slate-600 text-slate-300'}`}>{n}</button>
+                      className={`flex-1 py-2 rounded-lg border text-sm font-bold ${wlSize === n ? 'bg-zinc-700 border-zinc-400 text-white' : 'bg-zinc-700 border-zinc-600 text-zinc-300'}`}>{n}</button>
                   ))}
                 </div>
               </div>
-              <div className="bg-sky-900/30 border border-sky-700/50 rounded-xl p-3 text-xs text-sky-300">
+              <div className="bg-zinc-800/30 border border-zinc-600/50 rounded-xl p-3 text-xs text-zinc-200">
                 🪑 Quedarán en <span className="font-bold">{ticket.resource_code}</span> mientras esperan una mesa de pool.
               </div>
             </div>
-            <div className="flex gap-3 p-5 border-t border-slate-700">
+            <div className="flex gap-3 p-5 border-t border-zinc-700">
               <button onClick={() => setShowJoinWaitlist(false)}
-                className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700">Cancelar</button>
+                className="flex-1 py-2.5 border border-zinc-600 rounded-xl text-zinc-300 hover:bg-zinc-700">Cancelar</button>
               <button onClick={handleJoinWaitlist} disabled={wlJoining}
                 className="flex-1 py-2.5 bg-yellow-600 hover:bg-yellow-500 text-black font-bold rounded-xl disabled:opacity-50">
                 {wlJoining ? 'Agregando…' : 'Agregar ⏳'}</button>

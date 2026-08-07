@@ -122,8 +122,12 @@ def seed():
             ('Boneless Chicken', 'portion', 50),
             ('Chicken Tenders (raw)', 'portion', 50),
         ]
+        unit_map = {
+            'bottle': 'botella', 'shot': 'caballito', 'can': 'lata',
+            'serving': 'porcion', 'ml': 'ml', 'unit': 'pieza',
+        }
         for name, unit, qty in inventory_items_data:
-            inv = InventoryItem(name=name, unit=unit, quantity=qty)
+            inv = InventoryItem(name=name, base_unit_key=unit_map.get(unit, 'pieza'), stock_quantity=qty)
             db.session.add(inv)
             inv_map[name] = inv
         db.session.flush()

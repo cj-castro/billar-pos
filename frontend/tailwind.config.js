@@ -4,13 +4,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Semantic aliases for DESIGN.md's signal-color system — state meaning
-        // stays consistent even when someone reaches for a token instead of
-        // picking a shade of the underlying Tailwind palette by hand.
+        // Semantic aliases for DESIGN.md's Monochrome Crest system — state
+        // meaning stays consistent even when someone reaches for a token
+        // instead of picking a shade of the underlying palette by hand.
+        // No primary "interactive" hue: white/paper carries interactivity,
+        // color is reserved for state only (see DESIGN.md's Color Discipline).
         signal: {
-          blue: '#0284c7',
-          'blue-bright': '#0ea5e9',
-          'blue-text': '#38bdf8',
           green: '#16a34a',
           'green-bright': '#22c55e',
           'green-text': '#4ade80',
@@ -22,6 +21,9 @@ export default {
           emerald: '#059669',
           violet: '#7c3aed',
         },
+      },
+      fontFamily: {
+        display: ['Archivo', 'system-ui', 'sans-serif'],
       },
       keyframes: {
         shake: {

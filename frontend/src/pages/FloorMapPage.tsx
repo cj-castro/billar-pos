@@ -6,6 +6,8 @@ import NavBar from '../components/NavBar'
 import ResourceCard from '../components/ResourceCard'
 import WaitingListPanel from '../components/WaitingListPanel'
 import Modal from '../components/Modal'
+import SectionHead from '../components/SectionHead'
+import { IconLock, IconSpark, IconPin, IconClock, IconPrinter, IconReceipt } from '../components/Icon'
 import { useFloorStore } from '../stores/floorStore'
 import { useAuthStore } from '../stores/authStore'
 import { useEscKey } from '../hooks/useEscKey'
@@ -232,7 +234,7 @@ export default function FloorMapPage() {
   const isFloating = (r: typeof resources[0]) => (r as any).is_temp === true
 
   return (
-    <div className="min-h-screen bg-slate-950 page-root">
+    <div className="min-h-screen bg-zinc-950 page-root">
       <NavBar />
       <div className="p-4 max-w-5xl mx-auto">
 
@@ -240,7 +242,7 @@ export default function FloorMapPage() {
         {!barOpen && (
           <div className="mb-4 bg-red-900/60 border border-red-600 rounded-xl px-4 py-3 flex items-center justify-between">
             <div>
-              <span className="font-bold text-red-300">🔒 Bar Cerrado</span>
+              <span className="font-bold text-red-300 inline-flex items-center gap-1.5"><IconLock className="w-4 h-4" />Bar Cerrado</span>
               <span className="text-red-400 text-sm ml-2">No se pueden abrir tickets hasta que un gerente inicie la caja.</span>
             </div>
             {isManager && (
@@ -253,7 +255,7 @@ export default function FloorMapPage() {
 
         {/* Floor action bar */}
         <div className="flex items-center justify-between mb-4">
-          <span className="text-slate-400 text-sm">
+          <span className="text-zinc-400 text-sm">
             {resources.filter(r => r.status === 'IN_USE').length} en uso
             &nbsp;·&nbsp;
             {resources.filter(r => r.status === 'AVAILABLE').length} disponible(s)
@@ -262,7 +264,7 @@ export default function FloorMapPage() {
 
         {/* Pool Tables */}
         <div className="mb-6">
-          <h2 className="text-xl font-extrabold text-slate-300 mb-3 uppercase tracking-wide">🎱 {t('floor.poolTables')}</h2>
+          <SectionHead color="text-zinc-400">{t('floor.poolTables')}</SectionHead>
           <div className="flex flex-wrap gap-3">
             {poolTables.map((r) => (
               <ResourceCard key={r.id} resource={r} onOpenNew={handleOpenNew} barOpen={barOpen} isWaitingPool={seatedResourceIds.has(r.id)} />
@@ -275,13 +277,11 @@ export default function FloorMapPage() {
 
         {/* Regular Tables */}
         <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xl font-extrabold text-slate-300 uppercase tracking-wide">🪑 {t('floor.floorTables')}</h2>
-          </div>
+          <SectionHead color="text-zinc-400">{t('floor.floorTables')}</SectionHead>
           {isManager && (
             <button
               onClick={() => setShowAddTable(true)}
-              className="flex items-center gap-2 bg-sky-700 hover:bg-sky-600 px-4 py-2 rounded-xl text-sm font-semibold mb-3"
+              className="flex items-center gap-2 bg-zinc-700 hover:bg-white hover:text-zinc-900 px-4 py-2 rounded-xl text-sm font-semibold mb-3"
             >
               + Mesa Flotante
             </button>
@@ -304,7 +304,7 @@ export default function FloorMapPage() {
 
         {/* Bar Seats */}
         <div className="mb-6">
-          <h2 className="text-xl font-extrabold text-slate-300 mb-3 uppercase tracking-wide">🍺 {t('floor.barSeats')}</h2>
+          <SectionHead color="text-zinc-400">{t('floor.barSeats')}</SectionHead>
           <div className="flex flex-wrap gap-3">
             {barSeats.map((r) => (
               <div key={r.id} className="relative group">
@@ -326,25 +326,25 @@ export default function FloorMapPage() {
           <button
             onClick={() => { setExpressName(''); setShowExpressModal(true) }}
             disabled={!barOpen}
-            className="flex items-center gap-2 bg-sky-700 hover:bg-sky-600 disabled:opacity-40 px-5 py-3 rounded-xl font-semibold text-sm"
+            className="flex items-center gap-2 bg-zinc-700 hover:bg-white hover:text-zinc-900 disabled:opacity-40 px-5 py-3 rounded-xl font-semibold text-sm"
           >
-            ⚡ Venta Rápida
+            <IconSpark className="w-4 h-4" />Venta Rápida
           </button>
           <button
             onClick={() => { setRappiOrderId(''); setRappiName(''); setShowRappiModal(true) }}
             disabled={!barOpen}
             className="flex items-center gap-2 bg-orange-700 hover:bg-orange-600 disabled:opacity-40 px-5 py-3 rounded-xl font-semibold text-sm"
           >
-            🛵 Orden Rappi
+            <IconPin className="w-4 h-4" />Orden Rappi
           </button>
         </div>
 
         {/* Active Express & Rappi tickets lane */}
         {(activeExpressTickets as any[]).length > 0 && (
           <div className="mb-6">
-            <h2 className="text-xl font-extrabold text-sky-400 mb-3 uppercase tracking-wide flex items-center gap-2">
+            <h2 className="text-xl font-extrabold text-zinc-300 mb-3 uppercase tracking-wide flex items-center gap-2">
               ⚡ Ventas Activas
-              <span className="bg-sky-800 text-sky-200 text-xs px-2 py-0.5 rounded-full">
+              <span className="bg-zinc-800 text-zinc-100 text-xs px-2 py-0.5 rounded-full">
                 {(activeExpressTickets as any[]).length}
               </span>
             </h2>
@@ -361,10 +361,10 @@ export default function FloorMapPage() {
                     className={`text-left rounded-2xl p-4 min-w-[160px] max-w-[200px] border-2 transition-colors ${
                       isRappi
                         ? 'bg-orange-900/40 border-orange-600 hover:bg-orange-900/70'
-                        : 'bg-sky-900/40 border-sky-600 hover:bg-sky-900/70'
+                        : 'bg-zinc-800/40 border-white hover:bg-zinc-800/70'
                     }`}
                   >
-                    <div className={`text-xs font-semibold mb-1 ${isRappi ? 'text-orange-400' : 'text-sky-400'}`}>
+                    <div className={`text-xs font-semibold mb-1 ${isRappi ? 'text-orange-400' : 'text-zinc-300'}`}>
                       {isRappi ? '🛵 RAPPI' : '⚡ VENTA RÁPIDA'}
                     </div>
                     <div className="font-bold text-white text-sm truncate">
@@ -379,7 +379,7 @@ export default function FloorMapPage() {
                       <span className="text-xs font-mono font-bold text-white">
                         ${((t.total_cents || 0) / 100).toFixed(2)}
                       </span>
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-zinc-400">
                         {elapsed < 1 ? 'ahora' : `${elapsed}m`}
                       </span>
                     </div>
@@ -477,14 +477,14 @@ export default function FloorMapPage() {
       {/* ── Add Floating Table Modal ─────────────────────────────────────────── */}
       {showAddTable && (
         <Modal>
-          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
-            <div className="p-5 border-b border-slate-700">
+          <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-zinc-600 shadow-xl">
+            <div className="p-5 border-b border-zinc-700">
               <h2 className="text-lg font-bold">Agregar Mesa Flotante</h2>
-              <p className="text-slate-400 text-sm mt-1">El código se asignará automáticamente</p>
+              <p className="text-zinc-400 text-sm mt-1">El código se asignará automáticamente</p>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Tipo</label>
+                <label className="text-xs text-zinc-400 block mb-1">Tipo</label>
                 <div className="grid grid-cols-2 gap-2">
                   {[
                     { value: 'REGULAR_TABLE', label: '🪑 Mesa Regular' },
@@ -495,19 +495,19 @@ export default function FloorMapPage() {
                       onClick={() => setNewTable({ ...newTable, type: opt.value })}
                       className={`py-2 rounded-lg border text-sm font-medium transition-colors ${
                         newTable.type === opt.value
-                          ? 'bg-sky-700 border-sky-500 text-white'
-                          : 'bg-slate-700 border-slate-600 text-slate-300'
+                          ? 'bg-zinc-700 border-zinc-400 text-white'
+                          : 'bg-zinc-700 border-zinc-600 text-zinc-300'
                       }`}
                     >{opt.label}</button>
                   ))}
                 </div>
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Nombre de Exhibición *</label>
+                <label className="text-xs text-zinc-400 block mb-1">Nombre de Exhibición *</label>
                 <input
                   value={newTable.name}
                   onChange={e => setNewTable({ ...newTable, name: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                   placeholder="p.ej. Mesa Terraza o Juan García"
                   autoFocus
                 />
@@ -518,18 +518,18 @@ export default function FloorMapPage() {
                 const nums = resources.filter(r => r.type === newTable.type && r.code?.startsWith(prefix))
                   .map(r => parseInt(r.code.slice(prefix.length), 10)).filter(n => !isNaN(n))
                 const next = nums.length > 0 ? Math.max(...nums) + 1 : 1
-                return <div className="text-xs text-slate-400 text-center">Código asignado: <span className="font-mono font-bold text-sky-400">{prefix}{next}</span></div>
+                return <div className="text-xs text-zinc-400 text-center">Código asignado: <span className="font-mono font-bold text-zinc-300">{prefix}{next}</span></div>
               })()}
             </div>
-            <div className="flex gap-3 p-5 border-t border-slate-700">
+            <div className="flex gap-3 p-5 border-t border-zinc-700">
               <button
                 onClick={() => { setShowAddTable(false); setNewTable({ code: '', name: '', type: 'REGULAR_TABLE' }) }}
-                className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700"
+                className="flex-1 py-2.5 border border-zinc-600 rounded-xl text-zinc-300 hover:bg-zinc-700"
               >Cancelar</button>
               <button
                 onClick={() => handleAddTable()}
                 disabled={!newTable.name.trim() || addingTable}
-                className="flex-1 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold disabled:opacity-50"
+                className="flex-1 py-2.5 bg-white text-zinc-900 hover:bg-zinc-200 rounded-xl font-bold disabled:opacity-50"
               >{addingTable ? 'Añadiendo…' : 'Añadir al Piso'}</button>
             </div>
           </div>
@@ -539,16 +539,16 @@ export default function FloorMapPage() {
       {/* ── Name Prompt Modal ────────────────────────────────────────────────── */}
       {namePrompt && (
         <Modal>
-          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
-            <div className="p-5 border-b border-slate-700">
+          <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-zinc-600 shadow-xl">
+            <div className="p-5 border-b border-zinc-700">
               <h2 className="text-lg font-bold">Abrir Ticket — {namePrompt.code}</h2>
-              <p className="text-slate-400 text-sm mt-1">¿Quién está en esta mesa?</p>
+              <p className="text-zinc-400 text-sm mt-1">¿Quién está en esta mesa?</p>
             </div>
             <div className="p-5 space-y-4">
               {/* Waiting list picker — shown when there are waiting entries */}
               {waitingList.length > 0 && (
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">📋 Desde lista de espera</label>
+                  <label className="text-xs text-zinc-400 block mb-1">📋 Desde lista de espera</label>
                   <select
                     value={selectedWlEntry}
                     onChange={e => {
@@ -557,7 +557,7 @@ export default function FloorMapPage() {
                       if (entry) setPendingName(entry.party_name)
                       else setPendingName('')
                     }}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm"
                   >
                     <option value="">— Seleccionar de lista de espera —</option>
                     {waitingList.map((e: any) => (
@@ -569,31 +569,31 @@ export default function FloorMapPage() {
                 </div>
               )}
               <div>
-                <label className="text-xs text-slate-400 block mb-1">
+                <label className="text-xs text-zinc-400 block mb-1">
                   {waitingList.length > 0 ? 'O escribir nombre manualmente' : 'Nombre del Grupo / Invitado'}
                 </label>
                 <input
                   value={pendingName}
                   onChange={e => { setPendingName(e.target.value); setSelectedWlEntry('') }}
                   onKeyDown={e => { if (e.key === 'Enter') confirmOpen(pendingName) }}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-3 text-lg"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-3 text-lg"
                   placeholder="p.ej. López, Clientes frecuentes…"
                   autoFocus={waitingList.length === 0}
                 />
               </div>
             </div>
-            <div className="flex gap-3 p-5 border-t border-slate-700">
+            <div className="flex gap-3 p-5 border-t border-zinc-700">
               <button
                 onClick={() => { setNamePrompt(null) }}
-                className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700"
+                className="flex-1 py-2.5 border border-zinc-600 rounded-xl text-zinc-300 hover:bg-zinc-700"
               >Cancelar</button>
               <button
                 onClick={() => confirmOpen('')}
-                className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-400 hover:bg-slate-700 text-sm"
+                className="flex-1 py-2.5 border border-zinc-600 rounded-xl text-zinc-400 hover:bg-zinc-700 text-sm"
               >Omitir Nombre</button>
               <button
                 onClick={() => confirmOpen(pendingName)}
-                className="flex-1 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold"
+                className="flex-1 py-2.5 bg-white text-zinc-900 hover:bg-zinc-200 rounded-xl font-bold"
               >Abrir →</button>
             </div>
           </div>
@@ -603,33 +603,33 @@ export default function FloorMapPage() {
     {/* ── Express Sale Modal ─────────────────────────────────────────────────── */}
     {showExpressModal && (
       <Modal>
-        <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
-          <div className="p-5 border-b border-slate-700">
+        <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-zinc-600 shadow-xl">
+          <div className="p-5 border-b border-zinc-700">
             <h2 className="text-lg font-bold">⚡ Venta Rápida</h2>
-            <p className="text-slate-400 text-sm mt-1">Venta directa sin mesa. Nombre opcional.</p>
+            <p className="text-zinc-400 text-sm mt-1">Venta directa sin mesa. Nombre opcional.</p>
           </div>
           <div className="p-5 space-y-4">
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Nombre del cliente (opcional)</label>
+              <label className="text-xs text-zinc-400 block mb-1">Nombre del cliente (opcional)</label>
               <input
                 value={expressName}
                 onChange={e => setExpressName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleOpenExpress()}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                 placeholder="Cliente de paso…"
                 autoFocus
               />
             </div>
           </div>
-          <div className="flex gap-3 p-5 border-t border-slate-700">
+          <div className="flex gap-3 p-5 border-t border-zinc-700">
             <button
               onClick={() => setShowExpressModal(false)}
-              className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700"
+              className="flex-1 py-2.5 border border-zinc-600 rounded-xl text-zinc-300 hover:bg-zinc-700"
             >Cancelar</button>
             <button
               onClick={handleOpenExpress}
               disabled={creatingExpress}
-              className="flex-1 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold disabled:opacity-50"
+              className="flex-1 py-2.5 bg-white text-zinc-900 hover:bg-zinc-200 rounded-xl font-bold disabled:opacity-50"
             >{creatingExpress ? 'Abriendo…' : 'Abrir Venta →'}</button>
           </div>
         </div>
@@ -639,37 +639,37 @@ export default function FloorMapPage() {
     {/* ── Rappi Order Modal ──────────────────────────────────────────────────── */}
     {showRappiModal && (
       <Modal>
-        <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
-          <div className="p-5 border-b border-slate-700">
+        <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-zinc-600 shadow-xl">
+          <div className="p-5 border-b border-zinc-700">
             <h2 className="text-lg font-bold">🛵 Orden Rappi</h2>
-            <p className="text-slate-400 text-sm mt-1">Pedido a domicilio — ya pagado en plataforma.</p>
+            <p className="text-zinc-400 text-sm mt-1">Pedido a domicilio — ya pagado en plataforma.</p>
           </div>
           <div className="p-5 space-y-4">
             <div>
-              <label className="text-xs text-slate-400 block mb-1">ID de Orden Rappi <span className="text-red-400">*</span></label>
+              <label className="text-xs text-zinc-400 block mb-1">ID de Orden Rappi <span className="text-red-400">*</span></label>
               <input
                 value={rappiOrderId}
                 onChange={e => setRappiOrderId(e.target.value)}
-                className="w-full bg-slate-700 border border-orange-600 rounded-lg px-3 py-2 font-mono"
+                className="w-full bg-zinc-700 border border-orange-600 rounded-lg px-3 py-2 font-mono"
                 placeholder="p.ej. 123456789"
                 autoFocus
               />
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Nombre / referencia (opcional)</label>
+              <label className="text-xs text-zinc-400 block mb-1">Nombre / referencia (opcional)</label>
               <input
                 value={rappiName}
                 onChange={e => setRappiName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleOpenRappi()}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                 placeholder="Nombre del cliente…"
               />
             </div>
           </div>
-          <div className="flex gap-3 p-5 border-t border-slate-700">
+          <div className="flex gap-3 p-5 border-t border-zinc-700">
             <button
               onClick={() => setShowRappiModal(false)}
-              className="flex-1 py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700"
+              className="flex-1 py-2.5 border border-zinc-600 rounded-xl text-zinc-300 hover:bg-zinc-700"
             >Cancelar</button>
             <button
               onClick={handleOpenRappi}
