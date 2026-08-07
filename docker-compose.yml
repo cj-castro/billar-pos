@@ -113,11 +113,9 @@ services:
     environment:
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
       ADMIN_CHAT_ID: ${ADMIN_CHAT_ID:-}
-      # This one is perfect, leave it as is:
       DATABASE_URL: postgresql://${POSTGRES_USER:-billiard}:${POSTGRES_PASSWORD:-billiard_secret}@postgres:5432/${POSTGRES_DB:-billiardbar}
     networks:
       - billiardbar_net
-
 
 volumes:
   pg_data:
