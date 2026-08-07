@@ -7,7 +7,7 @@ import ResourceCard from '../components/ResourceCard'
 import WaitingListPanel from '../components/WaitingListPanel'
 import Modal from '../components/Modal'
 import SectionHead from '../components/SectionHead'
-import { IconLock, IconSpark, IconPin, IconClock, IconPrinter, IconReceipt } from '../components/Icon'
+import { IconLock, IconSpark, IconPin, IconClock, IconPrinter, IconReceipt, IconBall8, IconChair, IconMug, IconCard, IconWarning } from '../components/Icon'
 import { useFloorStore } from '../stores/floorStore'
 import { useAuthStore } from '../stores/authStore'
 import { useEscKey } from '../hooks/useEscKey'
@@ -343,7 +343,7 @@ export default function FloorMapPage() {
         {(activeExpressTickets as any[]).length > 0 && (
           <div className="mb-6">
             <h2 className="text-xl font-extrabold text-zinc-300 mb-3 uppercase tracking-wide flex items-center gap-2">
-              ⚡ Ventas Activas
+              <IconSpark className="w-4 h-4" />Ventas Activas
               <span className="bg-zinc-800 text-zinc-100 text-xs px-2 py-0.5 rounded-full">
                 {(activeExpressTickets as any[]).length}
               </span>
@@ -365,7 +365,7 @@ export default function FloorMapPage() {
                     }`}
                   >
                     <div className={`text-xs font-semibold mb-1 ${isRappi ? 'text-orange-400' : 'text-zinc-300'}`}>
-                      {isRappi ? '🛵 RAPPI' : '⚡ VENTA RÁPIDA'}
+                      {isRappi ? 'RAPPI' : 'VENTA RÁPIDA'}
                     </div>
                     <div className="font-bold text-white text-sm truncate">
                       {isRappi
@@ -392,7 +392,7 @@ export default function FloorMapPage() {
         {(pendingPaymentTickets as any[]).length > 0 && (
           <div className="mb-6">
             <h2 className="text-xl font-extrabold text-amber-400 mb-3 uppercase tracking-wide flex items-center gap-2">
-              🧾 Cuenta Solicitada
+              <IconReceipt className="w-4 h-4" />Cuenta Solicitada
               <span className="bg-amber-700 text-amber-200 text-xs px-2 py-0.5 rounded-full">{(pendingPaymentTickets as any[]).length}</span>
             </h2>
             <div className="flex flex-wrap gap-3">
@@ -405,11 +405,11 @@ export default function FloorMapPage() {
                     onClick={() => navigate(`/ticket/${t.id}`)}
                     className="w-full text-left"
                   >
-                    <div className="text-xs text-amber-400 font-semibold mb-1">💳 PAGO PENDIENTE</div>
+                    <div className="text-xs text-amber-400 font-semibold mb-1 flex items-center gap-1"><IconCard className="w-3 h-3" />PAGO PENDIENTE</div>
                     <div className="font-bold text-white text-sm">{t.customer_name || '(sin nombre)'}</div>
                     <div className="text-xs text-amber-300 mt-1">
                       {t.resource_code || '—'}
-                      {t.resource_type === 'POOL_TABLE' ? ' 🎱' : t.resource_type === 'BAR_SEAT' ? ' 🍺' : ' 🪑'}
+                      {t.resource_type === 'POOL_TABLE' ? <IconBall8 className="inline w-3 h-3 ml-1" /> : t.resource_type === 'BAR_SEAT' ? <IconMug className="inline w-3 h-3 ml-1" /> : <IconChair className="inline w-3 h-3 ml-1" />}
                     </div>
                     <div className="text-xs text-amber-200 mt-1 font-mono font-bold">
                       ${((t.total_cents || 0) / 100).toFixed(2)}
@@ -422,7 +422,7 @@ export default function FloorMapPage() {
                         setReprintingId(t.id)
                         try {
                           await client.post(`/tickets/${t.id}/print?unpaid=true`)
-                          toast.success('Impreso ✓')
+                          toast.success('Impreso')
                         } catch (err: any) {
                           const msg = err?.response?.data?.error || 'Agente de impresión no disponible'
                           toast.error(`No se pudo imprimir: ${msg}`)
@@ -432,11 +432,11 @@ export default function FloorMapPage() {
                       }}
                       disabled={reprintingId === t.id}
                       className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${reprintingId === t.id ? 'bg-amber-900 text-amber-500 cursor-not-allowed' : 'bg-amber-700 hover:bg-amber-600'}`}
-                    >{reprintingId === t.id ? '⏳ Imprimiendo…' : '🖨️ Reimprimir'}</button>
+                    ><span className="inline-flex items-center justify-center gap-1 w-full">{reprintingId === t.id ? <><IconClock className="w-3 h-3" />Imprimiendo…</> : <><IconPrinter className="w-3 h-3" />Reimprimir</>}</span></button>
                     <button
                       onClick={() => navigate(`/ticket/${t.id}`)}
                       className="flex-1 py-1.5 bg-green-700 hover:bg-green-600 rounded-lg text-xs font-semibold"
-                    >💳 Cobrar</button>
+                    ><span className="inline-flex items-center justify-center gap-1 w-full"><IconCard className="w-3 h-3" />Cobrar</span></button>
                   </div>
                 </div>
               ))}
@@ -448,7 +448,7 @@ export default function FloorMapPage() {
         {(reopenedTickets as any[]).length > 0 && (
           <div className="mb-6">
             <h2 className="text-xl font-extrabold text-orange-400 mb-3 uppercase tracking-wide flex items-center gap-2">
-              ⚠️ {t('floor.reopenedTabs')}
+              <IconWarning className="w-4 h-4" />{t('floor.reopenedTabs')}
               <span className="bg-orange-700 text-orange-200 text-xs px-2 py-0.5 rounded-full">{(reopenedTickets as any[]).length}</span>
             </h2>
             <div className="flex flex-wrap gap-3">
@@ -462,7 +462,7 @@ export default function FloorMapPage() {
                   <div className="font-bold text-white text-sm">{t.customer_name || '(sin nombre)'}</div>
                   <div className="text-xs text-orange-300 mt-1">
                     {t.resource_code || '—'}
-                    {t.resource_type === 'POOL_TABLE' ? ' 🎱' : t.resource_type === 'BAR_SEAT' ? ' 🍺' : ' 🪑'}
+                    {t.resource_type === 'POOL_TABLE' ? <IconBall8 className="inline w-3 h-3 ml-1" /> : t.resource_type === 'BAR_SEAT' ? <IconMug className="inline w-3 h-3 ml-1" /> : <IconChair className="inline w-3 h-3 ml-1" />}
                   </div>
                   <div className="text-xs text-orange-400 mt-1 font-mono font-bold">
                     ${((t.total_cents || 0) / 100).toFixed(2)}
@@ -487,8 +487,8 @@ export default function FloorMapPage() {
                 <label className="text-xs text-zinc-400 block mb-1">Tipo</label>
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { value: 'REGULAR_TABLE', label: '🪑 Mesa Regular' },
-                    { value: 'BAR_SEAT', label: '🍺 Asiento de Bar' },
+                    { value: 'REGULAR_TABLE', label: 'Mesa Regular' },
+                    { value: 'BAR_SEAT', label: 'Asiento de Bar' },
                   ].map(opt => (
                     <button
                       key={opt.value}
@@ -548,7 +548,7 @@ export default function FloorMapPage() {
               {/* Waiting list picker — shown when there are waiting entries */}
               {waitingList.length > 0 && (
                 <div>
-                  <label className="text-xs text-zinc-400 block mb-1">📋 Desde lista de espera</label>
+                  <label className="text-xs text-zinc-400 block mb-1">Desde lista de espera</label>
                   <select
                     value={selectedWlEntry}
                     onChange={e => {
@@ -605,7 +605,7 @@ export default function FloorMapPage() {
       <Modal>
         <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-zinc-600 shadow-xl">
           <div className="p-5 border-b border-zinc-700">
-            <h2 className="text-lg font-bold">⚡ Venta Rápida</h2>
+            <h2 className="text-lg font-bold">Venta Rápida</h2>
             <p className="text-zinc-400 text-sm mt-1">Venta directa sin mesa. Nombre opcional.</p>
           </div>
           <div className="p-5 space-y-4">
@@ -641,7 +641,7 @@ export default function FloorMapPage() {
       <Modal>
         <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-zinc-600 shadow-xl">
           <div className="p-5 border-b border-zinc-700">
-            <h2 className="text-lg font-bold">🛵 Orden Rappi</h2>
+            <h2 className="text-lg font-bold">Orden Rappi</h2>
             <p className="text-zinc-400 text-sm mt-1">Pedido a domicilio — ya pagado en plataforma.</p>
           </div>
           <div className="p-5 space-y-4">

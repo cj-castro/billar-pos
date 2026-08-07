@@ -5,6 +5,7 @@ import { useLanguage } from '../../hooks/useLanguage'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
+import { IconSettings, IconGlobe, IconBell } from '../../components/Icon'
 
 export default function SettingsPage() {
   const { t } = useTranslation()
@@ -35,10 +36,10 @@ export default function SettingsPage() {
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-lg mx-auto p-6">
-        <h1 className="text-2xl font-extrabold tracking-tight mb-6">⚙️ {t('settings.title')}</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight mb-6 flex items-center gap-2"><IconSettings className="w-6 h-6" /> {t('settings.title')}</h1>
 
         <div className="bg-zinc-800 rounded-2xl p-5 border border-zinc-700 mb-4">
-          <div className="font-semibold mb-4">🌐 {t('settings.language')}</div>
+          <div className="font-semibold mb-4 flex items-center gap-2"><IconGlobe className="w-4 h-4" /> {t('settings.language')}</div>
           <div className="flex gap-3">
             <button
               onClick={() => handleChange('es')}
@@ -64,7 +65,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="bg-zinc-800 rounded-2xl p-5 border border-zinc-700">
-          <div className="font-semibold mb-1">🔔 Alerta sonora KDS</div>
+          <div className="font-semibold mb-1 flex items-center gap-2"><IconBell className="w-4 h-4" /> Alerta sonora KDS</div>
           <div className="text-sm text-zinc-400 mb-4">
             Activa o desactiva el beep de alerta en las pantallas de cocina y barra cuando hay
             pedidos en espera. El efecto es inmediato en todos los dispositivos.
@@ -78,7 +79,7 @@ export default function SettingsPage() {
                 : 'bg-zinc-700 border-zinc-600 text-zinc-300'
             }`}
           >
-            {kdsSound !== false ? '🔔 Sonido activo — toca para desactivar' : '🔕 Sonido desactivado — toca para activar'}
+            {kdsSound !== false ? 'Sonido activo — toca para desactivar' : 'Sonido desactivado — toca para activar'}
           </button>
         </div>
       </div>

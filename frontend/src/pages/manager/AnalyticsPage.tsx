@@ -19,20 +19,21 @@ import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import { formatMXN } from '../../utils/money'
+import { IconTrend, IconReceipt, IconBall8, IconMug, IconCash, IconBox, IconTag, IconUsers, IconWarning } from '../../components/Icon'
 
 type Tab = 'resumen' | 'rentabilidad' | 'billar' | 'menu' | 'caja'
          | 'inventario' | 'costos' | 'personal' | 'riesgos'
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'resumen',      label: 'Resumen',      icon: '📈' },
-  { id: 'rentabilidad', label: 'Rentabilidad', icon: '🧾' },
-  { id: 'billar',       label: 'Billar',       icon: '🎱' },
-  { id: 'menu',         label: 'Menú',         icon: '🍽️' },
-  { id: 'caja',         label: 'Flujo Caja',   icon: '💵' },
-  { id: 'inventario',   label: 'Inventario',   icon: '📦' },
-  { id: 'costos',       label: 'Costos',       icon: '🎯' },
-  { id: 'personal',     label: 'Personal',     icon: '👥' },
-  { id: 'riesgos',      label: 'Riesgos',      icon: '⚠️' },
+const TABS: { id: Tab; label: string; icon: typeof IconTrend }[] = [
+  { id: 'resumen',      label: 'Resumen',      icon: IconTrend },
+  { id: 'rentabilidad', label: 'Rentabilidad', icon: IconReceipt },
+  { id: 'billar',       label: 'Billar',       icon: IconBall8 },
+  { id: 'menu',         label: 'Menú',         icon: IconMug },
+  { id: 'caja',         label: 'Flujo Caja',   icon: IconCash },
+  { id: 'inventario',   label: 'Inventario',   icon: IconBox },
+  { id: 'costos',       label: 'Costos',       icon: IconTag },
+  { id: 'personal',     label: 'Personal',     icon: IconUsers },
+  { id: 'riesgos',      label: 'Riesgos',      icon: IconWarning },
 ]
 
 const DIAS_ISO = ['', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
@@ -215,14 +216,17 @@ docker exec billar-pos-postgres-1 psql -U billiard -d billiardbar \\
 
         {/* tabs */}
         <div className="flex gap-1 mb-5 overflow-x-auto">
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap transition-colors ${
-                tab === t.id ? 'bg-white text-zinc-900 font-semibold'
-                             : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>
-              <span className="mr-1">{t.icon}</span>{t.label}
-            </button>
-          ))}
+          {TABS.map(t => {
+            const Icon = t.icon
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                  tab === t.id ? 'bg-white text-zinc-900 font-semibold'
+                               : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>
+                <Icon className="w-4 h-4" />{t.label}
+              </button>
+            )
+          })}
         </div>
 
         {tab === 'resumen'      && <Resumen d={overview.data} loading={overview.isLoading} />}
@@ -385,7 +389,7 @@ function Rentabilidad({ d, loading }: { d: any; loading: boolean }) {
     <div className="space-y-4">
       {unreliable && (
         <div className="bg-red-950/50 border border-red-700 text-red-100 rounded-xl p-4">
-          <div className="font-bold mb-1">⚠ La utilidad neta de abajo no es confiable</div>
+          <div className="font-bold mb-1">La utilidad neta de abajo no es confiable</div>
           <div className="text-sm">
             Solo el <b>{r.cobertura_costo_pct?.toFixed(1)}%</b> de la venta de artículos tiene
             costo real capturado, así que el COGS está enormemente subestimado y la utilidad
@@ -507,7 +511,7 @@ function Billar({ d, loading }: { d: any; loading: boolean }) {
   return (
     <div className="space-y-4">
       <div className="bg-violet-950/40 border border-violet-700 text-violet-100 rounded-xl p-4">
-        <div className="font-bold mb-1">🎱 El billar es la venta más limpia del negocio</div>
+        <div className="font-bold mb-1">El billar es la venta más limpia del negocio</div>
         <div className="text-sm">
           {d.nota} En este periodo generó <b>{formatMXN(r.ingreso_total_cents)}</b>, que cubre por
           sí solo el <b>{r.cubre_costos_fijos_pct}%</b> de los{' '}
@@ -716,8 +720,9 @@ function Menu({ d, loading }: { d: any; loading: boolean }) {
                   <td className="p-2">
                     {p.producto}
                     {!p.margen_confiable && (
-                      <span title="Margen no confiable: falta costo capturado"
-                            className="ml-1 text-amber-400">⚠</span>
+                      <span title="Margen no confiable: falta costo capturado" className="inline-block ml-1 align-middle">
+                        <IconWarning className="inline w-3.5 h-3.5 text-amber-400" />
+                      </span>
                     )}
                   </td>
                   <td className="p-2 text-zinc-400 text-xs">{p.categoria}</td>

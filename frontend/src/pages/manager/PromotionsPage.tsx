@@ -5,6 +5,7 @@ import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 import { useEscKey } from '../../hooks/useEscKey'
+import { IconTag, IconPencil, IconTrash } from '../../components/Icon'
 
 type PromoForm = {
   name: string
@@ -466,7 +467,7 @@ export default function PromotionsPage() {
             Combinar productos distintos para alcanzar la cantidad
             <span className="block text-xs text-zinc-500">
               {form.combine_across_items
-                ? '⚠️ Cualquier mezcla de productos elegibles activa la promoción; el descuento se aplica al más barato de cada grupo.'
+                ? 'Cualquier mezcla de productos elegibles activa la promoción; el descuento se aplica al más barato de cada grupo.'
                 : 'La cantidad debe alcanzarse con el mismo producto (recomendado).'}
             </span>
           </span>
@@ -505,7 +506,7 @@ export default function PromotionsPage() {
       <div className="max-w-2xl mx-auto p-4">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight">🏷️ Promociones</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight">Promociones</h1>
             <p className="text-xs text-zinc-400 mt-0.5">2x1 y descuentos por cantidad — se aplican solos en la cuenta</p>
           </div>
           <button onClick={openNew}
@@ -516,7 +517,7 @@ export default function PromotionsPage() {
 
         {(promos as any[]).length === 0 && (
           <div className="text-center text-zinc-500 py-16">
-            <div className="text-4xl mb-3">🏷️</div>
+            <div className="mb-3 flex justify-center"><IconTag className="w-10 h-10" /></div>
             <div>Sin promociones</div>
             <div className="text-xs mt-1">Crea un 2x1 o un descuento por cantidad</div>
           </div>
@@ -553,7 +554,7 @@ export default function PromotionsPage() {
                   <div className="flex gap-1.5 shrink-0">
                     {editable && (
                       <button onClick={() => openEdit(p)}
-                        className="bg-zinc-700 hover:bg-zinc-700 px-3 py-1.5 rounded-lg text-sm" title="Editar">✏️</button>
+                        className="bg-zinc-700 hover:bg-zinc-700 px-3 py-1.5 rounded-lg text-sm" title="Editar"><IconPencil className="w-4 h-4 inline" /></button>
                     )}
                     <button onClick={() => handleToggle(p)}
                       className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${active ? 'bg-yellow-900 hover:bg-yellow-700 text-yellow-300' : 'bg-green-900 hover:bg-green-700 text-green-300'}`}
@@ -561,7 +562,7 @@ export default function PromotionsPage() {
                       {active ? '⏸' : '▶'}
                     </button>
                     <button onClick={() => handleDelete(p)}
-                      className="bg-zinc-700 hover:bg-red-800 px-3 py-1.5 rounded-lg text-sm text-red-400" title="Eliminar">🗑</button>
+                      className="bg-zinc-700 hover:bg-red-800 px-3 py-1.5 rounded-lg text-sm text-red-400" title="Eliminar"><IconTrash className="w-4 h-4 inline" /></button>
                   </div>
                 </div>
               </div>
@@ -591,7 +592,7 @@ export default function PromotionsPage() {
       {editing && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-md border border-zinc-600 max-h-[90vh] overflow-y-auto">
-            <h2 className="font-bold mb-4">✏️ Editar: {editing.name}</h2>
+            <h2 className="font-bold mb-4">Editar: {editing.name}</h2>
             {isQuantityForm ? PromoFormFields : (
               <p className="text-sm text-zinc-400">
                 Este tipo de promoción no se edita desde esta pantalla.

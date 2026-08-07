@@ -2,6 +2,7 @@ import { useState } from 'react'
 import toast from 'react-hot-toast'
 import client from '../api/client'
 import { getPendingJob, removePendingJob } from '../utils/printJobStorage'
+import { IconWarning, IconRefresh } from './Icon'
 
 interface Props {
   ticketId: string
@@ -42,7 +43,7 @@ export default function PrintRetryBanner({ ticketId, onSuccess }: Props) {
   return (
     <div className="bg-red-950 border border-red-700 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
       <div className="flex items-center gap-2 text-red-300 text-sm min-w-0">
-        <span className="text-base shrink-0">⚠️</span>
+        <IconWarning className="w-4 h-4 shrink-0" />
         <span className="truncate">Impresión fallida — toca para reintentar</span>
       </div>
       <button
@@ -50,7 +51,7 @@ export default function PrintRetryBanner({ ticketId, onSuccess }: Props) {
         disabled={retrying}
         className="shrink-0 bg-red-700 hover:bg-red-600 active:scale-95 transition-all px-3 py-1.5 rounded-lg text-white text-sm font-bold disabled:opacity-50"
       >
-        {retrying ? '⏳' : '🔄 Reintentar'}
+        {retrying ? <IconRefresh className="w-4 h-4 animate-spin" /> : <><IconRefresh className="w-4 h-4 inline mr-1" />Reintentar</>}
       </button>
     </div>
   )

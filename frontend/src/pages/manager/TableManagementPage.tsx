@@ -5,6 +5,7 @@ import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 import { useEscKey } from '../../hooks/useEscKey'
+import { IconBall8, IconChair, IconMug, IconWarning } from '../../components/Icon'
 
 type ResourceType = 'POOL_TABLE' | 'REGULAR_TABLE' | 'BAR_SEAT'
 
@@ -31,15 +32,15 @@ const BILLING_MODES = [
 ]
 
 const TYPE_LABELS: Record<ResourceType, string> = {
-  POOL_TABLE: '🎱 Pool Tables',
-  REGULAR_TABLE: '🪑 Floor Tables',
-  BAR_SEAT: '🍺 Bar Seats',
+  POOL_TABLE: 'Pool Tables',
+  REGULAR_TABLE: 'Floor Tables',
+  BAR_SEAT: 'Bar Seats',
 }
 
-const TYPE_ICONS: Record<ResourceType, string> = {
-  POOL_TABLE: '🎱',
-  REGULAR_TABLE: '🪑',
-  BAR_SEAT: '🍺',
+const TYPE_ICON_EL: Record<ResourceType, (props: { className?: string }) => JSX.Element> = {
+  POOL_TABLE: IconBall8,
+  REGULAR_TABLE: IconChair,
+  BAR_SEAT: IconMug,
 }
 
 const TYPE_CODE_PREFIX: Record<ResourceType, string> = {
@@ -72,7 +73,7 @@ export default function TableManagementPage() {
   const openAddModal = () => {
     const prefix = TYPE_CODE_PREFIX[tab]
     const existing = filtered.filter(r => r.is_active).length
-    setAddForm({ code: `${prefix}${existing + 1}`, name: `${TYPE_ICONS[tab]} Table ${existing + 1}`, type: tab, sort_order: existing + 1, billing_mode: 'PER_MINUTE', rate_cents: 8600, promo_free_minutes: 0 })
+    setAddForm({ code: `${prefix}${existing + 1}`, name: `Table ${existing + 1}`, type: tab, sort_order: existing + 1, billing_mode: 'PER_MINUTE', rate_cents: 8600, promo_free_minutes: 0 })
     setShowAdd(true)
   }
 
@@ -165,7 +166,7 @@ export default function TableManagementPage() {
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-4xl mx-auto p-4">
-        <h1 className="text-2xl font-extrabold tracking-tight mb-6">🗂 Table & Seat Management</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight mb-6">Table & Seat Management</h1>
 
         {/* Type tabs */}
         <div className="flex gap-2 mb-6">
@@ -203,7 +204,7 @@ export default function TableManagementPage() {
               <div key={r.id} className="bg-zinc-800 rounded-xl p-4 border border-zinc-700">
                 {/* Header row */}
                 <div className="flex items-center gap-3 mb-3">
-                  <span className="text-lg">{TYPE_ICONS[r.type]}</span>
+                  {(() => { const Ic = TYPE_ICON_EL[r.type]; return <Ic className="w-5 h-5 shrink-0" /> })()}
                   <input
                     value={nameEdits?.name ?? r.name}
                     onChange={e => patchName(r.id, 'name', e.target.value)}
@@ -266,7 +267,7 @@ export default function TableManagementPage() {
                 )}
 
                 {r.active_ticket_id && (
-                  <div className="mt-2 text-xs text-yellow-400">⚠ Currently in use</div>
+                  <div className="mt-2 text-xs text-yellow-400 flex items-center gap-1"><IconWarning className="w-3.5 h-3.5" /> Currently in use</div>
                 )}
               </div>
             )
@@ -280,7 +281,7 @@ export default function TableManagementPage() {
             <div className="space-y-2">
               {inactive.map(r => (
                 <div key={r.id} className="bg-zinc-900 rounded-xl p-3 flex items-center gap-3 opacity-60">
-                  <span>{TYPE_ICONS[r.type]}</span>
+                  {(() => { const Ic = TYPE_ICON_EL[r.type]; return <Ic className="w-4 h-4 shrink-0" /> })()}
                   <span className="font-mono text-xs text-zinc-400">{r.code}</span>
                   <span className="text-zinc-400 text-sm flex-1">{r.name}</span>
                   <button onClick={() => handleToggleActive(r)}
@@ -299,7 +300,7 @@ export default function TableManagementPage() {
 
         {active.length === 0 && !isLoading && (
           <div className="text-center py-16 text-zinc-500">
-            <div className="text-4xl mb-3">{TYPE_ICONS[tab]}</div>
+            <div className="mb-3 flex justify-center">{(() => { const Ic = TYPE_ICON_EL[tab]; return <Ic className="w-10 h-10" /> })()}</div>
             <p>No active {TYPE_LABELS[tab].toLowerCase()}.</p>
             <button onClick={openAddModal} className="mt-4 px-6 py-2 bg-green-600 hover:bg-green-500 rounded-xl text-sm font-bold">
               Add First One
@@ -320,10 +321,10 @@ export default function TableManagementPage() {
                 <button key={t} onClick={() => {
                   const prefix = TYPE_CODE_PREFIX[t]
                   const existing = allResources.filter(r => r.type === t && r.is_active).length
-                  setAddForm(f => ({ ...f, type: t, code: `${prefix}${existing + 1}`, name: `${TYPE_ICONS[t]} ${t === 'POOL_TABLE' ? 'Pool Table' : t === 'REGULAR_TABLE' ? 'Table' : 'Bar'} ${existing + 1}` }))
+                  setAddForm(f => ({ ...f, type: t, code: `${prefix}${existing + 1}`, name: `${t === 'POOL_TABLE' ? 'Pool Table' : t === 'REGULAR_TABLE' ? 'Table' : 'Bar'} ${existing + 1}` }))
                 }}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${addForm.type === t ? 'bg-white text-zinc-900' : 'bg-zinc-700 hover:bg-zinc-600'}`}>
-                  {TYPE_ICONS[t]}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center ${addForm.type === t ? 'bg-white text-zinc-900' : 'bg-zinc-700 hover:bg-zinc-600'}`}>
+                  {(() => { const Ic = TYPE_ICON_EL[t]; return <Ic className="w-4 h-4" /> })()}
                 </button>
               ))}
             </div>
@@ -388,7 +389,7 @@ export default function TableManagementPage() {
                 className="flex-1 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-xl text-sm">Cancel</button>
               <button onClick={handleAdd}
                 className="flex-1 py-2 bg-green-600 hover:bg-green-500 rounded-xl font-bold text-sm">
-                Add {TYPE_ICONS[addForm.type]} {addForm.code || '…'}
+                Add {addForm.code || '…'}
               </button>
             </div>
           </div>

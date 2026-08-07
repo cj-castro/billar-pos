@@ -6,6 +6,7 @@ import client from '../api/client'
 import toast from 'react-hot-toast'
 import type { ResourceState } from '../stores/floorStore'
 import { clickableDivProps } from '../utils/a11y'
+import { IconBall8, IconChair, IconMug, IconDoor, IconGhost, IconX, IconUsers, IconClock } from './Icon'
 
 interface WaitingEntry {
   id: string
@@ -41,7 +42,7 @@ function WaitTimer({ createdAt }: { createdAt: string }) {
   const s = secs % 60
   const display = h > 0 ? `${h}h ${String(m).padStart(2,'0')}m` : `${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`
   const color = secs > 3600 ? 'bg-red-900 text-red-300' : secs > 1800 ? 'bg-orange-900 text-orange-300' : 'bg-zinc-700 text-zinc-300'
-  return <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${color}`}>⏱ {display}</span>
+  return <span className={`text-xs font-mono px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${color}`}><IconClock className="w-3 h-3" />{display}</span>
 }
 
 export default function WaitingListPanel({ allResources, isManager }: Props) {
@@ -176,7 +177,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
         pool_resource_id: poolResourceId,
       })
       const ticket = res.data.ticket
-      toast.success('Transferido a mesa de pool! 🎱')
+      toast.success('Transferido a mesa de pool!')
       setTransferingId(null)
       refetch()
       qc.invalidateQueries({ queryKey: ['resources'] })
@@ -195,7 +196,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
         aria-expanded={isOpen}
       >
         <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="text-xl font-extrabold text-zinc-300 uppercase tracking-wide">⏳ {t('floor.waitingList')}</h2>
+          <h2 className="text-xl font-extrabold text-zinc-300 uppercase tracking-wide">{t('floor.waitingList')}</h2>
           {count > 0 && <span className="bg-yellow-500 text-black text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">{count} waiting</span>}
           {anyAvailable && count > 0 && <span className="bg-green-700 text-green-200 text-xs font-semibold px-2 py-0.5 rounded-full">{floorResources.length} mesas libres</span>}
         </div>
@@ -209,7 +210,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
       {isOpen && (
         <div className="bg-zinc-900 rounded-xl border border-zinc-700 overflow-hidden">
           {count === 0 ? (
-            <div className="p-6 text-center text-zinc-500"><div className="text-3xl mb-2">🎱</div><p>Nadie esperando</p></div>
+            <div className="p-6 text-center text-zinc-500"><IconBall8 className="w-8 h-8 mx-auto mb-2" /><p>Nadie esperando</p></div>
           ) : (
             <div className="divide-y divide-zinc-700">
               {waiting.map(entry => (
@@ -221,14 +222,14 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-white">{entry.party_name}</span>
-                        <span className="text-zinc-400 text-xs">👥 {entry.party_size}</span>
+                        <span className="text-zinc-400 text-xs inline-flex items-center gap-1"><IconUsers className="w-3 h-3" />{entry.party_size}</span>
                         {entry.created_at && <WaitTimer createdAt={entry.created_at} />}
                       </div>
                       {/* Floor table badge for SEATED entries */}
                       {entry.status === 'SEATED' && entry.floor_resource_code && (
                         <div className="flex items-center gap-1.5 mt-1">
-                          <span className="bg-zinc-800 text-zinc-100 text-xs font-semibold px-2 py-0.5 rounded-full">
-                            🪑 En {entry.floor_resource_code}
+                          <span className="bg-zinc-800 text-zinc-100 text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                            <IconChair className="w-3 h-3" />En {entry.floor_resource_code}
                           </span>
                           <span className="text-zinc-300 text-xs">esperando mesa de pool</span>
                         </div>
@@ -240,11 +241,11 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
                       {entry.status === 'SEATED' ? (
                         <button onClick={() => setTransferingId(entry.id)}
                           className="bg-green-700 hover:bg-green-600 px-3 py-1.5 rounded-lg text-xs font-bold">
-                          🎱 A Pool
+                          A Pool
                         </button>
                       ) : (
                         <button onClick={() => setAssigningId(entry.id)}
-                          className="bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded-lg text-xs font-bold">🪑 Asignar</button>
+                          className="bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded-lg text-xs font-bold">Asignar</button>
                       )}
                       <div className="flex gap-1">
                         {isManager && (
@@ -258,15 +259,15 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
                         {entry.status === 'SEATED' ? (
                           <button onClick={() => handleDequeue(entry.id)}
                             title="Sacar de la cola — mantiene el ticket abierto"
-                            className="bg-zinc-700 hover:bg-zinc-800 px-2 py-1 rounded text-xs text-zinc-200">🚪</button>
+                            className="bg-zinc-700 hover:bg-zinc-800 px-2 py-1 rounded text-xs text-zinc-200"><IconDoor className="w-3.5 h-3.5" /></button>
                         ) : (
                           <>
                             <button onClick={() => handleUpdateStatus(entry.id, 'NO_SHOW')}
                               title="No-show"
-                              className="bg-zinc-700 hover:bg-yellow-800 px-2 py-1 rounded text-xs text-yellow-400">👻</button>
+                              className="bg-zinc-700 hover:bg-yellow-800 px-2 py-1 rounded text-xs text-yellow-400"><IconGhost className="w-3.5 h-3.5" /></button>
                             <button onClick={() => handleUpdateStatus(entry.id, 'CANCELLED')}
                               title="Cancelar"
-                              className="bg-zinc-700 hover:bg-red-900 px-2 py-1 rounded text-xs text-red-400">✕</button>
+                              className="bg-zinc-700 hover:bg-red-900 px-2 py-1 rounded text-xs text-red-400"><IconX className="w-3.5 h-3.5" /></button>
                           </>
                         )}
                       </div>
@@ -335,12 +336,12 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
               <div className="p-4 space-y-4 overflow-y-auto flex-1 overscroll-contain">
                 {availableRegular.length > 0 && (
                   <div>
-                    <p className="text-xs text-zinc-400 uppercase font-semibold mb-2">🪑 Mesas disponibles</p>
+                    <p className="text-xs text-zinc-400 uppercase font-semibold mb-2">Mesas disponibles</p>
                     <div className="grid grid-cols-3 gap-2">
                       {availableRegular.map(r => (
                         <button key={r.id} onClick={() => handleAssign(assigningId, r.id)}
                           className="bg-zinc-800 hover:bg-zinc-800 border border-zinc-600 rounded-xl p-3 text-center active:scale-95 transition-transform">
-                          <div className="text-xl mb-0.5">🪑</div>
+                          <IconChair className="w-5 h-5 mx-auto mb-0.5" />
                           <div className="font-bold text-sm">{r.code}</div>
                         </button>
                       ))}
@@ -349,12 +350,12 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
                 )}
                 {availableBar.length > 0 && (
                   <div>
-                    <p className="text-xs text-zinc-400 uppercase font-semibold mb-2">🍺 Barra disponible</p>
+                    <p className="text-xs text-zinc-400 uppercase font-semibold mb-2">Barra disponible</p>
                     <div className="grid grid-cols-3 gap-2">
                       {availableBar.map(r => (
                         <button key={r.id} onClick={() => handleAssign(assigningId, r.id)}
                           className="bg-purple-900 hover:bg-purple-800 border border-purple-700 rounded-xl p-3 text-center active:scale-95 transition-transform">
-                          <div className="text-xl mb-0.5">🍺</div>
+                          <IconMug className="w-5 h-5 mx-auto mb-0.5" />
                           <div className="font-bold text-sm">{r.code}</div>
                         </button>
                       ))}
@@ -363,7 +364,6 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
                 )}
                 {!anyAvailable && (
                   <div className="py-6 text-center">
-                    <div className="text-3xl mb-2">😔</div>
                     <p className="text-zinc-400 font-semibold">No hay mesas disponibles</p>
                     <p className="text-zinc-500 text-xs mt-1">Crea una mesa flotante para asignar</p>
                   </div>
@@ -378,7 +378,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
                     setShowFloating(true)
                   }}
                     className="w-full py-2.5 bg-amber-700 hover:bg-amber-600 rounded-xl font-semibold text-sm">
-                    ➕ Crear mesa flotante</button>
+                    Crear mesa flotante</button>
                 </div>
               </div>
               <div className="p-4 border-t border-zinc-700 flex gap-3">
@@ -395,7 +395,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
         <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
           <div className="bg-zinc-800 rounded-t-2xl sm:rounded-2xl w-full max-w-sm border border-zinc-600 shadow-xl">
             <div className="p-5 border-b border-zinc-700">
-              <h2 className="text-lg font-bold">🪑 Mesa Temporal</h2>
+              <h2 className="text-lg font-bold">Mesa Temporal</h2>
               <p className="text-zinc-400 text-sm mt-1">
                 {floorResources.length === 0
                   ? 'Todas las mesas están ocupadas.'
@@ -404,7 +404,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
             </div>
             <div className="p-5">
               <div className="bg-zinc-700/50 rounded-xl p-4 text-center border border-zinc-600">
-                <div className="text-3xl mb-2">🪑</div>
+                <IconChair className="w-8 h-8 mx-auto mb-2" />
                 <p className="text-white font-bold text-lg">{floatingName || 'Cliente'}</p>
                 <p className="text-zinc-400 text-xs mt-1">Se creará una mesa temporal y se abrirá la cuenta.</p>
                 <p className="text-zinc-500 text-xs mt-0.5">Se elimina automáticamente al transferir o cerrar.</p>
@@ -423,7 +423,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
                 Omitir</button>
               <button onClick={handleCreateFloating}
                 className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-500 text-black font-bold rounded-xl">
-                Crear Mesa ✓</button>
+                Crear Mesa</button>
             </div>
           </div>
         </div>
@@ -435,7 +435,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
           <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
             <div className="bg-zinc-800 rounded-t-2xl sm:rounded-2xl w-full max-w-sm border border-zinc-600 shadow-xl max-h-[92dvh] flex flex-col">
               <div className="p-4 border-b border-zinc-700 shrink-0">
-                <h2 className="text-lg font-bold">🎱 Transferir a Mesa de Pool</h2>
+                <h2 className="text-lg font-bold">Transferir a Mesa de Pool</h2>
                 <p className="text-zinc-300 text-sm mt-0.5">
                   <span className="font-bold text-yellow-400">{entry?.party_name}</span>
                   {entry?.floor_resource_code && (
@@ -452,7 +452,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
                       {availablePool.map(r => (
                         <button key={r.id} onClick={() => handleTransferToPool(transferingId, r.id)}
                           className="bg-green-800 hover:bg-green-700 border border-green-600 rounded-xl p-4 text-center active:scale-95 transition-transform">
-                          <div className="text-3xl mb-1">🎱</div>
+                          <IconBall8 className="w-8 h-8 mx-auto mb-1" />
                           <div className="font-bold text-lg">{r.code}</div>
                           <div className="text-green-300 text-xs mt-0.5">Disponible</div>
                         </button>
@@ -461,7 +461,6 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
                   </div>
                 ) : (
                   <div className="py-8 text-center">
-                    <div className="text-4xl mb-3">😔</div>
                     <p className="text-zinc-400 font-semibold">No hay mesas de pool disponibles</p>
                     <p className="text-zinc-500 text-xs mt-1">Espera a que se libere una.</p>
                   </div>

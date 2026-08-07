@@ -6,6 +6,7 @@ import Modal from '../../components/Modal'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 import { useEscKey } from '../../hooks/useEscKey'
+import { IconTrend, IconFlame, IconMug, IconUser, IconLock, IconWarning, IconPencil, IconUsers } from '../../components/Icon'
 
 const ROLES = ['WAITER', 'KITCHEN_STAFF', 'BAR_STAFF', 'MANAGER', 'ADMIN']
 const ROLE_COLORS: Record<string, string> = {
@@ -13,8 +14,12 @@ const ROLE_COLORS: Record<string, string> = {
   BAR_STAFF: 'text-purple-400', MANAGER: 'text-green-400', ADMIN: 'text-red-400',
 }
 const ROLE_LABELS: Record<string, string> = {
-  WAITER: '🏃 Mesero', KITCHEN_STAFF: '🍳 Cocina', BAR_STAFF: '🍹 Bar',
-  MANAGER: '👔 Gerente', ADMIN: '🔑 Admin',
+  WAITER: 'Mesero', KITCHEN_STAFF: 'Cocina', BAR_STAFF: 'Bar',
+  MANAGER: 'Gerente', ADMIN: 'Admin',
+}
+const ROLE_ICON_EL: Record<string, (props: { className?: string }) => JSX.Element> = {
+  WAITER: IconTrend, KITCHEN_STAFF: IconFlame, BAR_STAFF: IconMug,
+  MANAGER: IconUser, ADMIN: IconLock,
 }
 
 const emptyForm = { username: '', name: '', role: 'WAITER', password: '', pin: '' }
@@ -95,7 +100,7 @@ export default function UsersPage() {
       <ManagerBackButton />
       <div className="max-w-3xl mx-auto p-4">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-extrabold tracking-tight">👥 Cuentas del Personal</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-2"><IconUsers className="w-6 h-6" /> Cuentas del Personal</h1>
           <button onClick={() => setShowCreate(true)} className="bg-white text-zinc-900 hover:bg-zinc-200 px-4 py-2 rounded-lg font-semibold text-sm">+ Nuevo Usuario</button>
         </div>
 
@@ -105,7 +110,7 @@ export default function UsersPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-zinc-700 flex items-center justify-center text-lg">
-                    {ROLE_LABELS[u.role]?.split(' ')[0] ?? '👤'}
+                    {(() => { const Ic = ROLE_ICON_EL[u.role] ?? IconUser; return <Ic className="w-5 h-5" /> })()}
                   </div>
                   <div>
                     <div className="font-semibold">{u.name}</div>
@@ -113,8 +118,8 @@ export default function UsersPage() {
                       @{u.username} · <span className={ROLE_COLORS[u.role] ?? 'text-zinc-300'}>{ROLE_LABELS[u.role] ?? u.role}</span>
                     </div>
                     {needsPin(u.role) && (
-                      <div className={`text-xs mt-0.5 ${u.has_pin ? 'text-green-400' : 'text-red-400'}`}>
-                        {u.has_pin ? '🔑 PIN set' : '⚠️ No PIN — cannot authorize actions'}
+                      <div className={`text-xs mt-0.5 flex items-center gap-1 ${u.has_pin ? 'text-green-400' : 'text-red-400'}`}>
+                        {u.has_pin ? <><IconLock className="w-3 h-3" /> PIN set</> : <><IconWarning className="w-3 h-3" /> No PIN — cannot authorize actions</>}
                       </div>
                     )}
                   </div>
@@ -122,8 +127,8 @@ export default function UsersPage() {
                 <div className="flex gap-2">
                   {u.is_active && (
                     <button onClick={() => openEdit(u)}
-                      className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 rounded-lg text-sm font-semibold">
-                      ✏️ Editar
+                      className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 rounded-lg text-sm font-semibold flex items-center gap-1">
+                      <IconPencil className="w-3.5 h-3.5" /> Editar
                     </button>
                   )}
                   {u.is_active && (
@@ -222,8 +227,8 @@ export default function UsersPage() {
 
             {/* PIN section */}
             <div className="bg-zinc-900 rounded-xl p-3 border border-zinc-700">
-              <div className="text-xs text-zinc-400 font-semibold mb-2">
-                🔑 Manager PIN
+              <div className="text-xs text-zinc-400 font-semibold mb-2 flex items-center gap-1">
+                <IconLock className="w-3.5 h-3.5" /> Manager PIN
                 {editUser.has_pin
                   ? <span className="ml-2 text-green-400">● Active</span>
                   : <span className="ml-2 text-red-400">● Not set</span>}
@@ -247,7 +252,7 @@ export default function UsersPage() {
                 </div>
               ) : (
                 <div className="flex items-center justify-between">
-                  <span className="text-red-400 text-sm">⚠️ PIN will be removed</span>
+                  <span className="text-red-400 text-sm flex items-center gap-1"><IconWarning className="w-4 h-4" /> PIN will be removed</span>
                   <button onClick={() => setEditForm(p => ({ ...p, clear_pin: false }))}
                     className="text-xs text-zinc-400 hover:text-zinc-300">Undo</button>
                 </div>

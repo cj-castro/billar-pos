@@ -8,6 +8,7 @@ import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import { formatMXN, formatMXNFromPesos } from '../../utils/money'
+import { IconReceipt } from '../../components/Icon'
 
 const cents = formatMXN  // backwards-compatible alias for inline JSX
 
@@ -18,8 +19,8 @@ function localToday(): string {
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  WAITER: '🏃 Mesero', BAR_STAFF: '🍹 Bar', KITCHEN_STAFF: '🍳 Cocina',
-  MANAGER: '👔 Gerente', ADMIN: '🔑 Admin',
+  WAITER: 'Mesero', BAR_STAFF: 'Bar', KITCHEN_STAFF: 'Cocina',
+  MANAGER: 'Gerente', ADMIN: 'Admin',
 }
 
 export default function ReportsPage() {
@@ -78,27 +79,27 @@ export default function ReportsPage() {
     {
       label: 'Ventas y Pagos',
       tabs: [
-        { id: 'charts',    label: '📈 Gráficas' },
-        { id: 'sales',     label: '🛒 Ventas' },
-        { id: 'payments',  label: '💳 Pagos' },
-        { id: 'modifiers', label: '🧂 Modificadores' },
-        { id: 'cigarettes', label: '🚬 Cigarros' },
+        { id: 'charts',    label: 'Gráficas' },
+        { id: 'sales',     label: 'Ventas' },
+        { id: 'payments',  label: 'Pagos' },
+        { id: 'modifiers', label: 'Modificadores' },
+        { id: 'cigarettes', label: 'Cigarros' },
       ],
     },
     {
       label: 'Operación y Personal',
       tabs: [
-        { id: 'staff',      label: '👤 Personal' },
-        { id: 'pool',       label: '🎱 Billar' },
-        { id: 'peak-hours', label: '⏰ Horas Pico' },
+        { id: 'staff',      label: 'Personal' },
+        { id: 'pool',       label: 'Billar' },
+        { id: 'peak-hours', label: 'Horas Pico' },
       ],
     },
     {
       label: 'Mermas y Eliminados',
       tabs: [
-        { id: 'voids',          label: '🚫 Anulaciones' },
-        { id: 'menu-deletions', label: '🍽️ Menú Eliminados' },
-        { id: 'inv-deletions',  label: '🗑 Inv. Eliminados' },
+        { id: 'voids',          label: 'Anulaciones' },
+        { id: 'menu-deletions', label: 'Menú Eliminados' },
+        { id: 'inv-deletions',  label: 'Inv. Eliminados' },
       ],
     },
   ] as const
@@ -109,7 +110,7 @@ export default function ReportsPage() {
       <ManagerBackButton />
       <div className="max-w-5xl mx-auto p-4">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-extrabold tracking-tight">📊 Reportes</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight">Reportes</h1>
           <button onClick={handleExport} className="bg-zinc-700 hover:bg-zinc-600 px-4 py-2 rounded-lg text-sm">Exportar CSV</button>
         </div>
 
@@ -232,11 +233,11 @@ export default function ReportsPage() {
                         <div className="font-bold text-white mt-0.5">{r.tickets_opened}</div>
                       </div>
                       <div className="bg-zinc-700 rounded-lg p-2 text-center">
-                        <div className="text-zinc-400">💵 Efectivo</div>
+                        <div className="text-zinc-400">Efectivo</div>
                         <div className="font-bold font-mono mt-0.5">{cents(r.cash_sales_cents)}</div>
                       </div>
                       <div className="bg-zinc-700 rounded-lg p-2 text-center">
-                        <div className="text-zinc-400">💳 Tarjeta</div>
+                        <div className="text-zinc-400">Tarjeta</div>
                         <div className="font-bold font-mono mt-0.5">{cents(r.card_sales_cents)}</div>
                       </div>
                     </div>
@@ -281,11 +282,11 @@ export default function ReportsPage() {
                           <div className="font-bold text-white mt-0.5">{tot.tickets_opened}</div>
                         </div>
                         <div className="bg-zinc-800 rounded-lg p-2 text-center">
-                          <div className="text-zinc-400">💵 Efectivo</div>
+                          <div className="text-zinc-400">Efectivo</div>
                           <div className="font-bold font-mono mt-0.5">{cents(tot.cash_sales_cents)}</div>
                         </div>
                         <div className="bg-zinc-800 rounded-lg p-2 text-center">
-                          <div className="text-zinc-400">💳 Tarjeta</div>
+                          <div className="text-zinc-400">Tarjeta</div>
                           <div className="font-bold font-mono mt-0.5">{cents(tot.card_sales_cents)}</div>
                         </div>
                       </div>
@@ -355,7 +356,7 @@ export default function ReportsPage() {
                   {(payments as any[]).map((r, i) => (
                     <tr key={i} className="border-t border-zinc-700">
                       <td className="p-3 font-semibold">
-                        {r.payment_type === 'CASH' ? '💵 Efectivo' : r.payment_type === 'CARD' ? '💳 Tarjeta' : r.payment_type}
+                        {r.payment_type === 'CASH' ? 'Efectivo' : r.payment_type === 'CARD' ? 'Tarjeta' : r.payment_type}
                       </td>
                       <td className="p-3 text-right">{r.ticket_count}</td>
                       <td className="p-3 text-right font-mono text-yellow-300">{cents(r.total_cents)}</td>
@@ -387,14 +388,14 @@ export default function ReportsPage() {
               const cardRow = (payments as any[]).find((r: any) => r.payment_type === 'CARD')
               return (
                 <div className="bg-purple-900/30 border border-purple-700 rounded-xl px-4 py-3 flex items-center gap-3">
-                  <span className="text-2xl">➕</span>
+                  <IconReceipt className="w-6 h-6 text-purple-300" />
                   <div>
                     <div className="font-bold text-purple-300 text-sm">
                       {splitCount} ticket{splitCount !== 1 ? 's' : ''} con Pago Dividido (Efectivo + Tarjeta)
                     </div>
                     <div className="text-xs text-zinc-400 mt-0.5">
-                      {cashRow && <span className="mr-3">💵 Efectivo: <span className="font-mono text-yellow-300">{cents(cashRow.total_cents)}</span></span>}
-                      {cardRow && <span>💳 Tarjeta: <span className="font-mono text-yellow-300">{cents(cardRow.total_cents)}</span></span>}
+                      {cashRow && <span className="mr-3">Efectivo: <span className="font-mono text-yellow-300">{cents(cashRow.total_cents)}</span></span>}
+                      {cardRow && <span>Tarjeta: <span className="font-mono text-yellow-300">{cents(cardRow.total_cents)}</span></span>}
                     </div>
                   </div>
                 </div>
@@ -538,7 +539,7 @@ export default function ReportsPage() {
               {/* Daily revenue line chart */}
               {daily.length > 0 && (
                 <div className="bg-zinc-800 rounded-2xl border border-zinc-700 p-4">
-                  <h2 className="text-sm font-semibold text-zinc-300 mb-4">💰 Ingresos diarios</h2>
+                  <h2 className="text-sm font-semibold text-zinc-300 mb-4">Ingresos diarios</h2>
                   <ResponsiveContainer width="100%" height={260}>
                     <LineChart data={daily} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -561,7 +562,7 @@ export default function ReportsPage() {
               {/* Top products bar chart */}
               {topProds.length > 0 && (
                 <div className="bg-zinc-800 rounded-2xl border border-zinc-700 p-4">
-                  <h2 className="text-sm font-semibold text-zinc-300 mb-4">🏆 Productos más vendidos (unidades)</h2>
+                  <h2 className="text-sm font-semibold text-zinc-300 mb-4">Productos más vendidos (unidades)</h2>
                   <ResponsiveContainer width="100%" height={Math.max(260, topProds.length * 30)}>
                     <BarChart data={topProds} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
@@ -582,7 +583,7 @@ export default function ReportsPage() {
 
                 {topProds.length > 0 && (
                   <div className="bg-zinc-800 rounded-2xl border border-zinc-700 p-4">
-                    <h2 className="text-sm font-semibold text-zinc-300 mb-4">💵 Ingresos por producto (Top 15)</h2>
+                    <h2 className="text-sm font-semibold text-zinc-300 mb-4">Ingresos por producto (Top 15)</h2>
                     <ResponsiveContainer width="100%" height={Math.max(260, topProds.length * 30)}>
                       <BarChart data={topProds} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
@@ -601,7 +602,7 @@ export default function ReportsPage() {
 
                 {byCat.length > 0 && (
                   <div className="bg-zinc-800 rounded-2xl border border-zinc-700 p-4">
-                    <h2 className="text-sm font-semibold text-zinc-300 mb-1">🍕 Ingresos por categoría</h2>
+                    <h2 className="text-sm font-semibold text-zinc-300 mb-1">Ingresos por categoría</h2>
                     <p className="text-[10px] text-zinc-500 mb-3">Sólo productos del menú — el ingreso de billar se grafica abajo.</p>
                     <ResponsiveContainer width="100%" height={260}>
                       <PieChart>
@@ -656,7 +657,7 @@ export default function ReportsPage() {
                     {/* Productos vs Billar */}
                     {productsVsPool.length > 0 && (
                       <div className="bg-zinc-800 rounded-2xl border border-zinc-700 p-4">
-                        <h2 className="text-sm font-semibold text-zinc-300 mb-1">💰 Ingresos: Productos vs Billar</h2>
+                        <h2 className="text-sm font-semibold text-zinc-300 mb-1">Ingresos: Productos vs Billar</h2>
                         <p className="text-[10px] text-zinc-500 mb-3">
                           Total: {formatMXNFromPesos(grandTotal)}
                           {' · '}Billar: {formatMXNFromPesos(poolTotal)}
@@ -686,7 +687,7 @@ export default function ReportsPage() {
                     {/* Per-pool-table bar */}
                     {poolBars.length > 0 && (
                       <div className="bg-zinc-800 rounded-2xl border border-zinc-700 p-4">
-                        <h2 className="text-sm font-semibold text-zinc-300 mb-1">🎱 Ingresos por Mesa de Billar</h2>
+                        <h2 className="text-sm font-semibold text-zinc-300 mb-1">Ingresos por Mesa de Billar</h2>
                         <p className="text-[10px] text-zinc-500 mb-3">
                           Top: <span className="text-amber-300 font-semibold">{poolBars[0]?.table_code}</span>
                           {' · '}{formatMXNFromPesos(poolBars[0]?.revenue || 0)}
@@ -828,7 +829,7 @@ export default function ReportsPage() {
 
             {/* Sales by item */}
             <div className="bg-zinc-800 rounded-xl overflow-x-auto">
-              <div className="p-3 bg-zinc-700/50 font-semibold text-sm">🚬 Ventas por Producto</div>
+              <div className="p-3 bg-zinc-700/50 font-semibold text-sm">Ventas por Producto</div>
               {!cigData || (cigData as any).sales?.length === 0 ? (
                 <p className="p-6 text-center text-zinc-500">Sin ventas de cigarros en este período</p>
               ) : (
@@ -864,7 +865,7 @@ export default function ReportsPage() {
 
             {/* Box tracking */}
             <div className="bg-zinc-800 rounded-xl overflow-x-auto">
-              <div className="p-3 bg-zinc-700/50 font-semibold text-sm">📦 Cajas Abiertas</div>
+              <div className="p-3 bg-zinc-700/50 font-semibold text-sm">Cajas Abiertas</div>
               {!cigData || (cigData as any).boxes?.length === 0 ? (
                 <p className="p-6 text-center text-zinc-500">Sin cajas abiertas en este período</p>
               ) : (

@@ -1,4 +1,5 @@
 import React from 'react'
+import { IconWarning, IconRefresh } from './Icon'
 
 interface Props {
   children: React.ReactNode
@@ -33,7 +34,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
       return (
         <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-6">
           <div className="bg-zinc-800 rounded-2xl border border-red-700 p-8 max-w-md w-full space-y-4 text-center">
-            <p className="text-4xl">⚠️</p>
+            <IconWarning className="w-10 h-10 mx-auto text-red-400" />
             <h1 className="text-xl font-bold text-red-400">Error inesperado</h1>
             <p className="text-zinc-400 text-sm">
               Algo salió mal en la interfaz. Por favor recarga la página.
@@ -45,9 +46,10 @@ export default class ErrorBoundary extends React.Component<Props, State> {
             )}
             <button
               onClick={this.handleReload}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold"
+              className="w-full py-3 bg-zinc-100 text-zinc-900 hover:bg-white rounded-xl font-bold flex items-center justify-center gap-2"
             >
-              🔄 Recargar Página
+              <IconRefresh className="w-4 h-4" />
+              Recargar Página
             </button>
           </div>
         </div>

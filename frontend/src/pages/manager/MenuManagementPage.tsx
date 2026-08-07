@@ -5,6 +5,7 @@ import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../../stores/authStore'
+import { IconCheck, IconX, IconTrash, IconPencil, IconBox } from '../../components/Icon'
 
 function cents(n: number) { return `$${(n / 100).toFixed(2)}` }
 
@@ -106,7 +107,7 @@ export default function MenuManagementPage() {
 
   // ── Item delete ────────────────────────────────────────────────────────────
   const handleDeleteItem = async (item: any) => {
-    if (!window.confirm(`⚠️ ¿Eliminar "${item.name}" del menú?\n\nEsta acción es permanente. Las órdenes históricas conservarán el registro.`)) return
+    if (!window.confirm(`¿Eliminar "${item.name}" del menú?\n\nEsta acción es permanente. Las órdenes históricas conservarán el registro.`)) return
     const reason = window.prompt('Motivo de eliminación (opcional):') ?? ''
     try {
       await client.delete(`/menu/items/${item.id}`, { data: { reason } })
@@ -282,10 +283,10 @@ export default function MenuManagementPage() {
       <div className="max-w-4xl mx-auto p-4">
 
         <div className="sticky top-0 z-20 bg-zinc-950 flex items-center justify-between py-3 mb-4 border-b border-zinc-800">
-          <h1 className="text-2xl font-extrabold tracking-tight">🍽️ Gestión del Menú</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight">Gestión del Menú</h1>
           <div className="flex gap-2">
             <button onClick={() => setShowCatManager(true)} className="bg-zinc-700 hover:bg-zinc-600 px-4 py-2 rounded-xl font-semibold text-sm">
-              🗂 Categorías
+              Categorías
             </button>
             <button onClick={() => setShowAdd(true)} className="bg-white text-zinc-900 hover:bg-zinc-200 px-4 py-2 rounded-xl font-semibold text-sm">
               + Agregar Artículo
@@ -297,7 +298,7 @@ export default function MenuManagementPage() {
         <div className="mb-4">
           <input
             type="text"
-            placeholder="🔍 Buscar artículo por nombre..."
+            placeholder="Buscar artículo por nombre..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full bg-zinc-800 border border-zinc-600 rounded-xl px-4 py-2 text-sm text-white placeholder-zinc-400 focus:outline-none focus:border-zinc-400"
@@ -370,8 +371,8 @@ export default function MenuManagementPage() {
                               <td className="p-2 text-center">
                                 <div className="flex gap-1 justify-center">
                                   <button onClick={() => handleSaveEdit(item, { name: editItem.name, price_cents: editItem.price_cents, requires_flavor: editItem.requires_flavor, category_id: editItem.category_id })}
-                                    disabled={saving} className="bg-green-600 hover:bg-green-500 px-2 py-1 rounded text-xs font-bold">✓ Guardar</button>
-                                  <button onClick={() => setEditItem(null)} className="bg-zinc-600 hover:bg-zinc-500 px-2 py-1 rounded text-xs">✕</button>
+                                    disabled={saving} className="bg-green-600 hover:bg-green-500 px-2 py-1 rounded text-xs font-bold">Guardar</button>
+                                  <button onClick={() => setEditItem(null)} className="bg-zinc-600 hover:bg-zinc-500 px-2 py-1 rounded text-xs"><IconX className="w-3.5 h-3.5 inline" /></button>
                                 </div>
                               </td>
                             </>
@@ -379,10 +380,10 @@ export default function MenuManagementPage() {
                             <>
                               <td className="p-3 font-medium">{item.name}</td>
                               <td className="p-3 text-right font-mono">{cents(item.price_cents)}</td>
-                              <td className="p-3 text-center">{item.requires_flavor ? '✅' : '—'}</td>
+                              <td className="p-3 text-center">{item.requires_flavor ? <IconCheck className="w-4 h-4 inline text-emerald-400" /> : '—'}</td>
                               <td className="p-3 text-center">
                                 <button onClick={() => toggleActive(item)} title="Toggle active">
-                                  {item.is_active ? '✅' : '❌'}
+                                  {item.is_active ? <IconCheck className="w-4 h-4 inline text-emerald-400" /> : <IconX className="w-4 h-4 inline text-red-400" />}
                                 </button>
                               </td>
                               <td className="p-3 text-center">
@@ -391,12 +392,12 @@ export default function MenuManagementPage() {
                                     className="bg-zinc-600 hover:bg-zinc-500 px-2 py-1 rounded text-xs font-semibold">Editar</button>
                                   <button onClick={() => openRecipe(item)}
                                     className={`px-2 py-1 rounded text-xs font-semibold ${item.ingredient_count > 0 ? 'bg-emerald-700 hover:bg-emerald-600' : 'bg-zinc-600 hover:bg-zinc-500'}`}>
-                                    📦{item.ingredient_count > 0 ? ` ${item.ingredient_count}` : ''}
+                                    <IconBox className="w-3.5 h-3.5 inline" />{item.ingredient_count > 0 ? ` ${item.ingredient_count}` : ''}
                                   </button>
                                   {isAdmin && (
                                     <button onClick={() => handleDeleteItem(item)}
                                       className="bg-red-900 hover:bg-red-800 px-2 py-1 rounded text-xs font-semibold text-red-300"
-                                      title="Eliminar producto">🗑</button>
+                                      title="Eliminar producto"><IconTrash className="w-3.5 h-3.5 inline" /></button>
                                   )}
                                 </div>
                               </td>
@@ -443,7 +444,7 @@ export default function MenuManagementPage() {
           <div className="bg-zinc-800 rounded-2xl w-full max-w-lg border border-emerald-700 shadow-xl max-h-[90vh] flex flex-col">
             <div className="p-5 border-b border-zinc-700 flex items-center justify-between flex-shrink-0">
               <div>
-                <h2 className="text-lg font-bold">📦 Inventario: {recipeItem.name}</h2>
+                <h2 className="text-lg font-bold">Inventario: {recipeItem.name}</h2>
                 <p className="text-xs text-zinc-400 mt-0.5">Artículos que se descuentan del inventario al ordenar este producto</p>
               </div>
               <button onClick={() => { setRecipeItem(null); setRecipeItemFull(null) }} className="text-zinc-400 hover:text-white text-2xl">&times;</button>
@@ -470,7 +471,7 @@ export default function MenuManagementPage() {
                           <span className="text-xs text-zinc-500">
                             ({ing.stock_quantity != null ? parseFloat(ing.stock_quantity).toFixed(0) : '?'} disp.)
                           </span>
-                          <button onClick={() => handleDeleteIngredient(ing.id)} className="text-red-400 hover:text-red-300 text-sm">✕</button>
+                          <button onClick={() => handleDeleteIngredient(ing.id)} className="text-red-400 hover:text-red-300 text-sm"><IconX className="w-3.5 h-3.5 inline" /></button>
                         </div>
                       </div>
                     )
@@ -482,7 +483,7 @@ export default function MenuManagementPage() {
               {recipeItemFull?.modifier_groups?.length > 0 && recipeItemFull.modifier_groups.map((group: any) => (
                 <div key={group.id} className="mb-4">
                   <p className="text-xs text-zinc-300 font-semibold uppercase mb-2">
-                    🎛 {group.name} — el mesero elige
+                    {group.name} — el mesero elige
                     {group.allow_multiple && <span className="ml-1 text-yellow-400">({group.max_selections} selecciones)</span>}
                   </p>
                   <div className="space-y-1.5">
@@ -502,9 +503,9 @@ export default function MenuManagementPage() {
                                   <button onClick={() => {
                                     setEditingModifierId(mod.id)
                                     setModRuleForm({ inventory_item_id: rule.inventory_item_id, quantity: String(parseFloat(rule.quantity)) })
-                                  }} className="text-zinc-300 hover:text-white text-xs px-1">✎</button>
+                                  }} className="text-zinc-300 hover:text-white text-xs px-1"><IconPencil className="w-3.5 h-3.5 inline" /></button>
                                   <button onClick={() => handleClearModifierRule(mod.id)}
-                                    className="text-red-400 hover:text-red-300 text-xs px-1">✕</button>
+                                    className="text-red-400 hover:text-red-300 text-xs px-1"><IconX className="w-3.5 h-3.5 inline" /></button>
                                 </>
                               )}
                               {!rule && !isEditing && (
@@ -540,9 +541,9 @@ export default function MenuManagementPage() {
                                 {(inventoryItems as any[]).find((i: any) => i.id === modRuleForm.inventory_item_id)?.base_unit_key ?? 'unit'}
                               </span>
                               <button onClick={() => handleSaveModifierRule(mod.id)} disabled={savingRule}
-                                className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 px-2 py-1 rounded text-xs font-bold">✓</button>
+                                className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 px-2 py-1 rounded text-xs font-bold"><IconCheck className="w-3.5 h-3.5 inline" /></button>
                               <button onClick={() => setEditingModifierId(null)}
-                                className="text-zinc-400 hover:text-white px-2 py-1 rounded text-xs">✕</button>
+                                className="text-zinc-400 hover:text-white px-2 py-1 rounded text-xs"><IconX className="w-3.5 h-3.5 inline" /></button>
                             </div>
                           )}
                         </div>
@@ -602,7 +603,7 @@ export default function MenuManagementPage() {
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
           <div className="bg-zinc-800 rounded-2xl w-full max-w-lg border border-zinc-600 shadow-xl max-h-[90vh] flex flex-col">
             <div className="p-5 border-b border-zinc-700 flex items-center justify-between">
-              <h2 className="text-lg font-bold">🗂 Categorías del Menú</h2>
+              <h2 className="text-lg font-bold">Categorías del Menú</h2>
               <button onClick={() => { setShowCatManager(false); setShowAddCat(false); setEditCat(null) }}
                 className="text-zinc-400 hover:text-white text-2xl">&times;</button>
             </div>
@@ -619,9 +620,9 @@ export default function MenuManagementPage() {
                         <option value="KITCHEN">KITCHEN</option>
                       </select>
                       <button onClick={handleSaveCat} disabled={saving}
-                        className="bg-green-600 hover:bg-green-500 px-3 py-1 rounded text-xs font-bold">✓</button>
+                        className="bg-green-600 hover:bg-green-500 px-3 py-1 rounded text-xs font-bold"><IconCheck className="w-3.5 h-3.5 inline" /></button>
                       <button onClick={() => setEditCat(null)}
-                        className="bg-zinc-600 hover:bg-zinc-500 px-3 py-1 rounded text-xs">✕</button>
+                        className="bg-zinc-600 hover:bg-zinc-500 px-3 py-1 rounded text-xs"><IconX className="w-3.5 h-3.5 inline" /></button>
                     </div>
                   ) : (
                     <>
@@ -636,10 +637,10 @@ export default function MenuManagementPage() {
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => setEditCat({ ...cat })}
-                          className="bg-zinc-600 hover:bg-zinc-700 px-3 py-1 rounded text-xs font-semibold">✏️</button>
+                          className="bg-zinc-600 hover:bg-zinc-700 px-3 py-1 rounded text-xs font-semibold"><IconPencil className="w-3.5 h-3.5 inline" /></button>
                         {isAdmin && (
                           <button onClick={() => handleDeleteCat(cat)}
-                            className="bg-red-900 hover:bg-red-800 px-3 py-1 rounded text-xs font-semibold text-red-300">🗑</button>
+                            className="bg-red-900 hover:bg-red-800 px-3 py-1 rounded text-xs font-semibold text-red-300"><IconTrash className="w-3.5 h-3.5 inline" /></button>
                         )}
                       </div>
                     </>
@@ -684,7 +685,7 @@ export default function MenuManagementPage() {
       {confirmDeactivate && (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
           <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-red-700 shadow-xl p-6">
-            <h2 className="text-lg font-bold text-red-400 mb-2">⚠️ ¿Desactivar Artículo?</h2>
+            <h2 className="text-lg font-bold text-red-400 mb-2">¿Desactivar Artículo?</h2>
             <p className="text-zinc-300 mb-5">
               <span className="font-bold text-white">{confirmDeactivate.name}</span> se ocultará del menú de pedidos.
               Puedes reactivarlo en cualquier momento.
@@ -766,14 +767,14 @@ export default function MenuManagementPage() {
 
               {/* ── Inventario vinculado ────────────────────── */}
               <div>
-                <label className="text-xs text-zinc-400 block mb-2">📦 Inventario que se descuenta al vender (opcional)</label>
+                <label className="text-xs text-zinc-400 block mb-2">Inventario que se descuenta al vender (opcional)</label>
                 {newItemIngredients.length > 0 && (
                   <div className="space-y-1.5 mb-2">
                     {newItemIngredients.map((ing, idx) => (
                       <div key={idx} className="flex items-center justify-between bg-zinc-700 rounded-lg px-3 py-1.5 text-sm">
                         <span>{ing.name} <span className="text-emerald-300 font-mono">×{ing.quantity} {ing.unit}</span></span>
                         <button onClick={() => setNewItemIngredients(prev => prev.filter((_, i) => i !== idx))}
-                          className="text-red-400 hover:text-red-300 text-xs">✕</button>
+                          className="text-red-400 hover:text-red-300 text-xs"><IconX className="w-3.5 h-3.5 inline" /></button>
                       </div>
                     ))}
                   </div>

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import NavBar from '../../components/NavBar'
 import { useAuthStore } from '../../stores/authStore'
+import { IconCash, IconBox, IconMug, IconSettings, IconTag, IconUsers, IconClock, IconChair, IconBall8, IconReceipt, IconTrend, IconChart } from '../../components/Icon'
 
 export default function ManagerDashboard() {
   const { t } = useTranslation()
@@ -9,22 +10,22 @@ export default function ManagerDashboard() {
   const isAdmin = user?.role === 'ADMIN'
 
   const tiles = [
-    { to: '/manager/cash', icon: '💰', label: t('manager.cashSession'), desc: t('manager.desc.cashSession') },
-    { to: '/manager/inventory', icon: '📦', label: t('manager.inventory'), desc: t('manager.desc.inventory') },
-    { to: '/manager/menu', icon: '🍽️', label: t('manager.menu'), desc: t('manager.desc.menu') },
-    { to: '/manager/modifiers', icon: '🧩', label: t('manager.modifiers'), desc: t('manager.desc.modifiers') },
-    { to: '/manager/promotions', icon: '🏷️', label: t('manager.promotions'), desc: t('manager.desc.promotions') },
-    { to: '/manager/users', icon: '👥', label: t('manager.users'), desc: t('manager.desc.users') },
-    { to: '/manager/pool-config', icon: '🕒', label: t('manager.poolBilling'), desc: t('manager.desc.poolBilling') },
-    { to: '/manager/tables', icon: '🗂', label: t('manager.tableSetup'), desc: t('manager.desc.tableSetup') },
-    { to: '/floor', icon: '🎱', label: t('manager.floorView'), desc: t('manager.desc.floorView') },
-    { to: '/manager/settings', icon: '⚙️', label: t('manager.settings'), desc: t('manager.desc.settings') },
+    { to: '/manager/cash', icon: IconCash, label: t('manager.cashSession'), desc: t('manager.desc.cashSession') },
+    { to: '/manager/inventory', icon: IconBox, label: t('manager.inventory'), desc: t('manager.desc.inventory') },
+    { to: '/manager/menu', icon: IconMug, label: t('manager.menu'), desc: t('manager.desc.menu') },
+    { to: '/manager/modifiers', icon: IconSettings, label: t('manager.modifiers'), desc: t('manager.desc.modifiers') },
+    { to: '/manager/promotions', icon: IconTag, label: t('manager.promotions'), desc: t('manager.desc.promotions') },
+    { to: '/manager/users', icon: IconUsers, label: t('manager.users'), desc: t('manager.desc.users') },
+    { to: '/manager/pool-config', icon: IconClock, label: t('manager.poolBilling'), desc: t('manager.desc.poolBilling') },
+    { to: '/manager/tables', icon: IconChair, label: t('manager.tableSetup'), desc: t('manager.desc.tableSetup') },
+    { to: '/floor', icon: IconBall8, label: t('manager.floorView'), desc: t('manager.desc.floorView') },
+    { to: '/manager/settings', icon: IconSettings, label: t('manager.settings'), desc: t('manager.desc.settings') },
   ]
 
   const adminTiles = [
-    { to: '/manager/reports', icon: '📊', label: t('manager.reports'), desc: t('manager.desc.reports') },
-    { to: '/manager/earnings', icon: '💹', label: t('manager.earnings'), desc: t('manager.desc.earnings') },
-    { to: '/manager/analytics', icon: '🧠', label: t('manager.analytics'), desc: t('manager.desc.analytics') },
+    { to: '/manager/reports', icon: IconReceipt, label: t('manager.reports'), desc: t('manager.desc.reports') },
+    { to: '/manager/earnings', icon: IconTrend, label: t('manager.earnings'), desc: t('manager.desc.earnings') },
+    { to: '/manager/analytics', icon: IconChart, label: t('manager.analytics'), desc: t('manager.desc.analytics') },
   ]
 
   // The 3 screens a manager actually opens every shift get a featured
@@ -41,24 +42,28 @@ export default function ManagerDashboard() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {tiles.map((t) => {
             const featured = FEATURED.has(t.to)
+            const Icon = t.icon
             return (
               <Link key={t.to} to={t.to}
                 className={featured
                   ? 'col-span-2 bg-zinc-800 hover:bg-zinc-700 rounded-2xl p-6 border-2 border-zinc-600 hover:border-white transition-all'
                   : 'bg-zinc-800 hover:bg-zinc-700 rounded-2xl p-4 border border-zinc-700 hover:border-white transition-all'}>
-                <div className={featured ? 'text-5xl mb-3' : 'text-2xl mb-1.5'}>{t.icon}</div>
+                <Icon className={featured ? 'w-10 h-10 mb-3' : 'w-6 h-6 mb-1.5'} />
                 <div className={featured ? 'font-extrabold text-lg' : 'font-semibold text-sm'}>{t.label}</div>
                 <div className={featured ? 'text-sm text-zinc-400 mt-1' : 'text-[11px] text-zinc-500 mt-0.5'}>{t.desc}</div>
               </Link>
             )
           })}
-          {isAdmin && adminTiles.map((t) => (
-            <Link key={t.to} to={t.to} className="bg-zinc-800 hover:bg-zinc-700 rounded-2xl p-4 border border-violet-800 hover:border-violet-500 transition-all">
-              <div className="text-2xl mb-1.5">{t.icon}</div>
-              <div className="font-semibold text-sm text-violet-300">{t.label}</div>
-              <div className="text-[11px] text-zinc-500 mt-0.5">{t.desc}</div>
-            </Link>
-          ))}
+          {isAdmin && adminTiles.map((t) => {
+            const Icon = t.icon
+            return (
+              <Link key={t.to} to={t.to} className="bg-zinc-800 hover:bg-zinc-700 rounded-2xl p-4 border border-violet-800 hover:border-violet-500 transition-all">
+                <Icon className="w-6 h-6 mb-1.5" />
+                <div className="font-semibold text-sm text-violet-300">{t.label}</div>
+                <div className="text-[11px] text-zinc-500 mt-0.5">{t.desc}</div>
+              </Link>
+            )
+          })}
         </div>
       </div>
     </div>

@@ -4,6 +4,7 @@ import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
+import { IconLock, IconReceipt, IconX } from '../../components/Icon'
 
 function cents(n: number | null) { return n != null ? `$${(n / 100).toFixed(2)}` : '$0.00' }
 
@@ -68,7 +69,7 @@ export default function SafeCollectionsPage() {
       <ManagerBackButton />
       <div className="max-w-2xl mx-auto p-4">
 
-        <h1 className="text-2xl font-extrabold tracking-tight mb-6">🔐 Colectas de Caja Fuerte</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight mb-6 flex items-center gap-2"><IconLock className="w-6 h-6" /> Colectas de Caja Fuerte</h1>
 
         {/* Date filter */}
         <div className="flex gap-3 mb-6">
@@ -98,7 +99,7 @@ export default function SafeCollectionsPage() {
 
         {/* Add new */}
         <div className="bg-zinc-800 rounded-2xl p-5 border border-emerald-800 mb-6">
-          <h2 className="font-bold text-emerald-300 mb-3">➕ Registrar Nueva Colecta</h2>
+          <h2 className="font-bold text-emerald-300 mb-3">Registrar Nueva Colecta</h2>
           <label className="text-xs text-zinc-400 block mb-1">Monto colectado ($)</label>
           <input
             type="number"
@@ -118,15 +119,15 @@ export default function SafeCollectionsPage() {
           <button
             onClick={handleAdd}
             disabled={saving}
-            className="w-full py-3 bg-emerald-700 hover:bg-emerald-600 rounded-xl font-bold disabled:opacity-50"
+            className="w-full py-3 bg-emerald-700 hover:bg-emerald-600 rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {saving ? 'Registrando…' : '🔐 Registrar Colecta'}
+            {saving ? 'Registrando…' : <><IconLock className="w-4 h-4" /> Registrar Colecta</>}
           </button>
         </div>
 
         {/* History */}
         <div className="bg-zinc-800 rounded-2xl overflow-x-auto">
-          <div className="p-3 bg-zinc-700/50 font-semibold text-sm">📋 Historial</div>
+          <div className="p-3 bg-zinc-700/50 font-semibold text-sm flex items-center gap-2"><IconReceipt className="w-4 h-4" /> Historial</div>
           {(collections as any[]).length === 0 ? (
             <p className="p-8 text-center text-zinc-500">Sin colectas en este período</p>
           ) : (
@@ -153,7 +154,7 @@ export default function SafeCollectionsPage() {
                     <td className="p-3 text-right font-mono font-bold text-emerald-300">{cents(r.amount_cents)}</td>
                     <td className="p-3 text-zinc-400 text-xs italic">{r.notes || '—'}</td>
                     <td className="p-3 text-right">
-                      <button onClick={() => handleDelete(r.id)} className="text-red-500 hover:text-red-400 text-xs">✕</button>
+                      <button onClick={() => handleDelete(r.id)} className="text-red-500 hover:text-red-400 text-xs"><IconX className="w-3.5 h-3.5" /></button>
                     </td>
                   </tr>
                 ))}

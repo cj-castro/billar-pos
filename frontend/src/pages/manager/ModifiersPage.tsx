@@ -5,6 +5,7 @@ import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 import { useEscKey } from '../../hooks/useEscKey'
+import { IconPencil, IconTrash, IconX, IconSettings } from '../../components/Icon'
 
 const BLANK_GROUP = { name: '', is_mandatory: true, min_selections: 1, max_selections: 1, allow_multiple: false }
 const BLANK_MOD = { name: '', price_cents: '' }
@@ -217,13 +218,13 @@ export default function ModifiersPage() {
       <div className="max-w-2xl mx-auto p-4">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight">🧩 Modificadores</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight">Modificadores</h1>
             <p className="text-xs text-zinc-400 mt-0.5">Grupos y opciones (sabores, salsas, extras…)</p>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setShowInactive(s => !s)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${showInactive ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-transparent border-zinc-600 text-zinc-400 hover:border-zinc-400'}`}>
-              {showInactive ? '👁 Ocultar inactivos' : '👁 Ver inactivos'}
+              {showInactive ? 'Ocultar inactivos' : 'Ver inactivos'}
             </button>
             <button onClick={() => setShowNewGroup(true)}
               className="bg-white text-zinc-900 hover:bg-zinc-200 px-4 py-1.5 rounded-lg text-sm font-semibold">
@@ -234,7 +235,7 @@ export default function ModifiersPage() {
 
         {(groups as any[]).length === 0 && (
           <div className="text-center text-zinc-500 py-16">
-            <div className="text-4xl mb-3">🧩</div>
+            <div className="mb-3 flex justify-center"><IconSettings className="w-10 h-10" /></div>
             <div>Sin grupos de modificadores</div>
             <div className="text-xs mt-1">Crea un grupo (ej. "Sabores", "Salsas") y añade opciones dentro</div>
           </div>
@@ -267,9 +268,9 @@ export default function ModifiersPage() {
                     </div>
                   </button>
                   <button onClick={() => openEditGroup(group)}
-                    className="bg-zinc-700 hover:bg-zinc-700 px-3 py-1.5 rounded-lg text-sm shrink-0" title="Editar grupo">✏️</button>
+                    className="bg-zinc-700 hover:bg-zinc-700 px-3 py-1.5 rounded-lg text-sm shrink-0" title="Editar grupo"><IconPencil className="w-4 h-4 inline" /></button>
                   <button onClick={() => handleDeleteGroup(group)}
-                    className="bg-zinc-700 hover:bg-red-800 px-3 py-1.5 rounded-lg text-sm text-red-400 shrink-0" title="Eliminar grupo">🗑</button>
+                    className="bg-zinc-700 hover:bg-red-800 px-3 py-1.5 rounded-lg text-sm text-red-400 shrink-0" title="Eliminar grupo"><IconTrash className="w-4 h-4 inline" /></button>
                 </div>
 
                 {/* Modifiers list */}
@@ -293,7 +294,7 @@ export default function ModifiersPage() {
                             )}
                             {/* Edit */}
                             <button onClick={() => openEditMod(mod)}
-                              className="bg-zinc-600 hover:bg-zinc-700 px-2 py-1 rounded text-xs shrink-0" title="Editar">✏️</button>
+                              className="bg-zinc-600 hover:bg-zinc-700 px-2 py-1 rounded text-xs shrink-0" title="Editar"><IconPencil className="w-3.5 h-3.5 inline" /></button>
                             {/* Toggle active/inactive */}
                             <button onClick={() => handleToggleMod(mod)}
                               className={`px-2 py-1 rounded text-xs font-semibold shrink-0 ${active ? 'bg-yellow-900 hover:bg-yellow-700 text-yellow-300' : 'bg-green-900 hover:bg-green-700 text-green-300'}`}
@@ -302,7 +303,7 @@ export default function ModifiersPage() {
                             </button>
                             {/* Delete (soft) */}
                             <button onClick={() => handleDeleteMod(mod)}
-                              className="bg-zinc-700 hover:bg-red-800 px-2 py-1 rounded text-xs text-red-400 shrink-0" title="Eliminar">🗑</button>
+                              className="bg-zinc-700 hover:bg-red-800 px-2 py-1 rounded text-xs text-red-400 shrink-0" title="Eliminar"><IconTrash className="w-3.5 h-3.5 inline" /></button>
                           </div>
                         )
                       })}
@@ -340,12 +341,12 @@ export default function ModifiersPage() {
       {editingGroup && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-zinc-600">
-            <h2 className="font-bold mb-4">✏️ Editar Grupo: {editingGroup.name}</h2>
+            <h2 className="font-bold mb-4">Editar Grupo: {editingGroup.name}</h2>
             <GroupForm form={groupForm} setForm={setGroupForm} />
             <div className="flex gap-3 mt-5">
               <button onClick={() => setEditingGroup(null)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               <button onClick={() => { handleDeleteGroup(editingGroup); setEditingGroup(null) }}
-                className="py-2 px-4 bg-red-900 hover:bg-red-700 text-red-300 rounded-lg text-sm font-semibold">🗑 Eliminar</button>
+                className="py-2 px-4 bg-red-900 hover:bg-red-700 text-red-300 rounded-lg text-sm font-semibold">Eliminar</button>
               <button onClick={handleUpdateGroup} disabled={!groupForm.name.trim() || saving}
                 className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-bold disabled:opacity-50">
                 {saving ? 'Guardando…' : 'Guardar'}
@@ -376,10 +377,10 @@ export default function ModifiersPage() {
       {editingMod && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-md border border-zinc-600 max-h-[90vh] overflow-y-auto">
-            <h2 className="font-bold mb-1">✏️ Editar: {editingMod.name}</h2>
+            <h2 className="font-bold mb-1">Editar: {editingMod.name}</h2>
             {editingMod.is_active === false && (
               <div className="text-xs text-yellow-400 bg-yellow-900/30 rounded-lg px-3 py-1.5 mb-3">
-                ⚠️ Esta opción está inactiva — no aparece en nuevos pedidos
+                Esta opción está inactiva — no aparece en nuevos pedidos
               </div>
             )}
             <div className="mt-3">
@@ -389,10 +390,10 @@ export default function ModifiersPage() {
             {/* ── Inventory rules ───────────────────────────────────────── */}
             <div className="mt-5 border-t border-zinc-700 pt-4">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-zinc-300 uppercase tracking-wide">📦 Consumo de Inventario</p>
+                <p className="text-xs font-semibold text-zinc-300 uppercase tracking-wide">Consumo de Inventario</p>
                 <button onClick={() => setAddingRule(r => !r)}
                   className="text-xs bg-zinc-700 hover:bg-zinc-600 px-2 py-1 rounded-lg text-zinc-300">
-                  {addingRule ? '✕ Cancelar' : '+ Vincular'}
+                  {addingRule ? 'Cancelar' : '+ Vincular'}
                 </button>
               </div>
 
@@ -406,7 +407,7 @@ export default function ModifiersPage() {
                   <span className="text-xs text-zinc-400">{r.inventory_item_unit}</span>
                   <span className="text-xs font-mono text-zinc-200 w-6 text-center">{r.quantity}</span>
                   <button onClick={() => removeRule(r.inventory_item_id)}
-                    className="text-red-400 hover:text-red-300 text-xs px-1">✕</button>
+                    className="text-red-400 hover:text-red-300 text-xs px-1"><IconX className="w-3.5 h-3.5 inline" /></button>
                 </div>
               ))}
 
@@ -443,7 +444,7 @@ export default function ModifiersPage() {
               </button>
               {/* Delete */}
               <button onClick={() => handleDeleteMod(editingMod)}
-                className="py-2 px-3 bg-red-900 hover:bg-red-700 text-red-300 rounded-lg text-sm font-semibold">🗑 Eliminar</button>
+                className="py-2 px-3 bg-red-900 hover:bg-red-700 text-red-300 rounded-lg text-sm font-semibold">Eliminar</button>
               {/* Save */}
               <button onClick={handleUpdateMod} disabled={!modForm.name.trim() || saving}
                 className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-bold disabled:opacity-50 min-w-[80px]">

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import client from '../api/client'
 import toast from 'react-hot-toast'
 import { useEscKey } from '../hooks/useEscKey'
+import { IconWarning, IconPencil, IconCash, IconCard, IconRefresh } from './Icon'
 
 interface Props {
   ticket: any
@@ -129,7 +130,9 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
   const PaymentBtn = ({ value, current, onClick }: { value: 'CASH' | 'CARD'; current: 'CASH' | 'CARD'; onClick: () => void }) => (
     <button onClick={onClick}
       className={`py-2 rounded-lg font-semibold text-sm ${current === value ? 'bg-white text-zinc-900' : 'bg-zinc-700 text-zinc-300'}`}>
-      {value === 'CASH' ? '💵 Efectivo' : '💳 Tarjeta'}
+      {value === 'CASH'
+        ? <span className="inline-flex items-center gap-1"><IconCash className="w-3.5 h-3.5" />Efectivo</span>
+        : <span className="inline-flex items-center gap-1"><IconCard className="w-3.5 h-3.5" />Tarjeta</span>}
     </button>
   )
 
@@ -137,7 +140,7 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
     <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
       <div className="bg-zinc-800 rounded-t-2xl sm:rounded-2xl w-full max-w-md border border-zinc-600 shadow-xl max-h-[92dvh] flex flex-col">
         <div className="p-5 border-b border-zinc-700">
-          <h2 className="text-lg font-bold">✏️ Editar Pago — Ticket Cerrado</h2>
+          <h2 className="text-lg font-bold flex items-center gap-2"><IconPencil className="w-4 h-4" />Editar Pago — Ticket Cerrado</h2>
           <p className="text-xs text-zinc-400 mt-1">
             El total no se modifica. Sólo método de pago y propinas.
             Para cambiar artículos, usa "Reabrir".
@@ -166,7 +169,7 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
           {/* PAYMENT */}
           <div className="border-t border-zinc-700 pt-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-bold text-zinc-200">💰 Método de Pago</span>
+              <span className="text-sm font-bold text-zinc-200 flex items-center gap-1.5"><IconCash className="w-4 h-4" />Método de Pago</span>
               <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
                 <input type="checkbox"
                   checked={splitPayment}
@@ -222,7 +225,7 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
 
           {/* TIP */}
           <div className="border-t border-zinc-700 pt-4">
-            <div className="text-sm font-bold text-zinc-200 mb-2">🪙 Propina</div>
+            <div className="text-sm font-bold text-zinc-200 mb-2 flex items-center gap-1.5"><IconCash className="w-4 h-4" />Propina</div>
 
             <div className="space-y-2">
               <div>
@@ -236,11 +239,11 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
               <div>
                 <label className="text-xs text-zinc-400 block mb-1">Origen</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {([['CASH', '💵 Efectivo'], ['CARD', '💳 Tarjeta'], ['SPLIT', '🔀 Mixto']] as const).map(([opt, label]) => (
+                  {([['CASH', 'Efectivo', IconCash], ['CARD', 'Tarjeta', IconCard], ['SPLIT', 'Mixto', IconRefresh]] as const).map(([opt, label, Icon]) => (
                     <button key={opt}
                       onClick={() => setTipSource(opt)}
-                      className={`py-1.5 rounded-lg text-xs font-semibold ${tipSource === opt ? 'bg-amber-600 text-white' : 'bg-zinc-700 text-zinc-300'}`}>
-                      {label}
+                      className={`py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 ${tipSource === opt ? 'bg-amber-600 text-white' : 'bg-zinc-700 text-zinc-300'}`}>
+                      <Icon className="w-3.5 h-3.5" />{label}
                     </button>
                   ))}
                 </div>
@@ -249,14 +252,14 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
               {tipSource === 'SPLIT' && (
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-xs text-zinc-400 block mb-1">💵 Efectivo</label>
+                    <label className="text-xs text-zinc-400 flex items-center gap-1 mb-1"><IconCash className="w-3.5 h-3.5" />Efectivo</label>
                     <input type="number" step="0.01" min="0"
                       value={tipCash}
                       onChange={e => setTipCash(e.target.value)}
                       className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 font-mono" />
                   </div>
                   <div>
-                    <label className="text-xs text-zinc-400 block mb-1">💳 Tarjeta</label>
+                    <label className="text-xs text-zinc-400 flex items-center gap-1 mb-1"><IconCard className="w-3.5 h-3.5" />Tarjeta</label>
                     <input type="number" step="0.01" min="0"
                       value={tipCard}
                       onChange={e => setTipCard(e.target.value)}
@@ -283,7 +286,7 @@ export default function EditPaymentModal({ ticket, onClose, onSaved }: Props) {
             />
           </div>
 
-          {error && <div className="text-red-400 text-sm bg-red-900/30 rounded-lg px-3 py-2">⚠️ {error}</div>}
+          {error && <div className="text-red-400 text-sm bg-red-900/30 rounded-lg px-3 py-2 flex items-center gap-1.5"><IconWarning className="w-4 h-4 shrink-0" />{error}</div>}
 
           <button
             onClick={loadHistory}

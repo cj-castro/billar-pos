@@ -7,6 +7,7 @@ import toast from 'react-hot-toast'
 import { printCashReconciliation, printTipDistribution, type ReconSummary } from '../../utils/printCashReconciliation'
 import EditPaymentModal from '../../components/EditPaymentModal'
 import { formatMXN } from '../../utils/money'
+import { IconWarning, IconChair, IconGhost, IconRefresh, IconTrash, IconPencil, IconPrinter, IconSearch, IconX, IconCash, IconCard, IconReceipt, IconLock } from '../../components/Icon'
 
 const cents = formatMXN
 function diff(n: number) {
@@ -64,7 +65,7 @@ export default function CashSessionPage() {
     setCleaningGhosts(true)
     try {
       const res = await client.post('/tickets/clean-ghosts', { reason: 'Limpieza automática desde cierre de bar' })
-      toast.success(`✅ ${res.data.cleaned} cuenta${res.data.cleaned !== 1 ? 's' : ''} fantasma${res.data.cleaned !== 1 ? 's' : ''} cerrada${res.data.cleaned !== 1 ? 's' : ''}`)
+      toast.success(`${res.data.cleaned} cuenta${res.data.cleaned !== 1 ? 's' : ''} fantasma${res.data.cleaned !== 1 ? 's' : ''} cerrada${res.data.cleaned !== 1 ? 's' : ''}`)
       refetchAll()
       refetchOpenTickets()
     } catch (err: any) {
@@ -112,7 +113,7 @@ export default function CashSessionPage() {
     setForcingClose(ticketId)
     try {
       await client.post(`/tickets/${ticketId}/force-close`, { reason: ghostReason })
-      toast.success('Cuenta fantasma cerrada ✓')
+      toast.success('Cuenta fantasma cerrada')
       setGhostReason('')
       refetchAll()
       refetchOpenTickets()
@@ -251,10 +252,10 @@ export default function CashSessionPage() {
     : null
 
   const TABS = [
-    { id: 'summary', label: '📊 Summary' },
-    { id: 'tickets', label: `🧾 Tickets` },
-    { id: 'expenses', label: '💸 Expenses' },
-    { id: 'tips', label: '💝 Tips Config' },
+    { id: 'summary', label: 'Summary' },
+    { id: 'tickets', label: `Tickets` },
+    { id: 'expenses', label: 'Expenses' },
+    { id: 'tips', label: 'Tips Config' },
   ] as const
 
   return (
@@ -263,9 +264,10 @@ export default function CashSessionPage() {
       <ManagerBackButton />
       <div className="max-w-3xl mx-auto p-4">
         <div className="sticky top-0 z-10 bg-zinc-950 flex items-center justify-between py-3 mb-4 border-b border-zinc-800">
-          <h1 className="text-2xl font-extrabold tracking-tight">💰 Cash Session</h1>
-          <div className={`px-3 py-1 rounded-full text-sm font-bold ${status?.open ? 'bg-green-700 text-green-200' : 'bg-red-800 text-red-200'}`}>
-            {status?.open ? '🟢 Bar Abierto' : '🔴 Bar Cerrado'}
+          <h1 className="text-2xl font-extrabold tracking-tight">Cash Session</h1>
+          <div className={`px-3 py-1 rounded-full text-sm font-bold flex items-center gap-2 ${status?.open ? 'bg-green-700 text-green-200' : 'bg-red-800 text-red-200'}`}>
+            <span className={`w-2 h-2 rounded-full ${status?.open ? 'bg-green-400' : 'bg-red-400'}`} />
+            {status?.open ? 'Bar Abierto' : 'Bar Cerrado'}
           </div>
         </div>
 
@@ -317,11 +319,11 @@ export default function CashSessionPage() {
                     </div>
                   </div>
                   <div className="bg-zinc-800 rounded-xl p-4">
-                    <div className="text-xs text-zinc-400 mb-1">💵 Cash Sales</div>
+                    <div className="text-xs text-zinc-400 mb-1">Cash Sales</div>
                     <div className="text-xl font-bold">{cents(s.cash_sales_cents)}</div>
                   </div>
                   <div className="bg-zinc-800 rounded-xl p-4">
-                    <div className="text-xs text-zinc-400 mb-1">💳 Card Sales</div>
+                    <div className="text-xs text-zinc-400 mb-1">Card Sales</div>
                     <div className="text-xl font-bold">{cents(s.card_sales_cents)}</div>
                   </div>
                   <div className="bg-zinc-800 rounded-xl p-4">
@@ -339,39 +341,39 @@ export default function CashSessionPage() {
                 {/* Print buttons */}
                 <div className="flex gap-3 mb-4">
                   <button onClick={handlePrintReconciliation}
-                    className="flex-1 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-xl text-sm font-semibold">
-                    🖨 Print Reconciliation
+                    className="flex-1 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
+                    <IconPrinter className="w-4 h-4" /> Print Reconciliation
                   </button>
                   {s.total_tips_cents > 0 && (
                     <button onClick={handlePrintTipSheet}
                       className="flex-1 py-2 bg-amber-700 hover:bg-amber-600 rounded-xl text-sm font-semibold">
-                      💝 Print Tip Sheet
+                      Print Tip Sheet
                     </button>
                   )}
                 </div>
 
                 {/* ── Close Bar ── */}
                 <div className="bg-zinc-800 rounded-2xl p-5 border border-red-900 mb-8">
-                  <h2 className="font-bold text-red-300 mb-3">🔒 Cerrar Bar / Finalizar Caja</h2>
+                  <h2 className="font-bold text-red-300 mb-3 flex items-center gap-2"><IconLock className="w-4 h-4" /> Cerrar Bar / Finalizar Caja</h2>
 
                   {/* Pre-close breakdown */}
                   {s && (
                     <div className="bg-zinc-900 rounded-xl p-4 mb-4 space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-zinc-400">💰 Fondo inicial</span>
+                        <span className="text-zinc-400">Fondo inicial</span>
                         <span className="font-mono">{cents(s.opening_fund_cents)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-zinc-400">🧾 Ventas en efectivo</span>
+                        <span className="text-zinc-400">Ventas en efectivo</span>
                         <span className="font-mono text-green-300">+{cents(s.cash_sales_cents)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-zinc-400">💳 Ventas con tarjeta</span>
+                        <span className="text-zinc-400">Ventas con tarjeta</span>
                         <span className="font-mono text-zinc-200">{cents(s.card_sales_cents)}</span>
                       </div>
                       {s.total_expenses_cents > 0 && (
                         <div className="flex justify-between">
-                          <span className="text-zinc-400">📤 Gastos en efectivo</span>
+                          <span className="text-zinc-400">Gastos en efectivo</span>
                           <span className="font-mono text-red-400">-{cents(s.cash_expenses_cents)}</span>
                         </div>
                       )}
@@ -379,13 +381,13 @@ export default function CashSessionPage() {
                         <>
                           {s.cash_tips_cents > 0 && (
                             <div className="flex justify-between">
-                              <span className="text-zinc-400">💵 Propinas efectivo recibidas</span>
+                              <span className="text-zinc-400">Propinas efectivo recibidas</span>
                               <span className="font-mono text-amber-300">+{cents(s.cash_tips_cents)}</span>
                             </div>
                           )}
                           <div className="flex justify-between">
                             <span className="text-zinc-400">
-                              📤 Propinas pagadas a staff
+                              Propinas pagadas a staff
                               {s.card_tips_cents > 0 && (
                                 <span className="text-zinc-500 text-xs"> (incl. {cents(s.card_tips_cents)} propinas tarjeta)</span>
                               )}
@@ -396,11 +398,11 @@ export default function CashSessionPage() {
                       )}
                       <div className="border-t border-zinc-700 pt-2 mt-2 space-y-1">
                         <div className="flex justify-between font-bold">
-                          <span className="text-zinc-200">💵 Efectivo esperado en caja</span>
+                          <span className="text-zinc-200">Efectivo esperado en caja</span>
                           <span className="font-mono text-zinc-200">{cents(s.expected_cash_cents)}</span>
                         </div>
                         <div className="flex justify-between font-bold">
-                          <span className="text-emerald-300">💳 Tarjeta a verificar en terminal</span>
+                          <span className="text-emerald-300">Tarjeta a verificar en terminal</span>
                           <span className="font-mono text-emerald-300">{cents(s.card_sales_cents)}</span>
                         </div>
                       </div>
@@ -417,7 +419,7 @@ export default function CashSessionPage() {
                         ? 'bg-green-900/40 text-green-300' : 'bg-red-900/40 text-red-300'
                     }`}>
                       Diferencia: {diff(Math.round(parseFloat(closingCash) * 100) - s.expected_cash_cents)}
-                      {Math.round(parseFloat(closingCash) * 100) === s.expected_cash_cents && ' ✅ Cuadra perfecto'}
+                      {Math.round(parseFloat(closingCash) * 100) === s.expected_cash_cents && ' Cuadra perfecto'}
                     </div>
                   )}
                   <label className="text-xs text-zinc-400 block mb-1">Notas (opcional)</label>
@@ -429,19 +431,19 @@ export default function CashSessionPage() {
                     <div className="mb-4 border border-amber-700 rounded-xl overflow-hidden">
                       <div className="bg-amber-900/40 px-4 py-3 space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-amber-300 font-bold text-sm">
-                            ⚠️ {openCount} cuenta{openCount !== 1 ? 's' : ''} bloqueando el cierre
+                          <span className="text-amber-300 font-bold text-sm flex items-center gap-1">
+                            <IconWarning className="w-4 h-4" /> {openCount} cuenta{openCount !== 1 ? 's' : ''} bloqueando el cierre
                           </span>
-                          <button onClick={() => { refetchAll(); refetchOpenTickets() }} className="text-xs text-amber-400 hover:text-amber-200 underline">↻ Actualizar</button>
+                          <button onClick={() => { refetchAll(); refetchOpenTickets() }} className="text-xs text-amber-400 hover:text-amber-200 underline flex items-center gap-1"><IconRefresh className="w-3.5 h-3.5" /> Actualizar</button>
                         </div>
                         <div className="flex gap-3 text-xs text-zinc-300">
-                          <span>🪑 <span className="text-white font-semibold">{realCount}</span> en mesa activa</span>
-                          <span>👻 <span className="text-red-300 font-semibold">{ghostCount}</span> fantasma{ghostCount !== 1 ? 's' : ''} (mesa libre)</span>
+                          <span className="flex items-center gap-1"><IconChair className="w-3.5 h-3.5" /> <span className="text-white font-semibold">{realCount}</span> en mesa activa</span>
+                          <span className="flex items-center gap-1"><IconGhost className="w-3.5 h-3.5" /> <span className="text-red-300 font-semibold">{ghostCount}</span> fantasma{ghostCount !== 1 ? 's' : ''} (mesa libre)</span>
                         </div>
                         {ghostCount > 0 && (
                           <button onClick={handleCleanGhosts} disabled={cleaningGhosts}
-                            className="w-full py-1.5 bg-red-800 hover:bg-red-700 disabled:opacity-50 rounded-lg text-xs font-bold text-white">
-                            {cleaningGhosts ? 'Limpiando…' : `🧹 Limpiar ${ghostCount} cuenta${ghostCount !== 1 ? 's' : ''} fantasma${ghostCount !== 1 ? 's' : ''} automáticamente`}
+                            className="w-full py-1.5 bg-red-800 hover:bg-red-700 disabled:opacity-50 rounded-lg text-xs font-bold text-white flex items-center justify-center gap-1">
+                            {cleaningGhosts ? 'Limpiando…' : <><IconTrash className="w-3.5 h-3.5" /> {`Limpiar ${ghostCount} cuenta${ghostCount !== 1 ? 's' : ''} fantasma${ghostCount !== 1 ? 's' : ''} automáticamente`}</>}
                           </button>
                         )}
                       </div>
@@ -489,7 +491,7 @@ export default function CashSessionPage() {
 
                   <button onClick={handleClose} disabled={saving || !closingCash || openCount > 0}
                     className="w-full py-3 bg-red-700 hover:bg-red-600 rounded-xl font-bold text-lg disabled:opacity-50">
-                    {saving ? 'Cerrando…' : openCount > 0 ? `🔒 Cierra las ${openCount} cuentas primero` : '🔒 Cerrar Bar'}
+                    {saving ? 'Cerrando…' : openCount > 0 ? `Cierra las ${openCount} cuentas primero` : 'Cerrar Bar'}
                   </button>
                   <p className="text-xs text-zinc-500 mt-2 text-center">
                     Reconciliación + distribución de propinas se imprimirán al cerrar
@@ -528,7 +530,7 @@ export default function CashSessionPage() {
                               <div className="text-xs text-amber-400">+{cents(t.tip_cents)} tip</div>
                             )}
                             {t.edited_after_close && (
-                              <div className="text-xs text-amber-300">✏️ editado</div>
+                              <div className="text-xs text-amber-300 flex items-center gap-1"><IconPencil className="w-3 h-3" /> editado</div>
                             )}
                           </div>
                           <div className="flex flex-col gap-1">
@@ -536,20 +538,20 @@ export default function CashSessionPage() {
                               onClick={() => handleThermalPrint(t.id)}
                               disabled={printingTicket === t.id}
                               title="Reimprimir ticket en impresora térmica"
-                              className="text-xs bg-zinc-600 hover:bg-zinc-500 px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
-                              {printingTicket === t.id ? '…' : '🧾 Imprimir'}
+                              className="text-xs bg-zinc-600 hover:bg-zinc-500 px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap disabled:opacity-50 flex items-center gap-1">
+                              {printingTicket === t.id ? '…' : <><IconPrinter className="w-3.5 h-3.5" /> Imprimir</>}
                             </button>
                             <button
                               onClick={() => setEditingPaymentTicket(t)}
                               title="Editar método de pago / propina sin reabrir el ticket"
-                              className="text-xs bg-amber-700 hover:bg-amber-600 px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap">
-                              ✏️ Editar Pago
+                              className="text-xs bg-amber-700 hover:bg-amber-600 px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap flex items-center gap-1">
+                              <IconPencil className="w-3.5 h-3.5" /> Editar Pago
                             </button>
                             <button
                               onClick={() => handleReopenTicket(t.id, `${t.customer_name || t.resource_code}`)}
                               title="Reabrir ticket para modificar artículos"
-                              className="text-xs bg-orange-700 hover:bg-orange-600 px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap">
-                              ↺ Reabrir
+                              className="text-xs bg-orange-700 hover:bg-orange-600 px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap flex items-center gap-1">
+                              <IconRefresh className="w-3.5 h-3.5" /> Reabrir
                             </button>
                           </div>
                         </div>
@@ -564,7 +566,7 @@ export default function CashSessionPage() {
             {activeTab === 'expenses' && (
               <>
                 <div className="bg-zinc-800 rounded-2xl p-5 mb-4 border border-zinc-700">
-                  <h2 className="font-bold mb-3">➕ Add Expense</h2>
+                  <h2 className="font-bold mb-3">Add Expense</h2>
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div>
                       <label className="text-xs text-zinc-400 block mb-1">Amount</label>
@@ -578,7 +580,7 @@ export default function CashSessionPage() {
                         {(['CASH', 'CARD'] as const).map(m => (
                           <button key={m} onClick={() => setExpMethod(m)}
                             className={`flex-1 py-2 rounded-lg text-sm font-bold border-2 ${expMethod === m ? 'bg-white border-zinc-500 text-zinc-900' : 'bg-zinc-700 border-zinc-600'}`}>
-                            {m === 'CASH' ? '💵' : '💳'} {m}
+                            {m === 'CASH' ? <IconCash className="inline w-4 h-4" /> : <IconCard className="inline w-4 h-4" />} {m}
                           </button>
                         ))}
                       </div>
@@ -615,7 +617,7 @@ export default function CashSessionPage() {
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="font-mono text-red-400 font-bold">-{cents(e.amount_cents)}</span>
-                          <button onClick={() => handleDeleteExpense(e.id)} className="text-zinc-500 hover:text-red-400 text-sm">✕</button>
+                          <button onClick={() => handleDeleteExpense(e.id)} className="text-zinc-500 hover:text-red-400 text-sm"><IconX className="w-4 h-4" /></button>
                         </div>
                       </div>
                     ))}
@@ -629,7 +631,7 @@ export default function CashSessionPage() {
               <div>
                 <div className="bg-zinc-800 rounded-2xl p-5 mb-4 border border-zinc-700">
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="font-bold">💝 Tip Distribution Config</h2>
+                    <h2 className="font-bold">Tip Distribution Config</h2>
                     {!editingTips && (
                       <button onClick={startEditTips}
                         className="text-sm bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded-lg">
@@ -641,9 +643,9 @@ export default function CashSessionPage() {
                   {!editingTips && tipCfg ? (
                     <div className="space-y-3">
                       {[
-                        { label: '🏃 Floor / Waiters', pct: tipCfg.floor_pct, cents: s.tip_distribution?.floor_cents },
-                        { label: '🍹 Bar + Manager', pct: tipCfg.bar_pct, cents: s.tip_distribution?.bar_cents },
-                        { label: '🍳 Kitchen', pct: tipCfg.kitchen_pct, cents: s.tip_distribution?.kitchen_cents },
+                        { label: 'Floor / Waiters', pct: tipCfg.floor_pct, cents: s.tip_distribution?.floor_cents },
+                        { label: 'Bar + Manager', pct: tipCfg.bar_pct, cents: s.tip_distribution?.bar_cents },
+                        { label: 'Kitchen', pct: tipCfg.kitchen_pct, cents: s.tip_distribution?.kitchen_cents },
                       ].map(row => (
                         <div key={row.label} className="flex items-center justify-between px-4 py-3 bg-zinc-700 rounded-xl">
                           <div>
@@ -662,9 +664,9 @@ export default function CashSessionPage() {
                   ) : editingTips ? (
                     <div className="space-y-3">
                       {[
-                        { label: '🏃 Floor / Waiters', val: tipFloor, set: setTipFloor },
-                        { label: '🍹 Bar + Manager', val: tipBar, set: setTipBar },
-                        { label: '🍳 Kitchen', val: tipKitchen, set: setTipKitchen },
+                        { label: 'Floor / Waiters', val: tipFloor, set: setTipFloor },
+                        { label: 'Bar + Manager', val: tipBar, set: setTipBar },
+                        { label: 'Kitchen', val: tipKitchen, set: setTipKitchen },
                       ].map(row => (
                         <div key={row.label} className="flex items-center gap-3">
                           <label className="flex-1 text-sm font-medium">{row.label}</label>
@@ -678,7 +680,7 @@ export default function CashSessionPage() {
                       ))}
                       {tipTotal !== null && (
                         <div className={`text-center text-sm font-bold ${tipTotal === 100 ? 'text-green-400' : 'text-red-400'}`}>
-                          Total: {tipTotal}% {tipTotal === 100 ? '✓' : '(must equal 100%)'}
+                          Total: {tipTotal}% {tipTotal === 100 ? '' : '(must equal 100%)'}
                         </div>
                       )}
                       <div className="flex gap-3 mt-2">
@@ -697,8 +699,8 @@ export default function CashSessionPage() {
 
                 {s.total_tips_cents > 0 && (
                   <button onClick={handlePrintTipSheet}
-                    className="w-full py-3 bg-amber-700 hover:bg-amber-600 rounded-xl font-bold">
-                    🖨 Print Tip Distribution Sheet
+                    className="w-full py-3 bg-amber-700 hover:bg-amber-600 rounded-xl font-bold flex items-center justify-center gap-2">
+                    <IconPrinter className="w-4 h-4" /> Print Tip Distribution Sheet
                   </button>
                 )}
               </div>
@@ -709,7 +711,7 @@ export default function CashSessionPage() {
         {/* ── Past Sessions ── */}
         {(sessions as any[]).length > 0 && (
           <div className="bg-zinc-800 rounded-2xl overflow-hidden border border-zinc-700 mt-6">
-            <div className="px-4 py-3 border-b border-zinc-700 font-semibold text-zinc-200">📋 Historial de Sesiones</div>
+            <div className="px-4 py-3 border-b border-zinc-700 font-semibold text-zinc-200 flex items-center gap-2"><IconReceipt className="w-4 h-4" /> Historial de Sesiones</div>
             {(sessions as any[]).map((sess: any) => (
               <div key={sess.id} className="flex items-center justify-between px-4 py-3 border-b border-zinc-700 last:border-0 text-sm">
                 <div>
@@ -730,9 +732,9 @@ export default function CashSessionPage() {
                       } catch { toast.error('No se pudo cargar la sesión') }
                       finally { setLoadingSession(false) }
                     }}
-                    className="px-3 py-1 bg-zinc-700 hover:bg-white hover:text-zinc-900 rounded-lg text-xs font-semibold"
+                    className="px-3 py-1 bg-zinc-700 hover:bg-white hover:text-zinc-900 rounded-lg text-xs font-semibold flex items-center gap-1"
                   >
-                    {loadingSession ? '…' : '🔍 Ver'}
+                    {loadingSession ? '…' : <><IconSearch className="w-3.5 h-3.5" /> Ver</>}
                   </button>
                 </div>
               </div>
@@ -753,20 +755,20 @@ export default function CashSessionPage() {
                   </div>
                 </div>
                 <button onClick={() => { setViewingSession(null); setViewingSummary(null) }}
-                  className="text-zinc-400 hover:text-white text-2xl font-bold">✕</button>
+                  className="text-zinc-400 hover:text-white text-2xl font-bold"><IconX className="w-5 h-5" /></button>
               </div>
               <div className="p-5 space-y-3 text-sm">
                 {/* Sales summary */}
                 <div className="bg-zinc-900 rounded-xl p-4 space-y-2">
-                  <div className="font-semibold text-zinc-300 mb-2">💰 Ventas</div>
+                  <div className="font-semibold text-zinc-300 mb-2">Ventas</div>
                   <div className="flex justify-between"><span className="text-zinc-400">Total Ventas</span><span className="font-mono text-yellow-300">{cents(viewingSummary.total_sales_cents)}</span></div>
-                  <div className="flex justify-between"><span className="text-zinc-400">💵 Efectivo</span><span className="font-mono">{cents(viewingSummary.cash_sales_cents)}</span></div>
-                  <div className="flex justify-between"><span className="text-zinc-400">💳 Tarjeta</span><span className="font-mono">{cents(viewingSummary.card_sales_cents)}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Efectivo</span><span className="font-mono">{cents(viewingSummary.cash_sales_cents)}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Tarjeta</span><span className="font-mono">{cents(viewingSummary.card_sales_cents)}</span></div>
                   <div className="flex justify-between"><span className="text-zinc-400">Propinas</span><span className="font-mono text-amber-400">{cents(viewingSummary.total_tips_cents)}</span></div>
                 </div>
                 {/* Cash reconciliation */}
                 <div className="bg-zinc-900 rounded-xl p-4 space-y-2">
-                  <div className="font-semibold text-zinc-300 mb-2">🏦 Caja</div>
+                  <div className="font-semibold text-zinc-300 mb-2 flex items-center gap-2"><IconCash className="w-4 h-4" /> Caja</div>
                   <div className="flex justify-between"><span className="text-zinc-400">Fondo Apertura</span><span className="font-mono">{cents(viewingSummary.opening_fund_cents)}</span></div>
                   <div className="flex justify-between"><span className="text-zinc-400">+ Ventas Efectivo</span><span className="font-mono">{cents(viewingSummary.cash_sales_cents)}</span></div>
                   <div className="flex justify-between"><span className="text-zinc-400">+ Propinas Efectivo</span><span className="font-mono">{cents(viewingSummary.cash_tips_cents)}</span></div>
@@ -791,13 +793,13 @@ export default function CashSessionPage() {
               <div className="flex gap-3 p-5 border-t border-zinc-700">
                 <button
                   onClick={() => printCashReconciliation(viewingSummary as ReconSummary, viewingSession.date, viewingSession.closed_at?.slice(11,16))}
-                  className="flex-1 py-2.5 bg-zinc-700 hover:bg-white hover:text-zinc-900 rounded-xl font-semibold text-sm"
-                >🖨️ Reimprimir Reconciliación</button>
+                  className="flex-1 py-2.5 bg-zinc-700 hover:bg-white hover:text-zinc-900 rounded-xl font-semibold text-sm flex items-center justify-center gap-2"
+                ><IconPrinter className="w-4 h-4" /> Reimprimir Reconciliación</button>
                 {viewingSummary.tip_distribution && (
                   <button
                     onClick={() => printTipDistribution(viewingSummary as ReconSummary, viewingSession.date)}
-                    className="flex-1 py-2.5 bg-amber-700 hover:bg-amber-600 rounded-xl font-semibold text-sm"
-                  >🖨️ Reimprimir Propinas</button>
+                    className="flex-1 py-2.5 bg-amber-700 hover:bg-amber-600 rounded-xl font-semibold text-sm flex items-center justify-center gap-2"
+                  ><IconPrinter className="w-4 h-4" /> Reimprimir Propinas</button>
                 )}
               </div>
             </div>

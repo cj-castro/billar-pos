@@ -1,9 +1,3 @@
-<!-- REDESIGN IN PROGRESS: this replaces "The Night Shift Console." Core system
-     (tokens, NavBar, ResourceCard, FloorMapPage, contrast safety) is built and
-     verified in the running app. TicketPage/AddItemModal/queue pages/manager
-     pages still carry the old emoji icons and need the same icon swap this
-     file describes — re-run /impeccable document once that's finished to
-     capture the true final state. -->
 ---
 name: Bola 8 Pool Club — Monochrome Crest
 description: A high-contrast, monochrome operations console built around the club's real crest mark

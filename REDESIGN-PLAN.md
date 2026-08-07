@@ -43,7 +43,27 @@ started (see conversation history / commit `e10d9009` for the full derivation).
 - [x] Fixed a pre-existing `backend/seed.py` crash (unrelated bug, was blocking the
       whole stack from starting)
 
-### Not done — remaining emoji inventory (gathered, not yet fixed)
+### Done (this session) — full emoji pass
+
+All emoji removed across the app. `Icon.tsx` grew from 14 to 32 icons (added
+IconChair, IconUsers, IconGhost, IconX, IconWarning, IconCheck, IconTrash,
+IconPencil, IconSearch, IconSettings, IconRefresh, IconBell, IconGlobe,
+IconCash, IconCard, IconTag, IconEye, IconMug reused broadly). Icon-only spots
+got real components; decorative text-attached emoji were deleted. Fixed:
+WaitingListPanel, LoginPage (crest medallion replaces logo.jpg), TicketPage,
+AddItemModal, KitchenQueuePage/BarQueuePage, all 13 manager pages, shared
+components (ManagerPinDialog/PrintRetryBanner/ErrorBoundary/TransferModal/
+EditPaymentModal), and FloorMapPage (leftover emoji not caught in the
+original inventory). Verified: zero emoji remain (`grep` clean across
+`frontend/src/**/*.tsx`), all files balanced, `bg-white` pairing checked
+(3 false positives, all safe), `docker compose up -d --build frontend`
+compiles clean, and Login/Floor/Ticket/Kitchen/Manager-Dashboard/Inventory/
+Cash/Tables/Users screens screenshotted and visually verified in the running
+app. Mechanical detector run: 19 findings, all pre-existing "gray-on-color"
+contrast warnings + one font-choice note, unrelated to this pass — left as a
+follow-up, not a blocker.
+
+### Not done — remaining emoji inventory (gathered, not yet fixed) — SUPERSEDED, see above
 
 24 files still have emoji. Full grep for reference:
 ```

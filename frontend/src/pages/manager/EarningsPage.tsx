@@ -5,6 +5,7 @@ import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import { formatMXN } from '../../utils/money'
+import { IconWarning } from '../../components/Icon'
 
 type Tab = 'summary' | 'category' | 'staff'
 
@@ -61,7 +62,7 @@ export default function EarningsPage() {
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-3xl mx-auto p-4">
-        <h1 className="text-2xl font-extrabold tracking-tight mb-4">💹 Reporte de Ganancias</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight mb-4">Reporte de Ganancias</h1>
 
         {/* Date filter */}
         <div className="flex flex-wrap gap-3 mb-4 items-end">
@@ -80,7 +81,7 @@ export default function EarningsPage() {
         {/* Missing cost warning */}
         {summary?.items_sin_costo_count > 0 && (
           <div className="mb-4 bg-amber-950/60 border border-amber-700 rounded-xl p-3 flex items-start gap-3">
-            <span className="text-amber-400 text-lg mt-0.5">⚠</span>
+            <IconWarning className="text-amber-400 w-5 h-5 mt-0.5 shrink-0" />
             <div className="flex-1 text-sm">
               <span className="font-semibold text-amber-300">
                 {summary.items_sin_costo_count} producto{summary.items_sin_costo_count !== 1 ? 's' : ''} sin costo configurado
@@ -155,7 +156,7 @@ export default function EarningsPage() {
                 </tr>
                 {summary.ingresos_rappi_cents > 0 && (
                   <tr className="border-b border-zinc-700/50">
-                    <td className="px-4 py-3 text-zinc-200">🛵 Ventas Rappi</td>
+                    <td className="px-4 py-3 text-zinc-200">Ventas Rappi</td>
                     <td className="px-4 py-3 text-right font-mono text-orange-300">{formatMXN(summary.ingresos_rappi_cents)}</td>
                   </tr>
                 )}

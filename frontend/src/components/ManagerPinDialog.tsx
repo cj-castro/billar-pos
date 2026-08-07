@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import client from '../api/client'
 import toast from 'react-hot-toast'
 import { useEscKey } from '../hooks/useEscKey'
+import { IconLock } from './Icon'
 
 interface Props {
   action: string
@@ -71,7 +72,7 @@ export default function ManagerPinDialog({ action, onConfirm, onCancel }: Props)
         className={`bg-zinc-800 rounded-t-2xl sm:rounded-2xl p-6 w-full max-w-xs shadow-2xl border border-zinc-600 outline-none ${shake ? 'animate-shake' : ''}`}
       >
         <div className="flex items-center gap-2 mb-4">
-          <span className="text-2xl">🔒</span>
+          <IconLock className="w-6 h-6" />
           <div>
             <div className="font-bold">{t('pin.title')}</div>
             <div className="text-xs text-zinc-400">{action}</div>

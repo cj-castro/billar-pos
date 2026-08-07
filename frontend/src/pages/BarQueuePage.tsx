@@ -6,14 +6,15 @@ import client from '../api/client'
 import toast from 'react-hot-toast'
 import { formatDistanceToNow } from 'date-fns'
 import { useKDSAlert } from '../hooks/useKDSAlert'
+import { IconClock, IconPrinter, IconWarning, IconCheck, IconRefresh } from '../components/Icon'
 
 const STATUS_ORDER = ['SENT', 'IN_PROGRESS', 'READY']
 const NEXT_STATUS: Record<string, string> = { SENT: 'IN_PROGRESS', IN_PROGRESS: 'READY', READY: 'SERVED' }
 
 const STATUS_CONFIG = {
   SENT:        { label: 'En espera',      tabBg: 'bg-amber-500',  headerBg: 'bg-amber-900/40',  border: 'border-amber-700',   dot: 'bg-amber-400',  btnBg: 'bg-blue-700 hover:bg-blue-600',    btnLabel: 'En Preparación →' },
-  IN_PROGRESS: { label: 'En preparación', tabBg: 'bg-blue-600',   headerBg: 'bg-blue-900/40',   border: 'border-blue-700',    dot: 'bg-blue-400',   btnBg: 'bg-green-700 hover:bg-green-600',  btnLabel: '✓ Marcar Listo'   },
-  READY:       { label: 'Listo',          tabBg: 'bg-green-600',  headerBg: 'bg-green-900/40',  border: 'border-green-700',   dot: 'bg-green-400',  btnBg: 'bg-zinc-600 hover:bg-zinc-500',  btnLabel: 'Entregar ✓'       },
+  IN_PROGRESS: { label: 'En preparación', tabBg: 'bg-blue-600',   headerBg: 'bg-blue-900/40',   border: 'border-blue-700',    dot: 'bg-blue-400',   btnBg: 'bg-green-700 hover:bg-green-600',  btnLabel: 'Marcar Listo'   },
+  READY:       { label: 'Listo',          tabBg: 'bg-green-600',  headerBg: 'bg-green-900/40',  border: 'border-green-700',   dot: 'bg-green-400',  btnBg: 'bg-zinc-600 hover:bg-zinc-500',  btnLabel: 'Entregar'       },
 }
 
 function groupModifiers(modifiers: Array<{ name: string }>) {
@@ -53,7 +54,7 @@ function QueueCard({ item, status, onStatusChange, onPrint }: {
               className="text-zinc-300 hover:text-white active:scale-90 transition-transform text-base disabled:opacity-40"
               title="Reimprimir orden"
             >
-              {printing ? '⏳' : '🖨️'}
+              {printing ? <IconClock className="w-4 h-4 inline-block" /> : <IconPrinter className="w-4 h-4 inline-block" />}
             </button>
           )}
           <span className="text-xs text-zinc-400 font-medium">{timeAgo}</span>
@@ -76,12 +77,12 @@ function QueueCard({ item, status, onStatusChange, onPrint }: {
         )}
         {item.notes && (
           <div className="text-xs text-amber-300 italic bg-amber-900/20 rounded-lg px-3 py-1.5 border border-amber-800/40">
-            📝 {item.notes}
+            {item.notes}
           </div>
         )}
         {item.needs_reprint && (
           <div className="text-xs text-red-300 bg-red-950/60 border border-red-700/50 rounded-lg px-3 py-1.5 flex items-center gap-2">
-            <span>⚠️</span><span>Comanda no impresa — toca 🖨️ para reintentar</span>
+            <span><IconWarning className="w-4 h-4" /></span><span>Comanda no impresa — toca imprimir para reintentar</span>
           </div>
         )}
         <button
@@ -158,7 +159,7 @@ export default function BarQueuePage() {
   const handlePrint = async (itemId: string) => {
     try {
       await client.post(`/queue/${itemId}/print`)
-      toast.success('✅ Comanda enviada a imprimir')
+      toast.success('Comanda enviada a imprimir')
     } catch {
       toast.error('Error al imprimir')
     }
@@ -173,13 +174,13 @@ export default function BarQueuePage() {
       <NavBar />
       <div className="p-3 sm:p-4">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-extrabold tracking-tight">🍺 {t('queue.bar')}</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight">{t('queue.bar')}</h1>
           <button
             onClick={() => refetch()}
-            className="text-zinc-400 hover:text-white active:scale-90 transition-transform text-xl"
+            className="text-zinc-400 hover:text-white active:scale-90 transition-transform"
             title="Actualizar"
           >
-            🔄
+            <IconRefresh className="w-5 h-5" />
           </button>
         </div>
 
@@ -211,7 +212,7 @@ export default function BarQueuePage() {
             ))}
             {activeItems.length === 0 && (
               <div className="text-center py-20 text-zinc-600">
-                <div className="text-5xl mb-3">✅</div>
+                <div className="flex justify-center mb-3"><IconCheck className="w-12 h-12" /></div>
                 <div className="font-semibold text-lg">Todo al día</div>
                 <div className="text-sm mt-1">Sin artículos en "{activeCfg.label}"</div>
               </div>

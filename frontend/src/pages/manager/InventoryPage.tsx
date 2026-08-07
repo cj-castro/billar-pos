@@ -10,6 +10,7 @@ import { useSocket } from '../../hooks/useSocket'
 import { useAuthStore } from '../../stores/authStore'
 import { useUnitCatalog } from '../../hooks/useUnitCatalog'
 import { formatMXN } from '../../utils/money'
+import { IconCheck, IconX, IconSpark, IconBox, IconFlame, IconTrash } from '../../components/Icon'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -34,13 +35,13 @@ interface InventoryItem {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  all: '📦 Todos',
-  beer: '🍺 Cerveza',
-  spirit: '🥃 Licores',
-  mixer: '🧃 Mezcladores',
-  food: '🍗 Comida',
-  cigarette: '🚬 Cigarros',
-  other: '📋 Otro',
+  all: 'Todos',
+  beer: 'Cerveza',
+  spirit: 'Licores',
+  mixer: 'Mezcladores',
+  food: 'Comida',
+  cigarette: 'Cigarros',
+  other: 'Otro',
 }
 const CATEGORY_ORDER = ['all', 'beer', 'spirit', 'mixer', 'food', 'cigarette', 'other']
 
@@ -108,7 +109,7 @@ function SupplierSelect({ value, onChange }: { value: string; onChange: (v: stri
       >
         <option value="">— sin proveedor —</option>
         {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-        <option value="__add__">✚ Agregar proveedor...</option>
+        <option value="__add__">+ Agregar proveedor...</option>
       </select>
       {adding && (
         <div className="flex gap-1 mt-1">
@@ -120,8 +121,8 @@ function SupplierSelect({ value, onChange }: { value: string; onChange: (v: stri
             autoFocus
             className="flex-1 bg-zinc-700 border border-blue-500 rounded-lg px-3 py-1.5 text-sm"
           />
-          <button onClick={handleSave} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-semibold">✓</button>
-          <button onClick={() => { setAdding(false); setNewName('') }} className="px-3 py-1 bg-zinc-600 hover:bg-zinc-500 rounded-lg text-xs">✕</button>
+          <button onClick={handleSave} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-semibold"><IconCheck className="w-3.5 h-3.5" /></button>
+          <button onClick={() => { setAdding(false); setNewName('') }} className="px-3 py-1 bg-zinc-600 hover:bg-zinc-500 rounded-lg text-xs"><IconX className="w-3.5 h-3.5" /></button>
         </div>
       )}
     </div>
@@ -198,14 +199,14 @@ export default function InventoryPage() {
   useEffect(() => {
     if (!socket) return
     socket.on('inventory:box_finished', (data: any) => {
-      toast(`🚬 Caja terminada: ${data.brand}`, {
-        duration: 10000, icon: '📦',
+      toast(`Caja terminada: ${data.brand}`, {
+        duration: 10000, icon: <IconBox className="w-4 h-4" />,
         style: { background: '#7c2d12', color: '#fed7aa', border: '1px solid #c2410c' },
       })
       qc.invalidateQueries({ queryKey: ['open-boxes'] })
     })
     socket.on('inventory:box_low', (data: any) => {
-      toast.error(`🚬 Quedan solo ${data.cigs_remaining} cigarros de ${data.brand}`, { duration: 6000 })
+      toast.error(`Quedan solo ${data.cigs_remaining} cigarros de ${data.brand}`, { duration: 6000 })
     })
     socket.on('inventory:box_opened', () => {
       qc.invalidateQueries({ queryKey: ['open-boxes'] })
@@ -424,7 +425,7 @@ export default function InventoryPage() {
     setSaving(true)
     try {
       await client.post(`/inventory/${openingBottle.id}/open-bottle`)
-      toast.success(`🍾 +${openingBottle.shots_per_bottle} copas añadidas`)
+      toast.success(`+${openingBottle.shots_per_bottle} copas añadidas`)
       qc.invalidateQueries({ queryKey: ['inventory'] })
       setOpeningBottle(null)
     } catch (err: any) { toast.error(err.response?.data?.message || 'Error') }
@@ -436,7 +437,7 @@ export default function InventoryPage() {
     setSaving(true)
     try {
       await client.post(`/inventory/${openingBox.id}/open-box`)
-      toast.success(`🚬 +${openingBox.shots_per_bottle} cigarros disponibles`)
+      toast.success(`+${openingBox.shots_per_bottle} cigarros disponibles`)
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['open-boxes'] })
       setOpeningBox(null)
@@ -445,7 +446,7 @@ export default function InventoryPage() {
   }
 
   const handleDelete = async (item: InventoryItem) => {
-    if (!window.confirm(`⚠️ ¿Eliminar permanentemente "${item.name}"?\n\nSe eliminarán todos los movimientos históricos.\n\nEsta acción no se puede deshacer.`)) return
+    if (!window.confirm(`¿Eliminar permanentemente "${item.name}"?\n\nSe eliminarán todos los movimientos históricos.\n\nEsta acción no se puede deshacer.`)) return
     try {
       const res = await client.delete(`/inventory/${item.id}`)
       const moved = res.data?.movements_deleted ?? 0
@@ -468,7 +469,7 @@ export default function InventoryPage() {
         menu_item_id: res.data.id, inventory_item_id: addToMenu.id,
         quantity: 1, deduction_unit_key: addToMenu.base_unit_key,
       })
-      toast.success(`"${addToMenu.name}" añadido al menú ✅`)
+      toast.success(`"${addToMenu.name}" añadido al menú`)
       qc.invalidateQueries({ queryKey: ['all-items'] })
       setAddToMenu(null); setMenuForm({ category_id: '', price_cents: 0, requires_flavor: false })
     } catch (err: any) { toast.error(err.response?.data?.message || 'Error') }
@@ -534,18 +535,18 @@ export default function InventoryPage() {
 
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-extrabold tracking-tight">📦 {t('inventory.title')}</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight">{t('inventory.title')}</h1>
           <div className="flex gap-2">
             {isAdmin && (
               <button onClick={() => setShowCatalog(true)}
                 className="bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-300">
-                ⚙️ {t('inventory.unitCatalog')}
+                {t('inventory.unitCatalog')}
               </button>
             )}
             {isAdmin && (
               <button onClick={() => setShowSupplierCatalog(true)}
                 className="bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-300">
-                🏭 Proveedores
+                Proveedores
               </button>
             )}
             <button onClick={() => setShowNew(true)}
@@ -567,7 +568,7 @@ export default function InventoryPage() {
             className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap ${
               lowStockOnly ? 'bg-red-700 border-red-600 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'
             }`}>
-            ⚠ {t('inventory.lowStockOnly')}
+            {t('inventory.lowStockOnly')}
           </button>
         </div>
 
@@ -586,7 +587,7 @@ export default function InventoryPage() {
         {/* Open cigarette boxes banner */}
         {(openBoxes as any[]).length > 0 && (
           <div className="mb-4 bg-orange-950/50 border border-orange-700 rounded-xl p-4">
-            <div className="font-semibold text-orange-300 mb-3">🚬 Cajas Abiertas</div>
+            <div className="font-semibold text-orange-300 mb-3">Cajas Abiertas</div>
             <div className="space-y-2">
               {(openBoxes as any[]).map((box: any) => {
                 const pct = Math.round((box.cigs_sold / box.cigs_per_box) * 100)
@@ -624,12 +625,12 @@ export default function InventoryPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="font-semibold text-sm leading-tight">{item.name}</span>
-                    {item.is_low && <span className="text-[10px] text-red-400 font-bold bg-red-900/40 px-1.5 py-0.5 rounded">⚠ bajo</span>}
+                    {item.is_low && <span className="text-[10px] text-red-400 font-bold bg-red-900/40 px-1.5 py-0.5 rounded">bajo</span>}
                     {item.item_type === 'BOTTLE' && item.shots_per_bottle && (
-                      <span className="text-[10px] text-amber-400">🍾 {item.shots_per_bottle}c</span>
+                      <span className="text-[10px] text-amber-400">{item.shots_per_bottle}c</span>
                     )}
                     {item.item_type === 'CIG_BOX' && item.shots_per_bottle && (
-                      <span className="text-[10px] text-orange-400">🚬 {item.shots_per_bottle}</span>
+                      <span className="text-[10px] text-orange-400">{item.shots_per_bottle}</span>
                     )}
                   </div>
                   <div className="text-xs text-zinc-500 leading-tight mt-0.5">
@@ -648,19 +649,19 @@ export default function InventoryPage() {
                 <div className="flex items-center gap-1 flex-shrink-0 relative">
                   {item.item_type === 'BOTTLE' && item.shots_per_bottle && item.yields_item_id && (
                     <button onClick={() => setOpeningBottle(item)} title="Abrir botella"
-                      className="bg-amber-700 hover:bg-amber-600 px-2 py-1 rounded text-xs font-bold">🍾</button>
+                      className="bg-amber-700 hover:bg-amber-600 px-2 py-1 rounded text-xs font-bold"><IconBox className="w-3.5 h-3.5" /></button>
                   )}
                   {item.item_type === 'CIG_BOX' && item.shots_per_bottle && item.yields_item_id && (
                     <button onClick={() => setOpeningBox(item)} title="Abrir caja"
-                      className="bg-orange-700 hover:bg-orange-600 px-2 py-1 rounded text-xs font-bold">🚬</button>
+                      className="bg-orange-700 hover:bg-orange-600 px-2 py-1 rounded text-xs font-bold"><IconFlame className="w-3.5 h-3.5" /></button>
                   )}
                   <button onClick={() => openRestock(item)}
                     className="bg-emerald-700 hover:bg-emerald-600 px-2.5 py-1 rounded text-xs font-bold text-emerald-100 whitespace-nowrap">
-                    📦 Reabastecer
+                    Reabastecer
                   </button>
                   <button onClick={() => openAdjust(item)} title="Ajustar stock"
                     className="bg-zinc-700 hover:bg-zinc-600 px-2 py-1 rounded text-xs text-zinc-300">
-                    ⚡
+                    <IconSpark className="w-3.5 h-3.5 inline" />
                   </button>
                   <button onClick={() => setOverflowOpenId(id => id === item.id ? null : item.id)} title="Más acciones"
                     className="bg-zinc-700 hover:bg-zinc-600 px-2 py-1 rounded text-xs text-zinc-300">⋮</button>
@@ -668,17 +669,17 @@ export default function InventoryPage() {
                   {overflowOpenId === item.id && (
                     <div className="absolute right-0 top-full mt-1 z-10 bg-zinc-800 border border-zinc-600 rounded-lg shadow-2xl py-1 w-44 text-sm">
                       <button onClick={() => { openEdit(item); setOverflowOpenId(null) }}
-                        className="w-full text-left px-3 py-2 hover:bg-zinc-700">✏️ Editar</button>
+                        className="w-full text-left px-3 py-2 hover:bg-zinc-700">Editar</button>
                       <button onClick={() => { setViewingMovements(item); setOverflowOpenId(null) }}
-                        className="w-full text-left px-3 py-2 hover:bg-zinc-700 text-zinc-300">📋 Movimientos</button>
+                        className="w-full text-left px-3 py-2 hover:bg-zinc-700 text-zinc-300">Movimientos</button>
                       {inMenu
-                        ? <div className="w-full text-left px-3 py-2 text-emerald-400">✅ En el menú</div>
+                        ? <div className="w-full text-left px-3 py-2 text-emerald-400">En el menú</div>
                         : <button onClick={() => { setAddToMenu(item); setMenuForm({ category_id: '', price_cents: 0, requires_flavor: false }); setOverflowOpenId(null) }}
-                            className="w-full text-left px-3 py-2 hover:bg-zinc-700">🍽️ Agregar al menú</button>
+                            className="w-full text-left px-3 py-2 hover:bg-zinc-700">Agregar al menú</button>
                       }
                       {isAdmin && (
                         <button onClick={() => { handleDelete(item); setOverflowOpenId(null) }}
-                          className="w-full text-left px-3 py-2 hover:bg-red-900/40 text-red-400">🗑 Eliminar</button>
+                          className="w-full text-left px-3 py-2 hover:bg-red-900/40 text-red-400">Eliminar</button>
                       )}
                     </div>
                   )}
@@ -699,7 +700,7 @@ export default function InventoryPage() {
       {restocking && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-emerald-700">
-            <h2 className="font-bold mb-1 text-emerald-300">📦 {t('inventory.restock')}</h2>
+            <h2 className="font-bold mb-1 text-emerald-300">{t('inventory.restock')}</h2>
             <p className="text-zinc-400 text-sm mb-4">
               {restocking.name} · {t('inventory.currentStock')}: {fmtQty(restocking.stock_quantity)} {getUnitName(restocking.base_unit_key)}
             </p>
@@ -720,7 +721,7 @@ export default function InventoryPage() {
                     onChange={e => setRestockTotalCostPesos(e.target.value)}
                     className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                     placeholder="0.00" />
-                  <p className="text-xs text-zinc-500 mt-1">⚠ Verifica el precio actual antes de registrar.</p>
+                  <p className="text-xs text-zinc-500 mt-1">Verifica el precio actual antes de registrar.</p>
                 </div>
                 {restockPreview && (
                   <div className="bg-zinc-700/50 rounded-lg p-3 text-sm space-y-1">
@@ -773,7 +774,7 @@ export default function InventoryPage() {
                     onChange={e => setRestockCostPesos(e.target.value)}
                     className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2"
                     placeholder="0.00" />
-                  <p className="text-xs text-zinc-500 mt-1">⚠ Verifica el precio actual antes de registrar.</p>
+                  <p className="text-xs text-zinc-500 mt-1">Verifica el precio actual antes de registrar.</p>
                 </div>
 
                 {restockPreview && restockCostPesos && (
@@ -898,7 +899,7 @@ export default function InventoryPage() {
       {openingBottle && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-amber-700">
-            <h2 className="font-bold mb-1 text-amber-300">🍾 Abrir Botella</h2>
+            <h2 className="font-bold mb-1 text-amber-300">Abrir Botella</h2>
             <p className="text-zinc-300 mb-2">
               ¿Abrir <span className="font-bold text-white">{openingBottle.name}</span>?
             </p>
@@ -922,7 +923,7 @@ export default function InventoryPage() {
       {openingBox && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-orange-700">
-            <h2 className="font-bold mb-1 text-orange-300">🚬 Abrir Caja</h2>
+            <h2 className="font-bold mb-1 text-orange-300">Abrir Caja</h2>
             <p className="text-zinc-300 mb-2">
               ¿Abrir <span className="font-bold text-white">{openingBox.name}</span>?
             </p>
@@ -1059,7 +1060,7 @@ export default function InventoryPage() {
       {editing && editForm && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-zinc-800 rounded-2xl p-6 w-full max-w-sm border border-zinc-600 my-4">
-            <h2 className="font-bold mb-1 text-zinc-200">✏️ Editar Artículo</h2>
+            <h2 className="font-bold mb-1 text-zinc-200">Editar Artículo</h2>
             <p className="text-xs text-zinc-400 mb-4">
               WAC actual: <span className="text-white">{formatMXN(editing.unit_cost_cents)}/{getUnitName(editing.base_unit_key)}</span>
               {' '}· Para actualizar el costo, usa Reabastecer.
@@ -1157,7 +1158,7 @@ export default function InventoryPage() {
               <button onClick={() => setEditing(null)} className="flex-1 py-2 border border-zinc-600 rounded-lg">Cancelar</button>
               {isAdmin && (
                 <button onClick={() => { setEditing(null); handleDelete(editing!) }}
-                  className="py-2 px-3 bg-red-900 hover:bg-red-700 text-red-300 rounded-lg text-sm">🗑</button>
+                  className="py-2 px-3 bg-red-900 hover:bg-red-700 text-red-300 rounded-lg text-sm"><IconTrash className="w-4 h-4" /></button>
               )}
               <button onClick={handleEdit} disabled={!editForm.name.trim() || saving}
                 className="flex-1 py-2 bg-white text-zinc-900 hover:bg-zinc-200 rounded-lg font-bold disabled:opacity-50">Guardar</button>
@@ -1172,13 +1173,13 @@ export default function InventoryPage() {
           <div className="bg-zinc-800 rounded-2xl w-full max-w-2xl border border-zinc-600 flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between p-4 border-b border-zinc-700">
               <div>
-                <h2 className="font-bold">📋 {t('inventory.movements')}: {viewingMovements.name}</h2>
+                <h2 className="font-bold">{t('inventory.movements')}: {viewingMovements.name}</h2>
                 <p className="text-xs text-zinc-400 mt-0.5">
                   Stock actual: {fmtQty(viewingMovements.stock_quantity)} {getUnitName(viewingMovements.base_unit_key)}
                   {viewingMovements.unit_cost_cents > 0 && ` · WAC: ${formatMXN(viewingMovements.unit_cost_cents)}`}
                 </p>
               </div>
-              <button onClick={() => setViewingMovements(null)} className="text-zinc-400 hover:text-white text-xl px-2">✕</button>
+              <button onClick={() => setViewingMovements(null)} className="text-zinc-400 hover:text-white text-xl px-2"><IconX className="w-4 h-4 inline" /></button>
             </div>
 
             <div className="overflow-y-auto flex-1 p-4">
@@ -1257,7 +1258,7 @@ export default function InventoryPage() {
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
           <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-emerald-700 shadow-xl">
             <div className="p-5 border-b border-zinc-700">
-              <h2 className="text-lg font-bold">🍽️ Agregar al Menú</h2>
+              <h2 className="text-lg font-bold">Agregar al Menú</h2>
               <p className="text-zinc-400 text-sm mt-1">
                 <span className="text-white font-semibold">{addToMenu.name}</span>
                 {' '}— al vender se descuenta 1 {getUnitName(addToMenu.base_unit_key)}
@@ -1295,7 +1296,7 @@ export default function InventoryPage() {
                 className="flex-1 py-2.5 border border-zinc-600 rounded-xl text-zinc-300">Cancelar</button>
               <button onClick={handleAddToMenu} disabled={!menuForm.category_id || menuForm.price_cents <= 0 || saving}
                 className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold disabled:opacity-50">
-                {saving ? 'Agregando…' : '✅ Agregar al Menú'}
+                {saving ? 'Agregando…' : 'Agregar al Menú'}
               </button>
             </div>
           </div>
@@ -1369,7 +1370,7 @@ function UnitCatalogModal({ onClose, isAdmin, units, getUnitName }: {
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
       <div className="bg-zinc-800 rounded-2xl w-full max-w-lg border border-zinc-600 shadow-xl flex flex-col max-h-[85vh]">
         <div className="p-5 border-b border-zinc-700 flex items-center justify-between">
-          <h2 className="text-lg font-bold">⚙️ {t('inventory.unitCatalog')}</h2>
+          <h2 className="text-lg font-bold">{t('inventory.unitCatalog')}</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-white text-2xl">&times;</button>
         </div>
 
@@ -1396,7 +1397,7 @@ function UnitCatalogModal({ onClose, isAdmin, units, getUnitName }: {
                     </div>
                     <button disabled={!isDirty(u) || saving === u.key} onClick={() => saveRow(u.key)}
                       className="bg-zinc-700 hover:bg-white hover:text-zinc-900 rounded px-2 py-1 text-xs font-bold disabled:opacity-30">
-                      {saving === u.key ? '…' : '✓'}
+                      {saving === u.key ? '…' : <IconCheck className="w-3.5 h-3.5 inline" />}
                     </button>
                   </>
                 ) : (
@@ -1521,7 +1522,7 @@ function SupplierCatalogModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
       <div className="bg-zinc-800 rounded-2xl w-full max-w-lg border border-zinc-600 shadow-xl flex flex-col max-h-[85dvh]">
         <div className="p-5 border-b border-zinc-700 flex items-center justify-between">
-          <h2 className="text-lg font-bold">🏭 Catálogo de Proveedores</h2>
+          <h2 className="text-lg font-bold">Catálogo de Proveedores</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-white text-2xl">&times;</button>
         </div>
 
@@ -1549,12 +1550,12 @@ function SupplierCatalogModal({ onClose }: { onClose: () => void }) {
                   disabled={!isDirty(s) || saving === s.id}
                   onClick={() => saveRow(s.id)}
                   className="bg-zinc-700 hover:bg-white hover:text-zinc-900 rounded px-2 py-1 text-xs font-bold disabled:opacity-30">
-                  {saving === s.id ? '…' : '✓'}
+                  {saving === s.id ? '…' : <IconCheck className="w-3.5 h-3.5 inline" />}
                 </button>
                 <button
                   onClick={() => deleteRow(s.id, s.name)}
                   className="bg-red-900/60 hover:bg-red-800 rounded px-2 py-1 text-xs text-red-300">
-                  🗑
+                  <IconTrash className="w-3.5 h-3.5 inline" />
                 </button>
               </div>
             )

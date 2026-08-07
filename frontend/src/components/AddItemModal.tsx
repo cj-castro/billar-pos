@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import client from '../api/client'
 import toast from 'react-hot-toast'
 import { useEscKey } from '../hooks/useEscKey'
+import { IconCheck } from './Icon'
 
 interface Props {
   ticketId: string
@@ -105,7 +106,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
         { menu_item_id: selectedItem.id, quantity, notes, modifiers },
         { headers: { 'X-Ticket-Version': ticketVersion } }
       )
-      toast.success(`${selectedItem.name} añadido ✓`)
+      toast.success(`${selectedItem.name} añadido`)
       onAdded()
       // Stay on items step — let user keep adding from the same category
       setStep('items')
@@ -137,7 +138,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
           {/* Low-stock global warning banner */}
           {lowStockNames.length > 0 && (
             <div className="mb-3 bg-amber-900/40 border border-amber-700 rounded-xl px-3 py-2 text-xs text-amber-300">
-              ⚠️ <span className="font-semibold">Stock bajo:</span> {lowStockNames.join(', ')}
+              <span className="font-semibold">Stock bajo:</span> {lowStockNames.join(', ')}
             </div>
           )}
 
@@ -157,7 +158,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
             <div>
               <div className="flex items-center justify-between mb-3">
                 <button onClick={() => setStep('category')} className="text-zinc-300 text-sm">← {selectedCategory?.name}</button>
-                <button onClick={onClose} className="px-4 py-1.5 bg-green-700 hover:bg-green-600 text-white text-sm font-bold rounded-lg">✓ Listo</button>
+                <button onClick={onClose} className="px-4 py-1.5 bg-green-700 hover:bg-green-600 text-white text-sm font-bold rounded-lg">Listo</button>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {(items || []).map((item: any) => {
@@ -176,10 +177,10 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                       }`}>
                       <div className="font-semibold">{item.name}</div>
                       <div className="text-zinc-300 font-mono">${(item.price_cents / 100).toFixed(2)}</div>
-                      {item.requires_flavor && !oos && <div className="text-xs text-yellow-400 mt-1">⚡ Flavor required</div>}
-                      {oos && <div className="text-xs text-red-400 mt-1 font-semibold">🚫 Sin stock</div>}
+                      {item.requires_flavor && !oos && <div className="text-xs text-yellow-400 mt-1">Flavor required</div>}
+                      {oos && <div className="text-xs text-red-400 mt-1 font-semibold">Sin stock</div>}
                       {lowStock && remaining !== undefined && (
-                        <div className="text-xs text-amber-400 mt-1 font-semibold">⚠️ {remaining} restante{remaining !== 1 ? 's' : ''}</div>
+                        <div className="text-xs text-amber-400 mt-1 font-semibold">{remaining} restante{remaining !== 1 ? 's' : ''}</div>
                       )}
                     </button>
                   )
@@ -211,7 +212,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                     <div key={group.id} className="mb-5">
                       <div className="flex items-center justify-between mb-3">
                         <div className="font-semibold">
-                          🪣 {group.name}
+                          {group.name}
                           <span className="text-red-400 text-xs ml-2">* Obligatorio</span>
                         </div>
                         <span className={`text-sm font-bold font-mono px-3 py-1 rounded-full border ${
@@ -226,7 +227,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                             <div key={mod.id} className={`flex items-center justify-between rounded-xl px-4 py-2.5 ${oos ? 'bg-zinc-800 opacity-50' : 'bg-zinc-700'}`}>
                               <div>
                                 <span className="font-medium text-sm">{mod.name}</span>
-                                {oos && <span className="block text-xs text-red-400">🚫 Sin stock</span>}
+                                {oos && <span className="block text-xs text-red-400">Sin stock</span>}
                               </div>
                               <div className="flex items-center gap-2">
                                 <button onClick={() => adjustBucket(group.id, mod.id, -1)} disabled={cnt === 0}
@@ -254,7 +255,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                         {group.name}
                         {group.is_mandatory
                           ? done
-                            ? <span className="text-green-400 text-xs">✓</span>
+                            ? <IconCheck className="w-3 h-3 text-green-400" />
                             : <span className="text-red-400 text-xs">* Obligatorio</span>
                           : <span className="text-zinc-400 text-xs">Opcional</span>
                         }
@@ -284,7 +285,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                               }`}>
                               {mod.name}
                               {mod.price_cents > 0 && !oos && <span className="text-xs text-zinc-400 ml-1">+${(mod.price_cents / 100).toFixed(2)}</span>}
-                              {oos && <span className="block text-xs text-red-400">🚫 Sin stock</span>}
+                              {oos && <span className="block text-xs text-red-400">Sin stock</span>}
                             </button>
                           )
                         })}
@@ -313,7 +314,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                       .map(([k, cnt]) => {
                         const modId = k.split(':')[1]
                         const mod = group.modifiers?.find((m: any) => m.id === modId)
-                        return mod ? <div key={k} className="text-sm text-yellow-300">🍺 {cnt}× {mod.name}</div> : null
+                        return mod ? <div key={k} className="text-sm text-yellow-300">{cnt}× {mod.name}</div> : null
                       })
                   }
                   const mid = selectedModifiers[group.id]

@@ -5,6 +5,7 @@ import client from '../api/client'
 import { useNavigate } from 'react-router-dom'
 import { useEscKey } from '../hooks/useEscKey'
 import Modal from './Modal'
+import { IconCheck } from './Icon'
 
 interface Props {
   ticketId: string
@@ -77,13 +78,13 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
   // ── Success screen ──────────────────────────────────────────────────────────
   if (result) {
     const typeLabel =
-      result.toType === 'POOL_TABLE' ? '🎱 Mesa de Billar' :
-      result.toType === 'REGULAR_TABLE' ? '🪑 Mesa Regular' : '🍺 Asiento de Bar'
+      result.toType === 'POOL_TABLE' ? 'Mesa de Billar' :
+      result.toType === 'REGULAR_TABLE' ? 'Mesa Regular' : 'Asiento de Bar'
     return (
       <Modal opacity={80} z={60}>
         <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-green-700 shadow-2xl shadow-green-900/40">
           <div className="bg-green-700/30 rounded-t-2xl p-6 text-center border-b border-green-700">
-            <div className="text-5xl mb-3">✅</div>
+            <IconCheck className="w-12 h-12 mx-auto mb-3 text-green-400" />
             <div className="text-2xl font-extrabold text-green-400">¡Transferencia Completada!</div>
           </div>
           <div className="p-6 space-y-4">
@@ -94,12 +95,12 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
             </div>
             <div className="text-center text-zinc-400 text-sm">{typeLabel}</div>
             <div className="bg-zinc-700/50 rounded-xl p-3 text-sm text-zinc-300 space-y-1">
-              <div>✓ Artículos e historial conservados</div>
-              {result.toType === 'POOL_TABLE' && <div>✓ Temporizador iniciado en {result.toCode}</div>}
+              <div>Artículos e historial conservados</div>
+              {result.toType === 'POOL_TABLE' && <div>Temporizador iniciado en {result.toCode}</div>}
               {(result.fromCode.startsWith('BT') || result.fromCode.startsWith('PT')) && result.toType !== 'POOL_TABLE' && (
-                <div>✓ Tiempo de billar facturado al ticket</div>
+                <div>Tiempo de billar facturado al ticket</div>
               )}
-              <div>✓ Mapa de piso actualizado</div>
+              <div>Mapa de piso actualizado</div>
             </div>
             <button
               onClick={handleDone}
@@ -135,8 +136,8 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
         <div className="font-bold text-base">{r.code}</div>
         <div className="text-xs mt-0.5 font-medium">
           {available
-            ? <span className="text-green-400">✓ Disponible</span>
-            : <span className="text-red-400">✗ En Uso</span>}
+            ? <span className="text-green-400">Disponible</span>
+            : <span className="text-red-400">En Uso</span>}
         </div>
       </button>
     )
@@ -162,7 +163,7 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
         <div className="overflow-y-auto p-4 space-y-5 flex-1 overscroll-contain">
           {poolTables.length > 0 && (
             <div>
-              <div className="text-xs text-zinc-400 uppercase tracking-widest mb-2 font-semibold">🎱 Mesas de Billar</div>
+              <div className="text-xs text-zinc-400 uppercase tracking-widest mb-2 font-semibold">Mesas de Billar</div>
               <div className="grid grid-cols-3 gap-2">
                 {poolTables.map((r) => <ResourceBtn key={r.id} r={r} />)}
               </div>
@@ -170,7 +171,7 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
           )}
           {regularTables.length > 0 && (
             <div>
-              <div className="text-xs text-zinc-400 uppercase tracking-widest mb-2 font-semibold">🪑 Mesas Regulares</div>
+              <div className="text-xs text-zinc-400 uppercase tracking-widest mb-2 font-semibold">Mesas Regulares</div>
               <div className="grid grid-cols-3 gap-2">
                 {regularTables.map((r) => <ResourceBtn key={r.id} r={r} />)}
               </div>
@@ -178,7 +179,7 @@ export default function TransferModal({ ticketId, currentResourceCode, onClose }
           )}
           {barSeats.length > 0 && (
             <div>
-              <div className="text-xs text-zinc-400 uppercase tracking-widest mb-2 font-semibold">🍺 Asientos de Bar</div>
+              <div className="text-xs text-zinc-400 uppercase tracking-widest mb-2 font-semibold">Asientos de Bar</div>
               <div className="grid grid-cols-3 gap-2">
                 {barSeats.map((r) => <ResourceBtn key={r.id} r={r} />)}
               </div>
