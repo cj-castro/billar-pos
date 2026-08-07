@@ -4,12 +4,23 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#f0f9ff',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          900: '#0c4a6e',
+        // Semantic aliases for DESIGN.md's signal-color system — state meaning
+        // stays consistent even when someone reaches for a token instead of
+        // picking a shade of the underlying Tailwind palette by hand.
+        signal: {
+          blue: '#0284c7',
+          'blue-bright': '#0ea5e9',
+          'blue-text': '#38bdf8',
+          green: '#16a34a',
+          'green-bright': '#22c55e',
+          'green-text': '#4ade80',
+          red: '#dc2626',
+          'red-deep': '#450a0a',
+          'red-text': '#f87171',
+          amber: '#d97706',
+          'amber-text': '#fcd34d',
+          emerald: '#059669',
+          violet: '#7c3aed',
         },
       },
       keyframes: {

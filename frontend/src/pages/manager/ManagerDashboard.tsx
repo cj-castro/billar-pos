@@ -9,22 +9,22 @@ export default function ManagerDashboard() {
   const isAdmin = user?.role === 'ADMIN'
 
   const tiles = [
-    { to: '/manager/cash', icon: '💰', label: t('manager.cashSession'), desc: 'Open/close bar, tips, expenses' },
-    { to: '/manager/inventory', icon: '📦', label: t('manager.inventory'), desc: 'Stock levels & adjustments' },
-    { to: '/manager/menu', icon: '🍽️', label: t('manager.menu'), desc: 'Artículos, precios, modificadores' },
-    { to: '/manager/modifiers', icon: '🧩', label: 'Modificadores', desc: 'Grupos de sabores, salsas, extras' },
-    { to: '/manager/promotions', icon: '🏷️', label: 'Promociones', desc: '2x1 y descuentos por cantidad' },
-    { to: '/manager/users', icon: '👥', label: t('manager.users'), desc: 'Manage staff accounts' },
-    { to: '/manager/pool-config', icon: '🕒', label: t('manager.poolBilling'), desc: 'Rates, modes & free minutes' },
-    { to: '/manager/tables', icon: '🗂', label: t('manager.tableSetup'), desc: 'Add/remove pool, floor & bar seats' },
-    { to: '/floor', icon: '🎱', label: t('manager.floorView'), desc: 'Live table status' },
-    { to: '/manager/settings', icon: '⚙️', label: t('manager.settings'), desc: 'Language & preferences' },
+    { to: '/manager/cash', icon: '💰', label: t('manager.cashSession'), desc: t('manager.desc.cashSession') },
+    { to: '/manager/inventory', icon: '📦', label: t('manager.inventory'), desc: t('manager.desc.inventory') },
+    { to: '/manager/menu', icon: '🍽️', label: t('manager.menu'), desc: t('manager.desc.menu') },
+    { to: '/manager/modifiers', icon: '🧩', label: t('manager.modifiers'), desc: t('manager.desc.modifiers') },
+    { to: '/manager/promotions', icon: '🏷️', label: t('manager.promotions'), desc: t('manager.desc.promotions') },
+    { to: '/manager/users', icon: '👥', label: t('manager.users'), desc: t('manager.desc.users') },
+    { to: '/manager/pool-config', icon: '🕒', label: t('manager.poolBilling'), desc: t('manager.desc.poolBilling') },
+    { to: '/manager/tables', icon: '🗂', label: t('manager.tableSetup'), desc: t('manager.desc.tableSetup') },
+    { to: '/floor', icon: '🎱', label: t('manager.floorView'), desc: t('manager.desc.floorView') },
+    { to: '/manager/settings', icon: '⚙️', label: t('manager.settings'), desc: t('manager.desc.settings') },
   ]
 
   const adminTiles = [
-    { to: '/manager/reports', icon: '📊', label: t('manager.reports'), desc: 'Sales, pool time, payments' },
-    { to: '/manager/earnings', icon: '💹', label: 'Ganancias', desc: 'Ingresos, COGS, margen bruto' },
-    { to: '/manager/analytics', icon: '🧠', label: 'Analítica', desc: 'Menú, caja, inventario, riesgos' },
+    { to: '/manager/reports', icon: '📊', label: t('manager.reports'), desc: t('manager.desc.reports') },
+    { to: '/manager/earnings', icon: '💹', label: t('manager.earnings'), desc: t('manager.desc.earnings') },
+    { to: '/manager/analytics', icon: '🧠', label: t('manager.analytics'), desc: t('manager.desc.analytics') },
   ]
 
   return (

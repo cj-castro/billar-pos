@@ -320,7 +320,7 @@ export default function MenuManagementPage() {
                 <span className="text-slate-500 text-sm">{catItems.length} items</span>
               </div>
 
-              <div className="bg-slate-800 rounded-xl overflow-hidden">
+              <div className="bg-slate-800 rounded-xl overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-700 text-slate-300">

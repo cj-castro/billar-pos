@@ -73,18 +73,34 @@ export default function ReportsPage() {
     window.open(`/api/v1/reports/export?type=${tab}&format=csv&from=${params.from}&to=${params.to}${catParam}`, '_blank')
   }
 
-  const TABS = [
-    { id: 'charts',        label: '📈 Gráficas' },
-    { id: 'sales',         label: '🛒 Ventas' },
-    { id: 'staff',         label: '👤 Personal' },
-    { id: 'pool',          label: '🎱 Billar' },
-    { id: 'payments',      label: '💳 Pagos' },
-    { id: 'modifiers',     label: '🧂 Modificadores' },
-    { id: 'voids',         label: '🚫 Anulaciones' },
-    { id: 'peak-hours',    label: '⏰ Horas Pico' },
-    { id: 'cigarettes',    label: '🚬 Cigarros' },
-    { id: 'menu-deletions', label: '🍽️ Menú Eliminados' },
-    { id: 'inv-deletions', label: '🗑 Inv. Eliminados' },
+  // Grouped so 11 tabs read as 3 clusters instead of one flat, ungrouped row.
+  const TAB_GROUPS = [
+    {
+      label: 'Ventas y Pagos',
+      tabs: [
+        { id: 'charts',    label: '📈 Gráficas' },
+        { id: 'sales',     label: '🛒 Ventas' },
+        { id: 'payments',  label: '💳 Pagos' },
+        { id: 'modifiers', label: '🧂 Modificadores' },
+        { id: 'cigarettes', label: '🚬 Cigarros' },
+      ],
+    },
+    {
+      label: 'Operación y Personal',
+      tabs: [
+        { id: 'staff',      label: '👤 Personal' },
+        { id: 'pool',       label: '🎱 Billar' },
+        { id: 'peak-hours', label: '⏰ Horas Pico' },
+      ],
+    },
+    {
+      label: 'Mermas y Eliminados',
+      tabs: [
+        { id: 'voids',          label: '🚫 Anulaciones' },
+        { id: 'menu-deletions', label: '🍽️ Menú Eliminados' },
+        { id: 'inv-deletions',  label: '🗑 Inv. Eliminados' },
+      ],
+    },
   ] as const
 
   return (
@@ -103,11 +119,18 @@ export default function ReportsPage() {
           <div><label className="text-xs text-slate-400 block">Hasta</label><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2" /></div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {TABS.map((t) => (
-            <button key={t.id} onClick={() => { setTab(t.id); setCategoryFilter('ALL') }}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === t.id ? 'bg-sky-600' : 'bg-slate-800 hover:bg-slate-700'}`}>{t.label}</button>
+        {/* Tabs — grouped into clusters instead of one flat 11-item row */}
+        <div className="space-y-3 mb-4">
+          {TAB_GROUPS.map((group) => (
+            <div key={group.label}>
+              <div className="text-[11px] text-slate-500 uppercase tracking-wide font-semibold mb-1.5">{group.label}</div>
+              <div className="flex flex-wrap gap-2">
+                {group.tabs.map((t) => (
+                  <button key={t.id} onClick={() => { setTab(t.id); setCategoryFilter('ALL') }}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === t.id ? 'bg-sky-600' : 'bg-slate-800 hover:bg-slate-700'}`}>{t.label}</button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
 
@@ -133,7 +156,7 @@ export default function ReportsPage() {
         {/* Sales */}
         {tab === 'sales' && sales && (
           <div className="space-y-2">
-          <div className="bg-slate-800 rounded-xl overflow-hidden">
+          <div className="bg-slate-800 rounded-xl overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-700">
@@ -282,7 +305,7 @@ export default function ReportsPage() {
         {/* Pool */}
         {tab === 'pool' && pool && (
           <div className="space-y-2">
-            <div className="bg-slate-800 rounded-xl overflow-hidden">
+            <div className="bg-slate-800 rounded-xl overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="bg-slate-700"><th className="p-3 text-left">Mesa</th><th className="p-3 text-right">Sesiones</th><th className="p-3 text-right">Minutos Totales</th><th className="p-3 text-right">Ingresos</th></tr></thead>
                 <tbody>{(pool as any[]).map((r, i) => <tr key={i} className="border-t border-slate-700"><td className="p-3">{r.table_code}</td><td className="p-3 text-right">{r.sessions}</td><td className="p-3 text-right">{r.total_seconds ? Math.round(r.total_seconds / 60) : 0}m</td><td className="p-3 text-right font-mono text-yellow-300">{cents(r.revenue_cents)}</td></tr>)}</tbody>
@@ -318,7 +341,7 @@ export default function ReportsPage() {
         {/* Payments */}
         {tab === 'payments' && payments && (
           <div className="space-y-3">
-            <div className="bg-slate-800 rounded-xl overflow-hidden">
+            <div className="bg-slate-800 rounded-xl overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-700">
@@ -382,7 +405,7 @@ export default function ReportsPage() {
 
         {/* Modifiers */}
         {tab === 'modifiers' && modifiers && (
-          <div className="bg-slate-800 rounded-xl overflow-hidden">
+          <div className="bg-slate-800 rounded-xl overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="bg-slate-700"><th className="p-3 text-left">Modificador</th><th className="p-3 text-left">Grupo</th><th className="p-3 text-right">Usos</th></tr></thead>
               <tbody>{(modifiers as any[]).map((r, i) => <tr key={i} className="border-t border-slate-700"><td className="p-3">{r.modifier_name}</td><td className="p-3 text-slate-400">{r.group_name}</td><td className="p-3 text-right">{r.usage_count}</td></tr>)}</tbody>
@@ -392,7 +415,7 @@ export default function ReportsPage() {
 
         {/* Voids */}
         {tab === 'voids' && (
-          <div className="bg-slate-800 rounded-xl overflow-hidden">
+          <div className="bg-slate-800 rounded-xl overflow-x-auto">
             {(!voids || (voids as any[]).length === 0) ? (
               <div className="p-8 text-center text-slate-500">Sin artículos anulados en este período</div>
             ) : (
@@ -450,7 +473,7 @@ export default function ReportsPage() {
 
         {/* Peak Hours */}
         {tab === 'peak-hours' && (
-          <div className="bg-slate-800 rounded-xl overflow-hidden">
+          <div className="bg-slate-800 rounded-xl overflow-x-auto">
             {(!peakHours || (peakHours as any[]).length === 0) ? (
               <div className="p-8 text-center text-slate-500">Sin datos en este período</div>
             ) : (() => {
@@ -804,7 +827,7 @@ export default function ReportsPage() {
             )}
 
             {/* Sales by item */}
-            <div className="bg-slate-800 rounded-xl overflow-hidden">
+            <div className="bg-slate-800 rounded-xl overflow-x-auto">
               <div className="p-3 bg-slate-700/50 font-semibold text-sm">🚬 Ventas por Producto</div>
               {!cigData || (cigData as any).sales?.length === 0 ? (
                 <p className="p-6 text-center text-slate-500">Sin ventas de cigarros en este período</p>
@@ -840,7 +863,7 @@ export default function ReportsPage() {
             </div>
 
             {/* Box tracking */}
-            <div className="bg-slate-800 rounded-xl overflow-hidden">
+            <div className="bg-slate-800 rounded-xl overflow-x-auto">
               <div className="p-3 bg-slate-700/50 font-semibold text-sm">📦 Cajas Abiertas</div>
               {!cigData || (cigData as any).boxes?.length === 0 ? (
                 <p className="p-6 text-center text-slate-500">Sin cajas abiertas en este período</p>

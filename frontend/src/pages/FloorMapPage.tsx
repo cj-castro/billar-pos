@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import NavBar from '../components/NavBar'
 import ResourceCard from '../components/ResourceCard'
 import WaitingListPanel from '../components/WaitingListPanel'
+import Modal from '../components/Modal'
 import { useFloorStore } from '../stores/floorStore'
 import { useAuthStore } from '../stores/authStore'
 import { useEscKey } from '../hooks/useEscKey'
@@ -475,7 +476,7 @@ export default function FloorMapPage() {
 
       {/* ── Add Floating Table Modal ─────────────────────────────────────────── */}
       {showAddTable && (
-        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+        <Modal>
           <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
             <div className="p-5 border-b border-slate-700">
               <h2 className="text-lg font-bold">Agregar Mesa Flotante</h2>
@@ -532,12 +533,12 @@ export default function FloorMapPage() {
               >{addingTable ? 'Añadiendo…' : 'Añadir al Piso'}</button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── Name Prompt Modal ────────────────────────────────────────────────── */}
       {namePrompt && (
-        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+        <Modal>
           <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
             <div className="p-5 border-b border-slate-700">
               <h2 className="text-lg font-bold">Abrir Ticket — {namePrompt.code}</h2>
@@ -596,12 +597,12 @@ export default function FloorMapPage() {
               >Abrir →</button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
     {/* ── Express Sale Modal ─────────────────────────────────────────────────── */}
     {showExpressModal && (
-      <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+      <Modal>
         <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
           <div className="p-5 border-b border-slate-700">
             <h2 className="text-lg font-bold">⚡ Venta Rápida</h2>
@@ -632,12 +633,12 @@ export default function FloorMapPage() {
             >{creatingExpress ? 'Abriendo…' : 'Abrir Venta →'}</button>
           </div>
         </div>
-      </div>
+      </Modal>
     )}
 
     {/* ── Rappi Order Modal ──────────────────────────────────────────────────── */}
     {showRappiModal && (
-      <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+      <Modal>
         <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 shadow-xl">
           <div className="p-5 border-b border-slate-700">
             <h2 className="text-lg font-bold">🛵 Orden Rappi</h2>
@@ -677,7 +678,7 @@ export default function FloorMapPage() {
             >{creatingRappi ? 'Creando…' : 'Crear Orden →'}</button>
           </div>
         </div>
-      </div>
+      </Modal>
     )}
   </div>
   )

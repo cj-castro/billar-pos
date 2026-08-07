@@ -15,3 +15,10 @@ body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color
   50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
 }
 .pulse-red { animation: pulse-border 2s infinite; }
+
+/* State-carrying motion (in-use pulse, login-error shake) stays as a static
+   cue instead of a continuous loop for users who've opted out of motion. */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-red { animation: none; box-shadow: 0 0 0 3px rgba(239,68,68,0.5); }
+  .animate-shake { animation: none; }
+}

@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-07T00:00:00Z",
+  "title": "Design System: Bola 8 Pool Club POS",
+  "extensions": {
+    "colorMeta": {
+      "signal-blue": { "role": "primary", "displayName": "Signal Blue", "canonical": "#0284c7", "tonalRamp": ["#082f49", "#0c4a6e", "#075985", "#0369a1", "#0284c7", "#0ea5e9", "#38bdf8", "#bae6fd"] },
+      "signal-green": { "role": "secondary", "displayName": "Signal Green", "canonical": "#16a34a", "tonalRamp": ["#052e16", "#14532d", "#166534", "#15803d", "#16a34a", "#22c55e", "#4ade80", "#bbf7d0"] },
+      "signal-red": { "role": "secondary", "displayName": "Signal Red", "canonical": "#dc2626", "tonalRamp": ["#450a0a", "#7f1d1d", "#991b1b", "#b91c1c", "#dc2626", "#ef4444", "#f87171", "#fca5a5"] },
+      "signal-amber": { "role": "secondary", "displayName": "Signal Amber", "canonical": "#d97706", "tonalRamp": ["#451a03", "#78350f", "#92400e", "#b45309", "#d97706", "#f59e0b", "#fcd34d", "#fde68a"] },
+      "signal-emerald": { "role": "tertiary", "displayName": "Emerald (Cash/Safe)", "canonical": "#059669", "tonalRamp": ["#022c22", "#064e3b", "#065f46", "#047857", "#059669", "#10b981", "#34d399", "#a7f3d0"] },
+      "signal-violet": { "role": "tertiary", "displayName": "Violet (Earnings)", "canonical": "#7c3aed", "tonalRamp": ["#2e1065", "#4c1d95", "#5b21b6", "#6d28d9", "#7c3aed", "#8b5cf6", "#a78bfa", "#ddd6fe"] },
+      "night-base": { "role": "neutral", "displayName": "Night Base", "canonical": "#020617" },
+      "night-surface": { "role": "neutral", "displayName": "Night Surface", "canonical": "#0f172a" },
+      "night-card": { "role": "neutral", "displayName": "Night Card", "canonical": "#1e293b" },
+      "night-input": { "role": "neutral", "displayName": "Night Input", "canonical": "#334155" },
+      "night-border": { "role": "neutral", "displayName": "Night Border", "canonical": "#475569" },
+      "night-muted": { "role": "neutral", "displayName": "Night Muted Text", "canonical": "#94a3b8" },
+      "night-body": { "role": "neutral", "displayName": "Night Body Text", "canonical": "#cbd5e1" },
+      "night-bright": { "role": "neutral", "displayName": "Night Bright Text", "canonical": "#f1f5f9" }
+    },
+    "typographyMeta": {
+      "body": { "displayName": "Body", "purpose": "Default UI text, ticket line items, form values." },
+      "label": { "displayName": "Label", "purpose": "Bold small state tags and meta text (e.g. DISPONIBLE, EN USO)." },
+      "action": { "displayName": "Action", "purpose": "Button copy — always bold, sized to read as a target." }
+    },
+    "shadows": [
+      { "name": "floating", "value": "0 25px 50px -12px rgba(0,0,0,0.5)", "purpose": "Modals and the login card only — signals a temporarily-elevated surface." },
+      { "name": "pulse-red", "value": "0 0 0 6px rgba(239,68,68,0)", "purpose": "Looping pulse-border animation on in-use pool table cards (keyframes: 0 0 0 0 rgba(239,68,68,0.4) to 0 0 0 6px rgba(239,68,68,0))." }
+    ],
+    "motion": [
+      { "name": "transition-colors", "value": "color/background/border-color 150ms ease", "purpose": "Default hover/active state transition on buttons and nav links." },
+      { "name": "pulse-red-2s", "value": "pulse-border 2s infinite", "purpose": "Urgency cue on in-use pool tables — a slow red border pulse." }
+    ],
+    "breakpoints": [
+      { "name": "md", "value": "768px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Default call-to-action, e.g. Add Item.",
+      "html": "<button class=\"ds-btn-primary\">Agregar</button>",
+      "css": ".ds-btn-primary { background: #0284c7; color: #f1f5f9; padding: 12px 16px; border-radius: 8px; font-weight: 700; font-size: 16px; border: none; transition: background 150ms ease; } .ds-btn-primary:hover { background: #0ea5e9; } .ds-btn-primary:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; } .ds-btn-primary:disabled { opacity: 0.5; }"
+    },
+    {
+      "name": "Confirm Button",
+      "kind": "button",
+      "refersTo": "button-confirm",
+      "description": "Affirmative full-width action, e.g. Close Ticket / Pay.",
+      "html": "<button class=\"ds-btn-confirm\">Cerrar Ticket</button>",
+      "css": ".ds-btn-confirm { width: 100%; background: #16a34a; color: #f1f5f9; padding: 12px 16px; border-radius: 12px; font-weight: 700; font-size: 18px; border: none; transition: background 150ms ease; } .ds-btn-confirm:hover { background: #22c55e; } .ds-btn-confirm:disabled { opacity: 0.5; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary/cancel action beside a primary button.",
+      "html": "<button class=\"ds-btn-ghost\">Cancelar</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: #cbd5e1; padding: 10px 16px; border-radius: 12px; border: 1px solid #475569; font-weight: 600; transition: background 150ms ease; } .ds-btn-ghost:hover { background: #334155; }"
+    },
+    {
+      "name": "Resource Card — Available",
+      "kind": "card",
+      "refersTo": "card-resource",
+      "description": "Floor map table/resource card in its available state.",
+      "html": "<div class=\"ds-card-available\"><div class=\"ds-card-code\">M3</div><div class=\"ds-card-name\">Mesa 3</div><span class=\"ds-card-status\">DISPONIBLE</span></div>",
+      "css": ".ds-card-available { background: #1e293b; border: 2px solid #475569; border-radius: 12px; padding: 16px; min-width: 120px; cursor: pointer; transition: border-color 150ms ease; } .ds-card-available:hover { border-color: #0ea5e9; } .ds-card-code { font-weight: 700; font-size: 18px; color: #f1f5f9; } .ds-card-name { font-size: 12px; color: #94a3b8; margin-bottom: 8px; } .ds-card-status { color: #4ade80; font-size: 12px; font-weight: 700; }"
+    },
+    {
+      "name": "Resource Card — In Use",
+      "kind": "card",
+      "refersTo": "card-resource",
+      "description": "Floor map table/resource card while occupied — pulses red to signal urgency.",
+      "html": "<div class=\"ds-card-inuse\"><div class=\"ds-card-code\">M3</div><div class=\"ds-card-name\">Mesa 3</div><span class=\"ds-card-status-inuse\">EN USO</span></div>",
+      "css": ".ds-card-inuse { background: #450a0a; border: 2px solid #b91c1c; border-radius: 12px; padding: 16px; min-width: 120px; cursor: pointer; animation: ds-pulse-red 2s infinite; } @keyframes ds-pulse-red { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); } 50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } } .ds-card-code { font-weight: 700; font-size: 18px; color: #f1f5f9; } .ds-card-name { font-size: 12px; color: #94a3b8; margin-bottom: 8px; } .ds-card-status-inuse { color: #f87171; font-size: 12px; font-weight: 700; }"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Text/password/number field with label, e.g. login username.",
+      "html": "<div class=\"ds-field\"><label class=\"ds-label\">Usuario</label><input class=\"ds-input\" type=\"text\" /></div>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 4px; } .ds-label { font-size: 14px; color: #94a3b8; } .ds-input { background: #334155; border: 1px solid #475569; border-radius: 8px; padding: 12px 16px; color: #f1f5f9; font-size: 16px; } .ds-input:focus { outline: none; border-color: #0ea5e9; }"
+    },
+    {
+      "name": "Bottom Tab Bar Item",
+      "kind": "nav",
+      "refersTo": "nav-bottom-tab",
+      "description": "Mobile fixed bottom nav tab — emoji + label, active state turns Signal Blue, badge shows unread count.",
+      "html": "<a class=\"ds-tab ds-tab-active\"><span class=\"ds-tab-badge\">3</span><span class=\"ds-tab-icon\">🍳</span><span class=\"ds-tab-label\">Cocina</span></a>",
+      "css": ".ds-tab { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; padding: 8px 0; gap: 2px; font-size: 10px; font-weight: 700; color: #94a3b8; transition: color 150ms ease; } .ds-tab-active { color: #38bdf8; } .ds-tab-icon { font-size: 20px; } .ds-tab-badge { position: absolute; top: 4px; right: calc(50% - 18px); min-width: 18px; height: 18px; padding: 0 4px; display: flex; align-items: center; justify-content: center; border-radius: 9999px; background: #ef4444; color: white; font-size: 10px; font-weight: 700; line-height: 1; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night Shift Console",
+    "overview": "Bola 8 is a room that stays dark, loud, and busy until close. The interface commits to that: near-black slate surfaces throughout, no light mode, no ambient decoration competing for attention. It reads like a late-night operations console — a floor map of glowing table states, queues that spike red when something's waiting, a login screen that's really a nameplate on a locked door.\n\nEvery visual decision serves one job: a waiter glancing at a table for half a second must know its state without reading a label. Color carries that weight, not typography or iconography — the type system is a single stack (system-ui) at a handful of weights, and icons are plain emoji dropped inline rather than a designed icon set. Nothing here is trying to look designed. It's trying to be readable from three feet away, one-handed, mid-rush.",
+    "keyCharacteristics": [
+      "Dark-only, no light theme — near-black bases (#020617–#0f172a) throughout",
+      "State is color-coded, not label-coded: green = available, red = occupied/urgent, amber/yellow = waiting or caution, sky = interactive/primary",
+      "Blunt, solid-fill components — no gradients, no subtle borders doing the work, generous tap targets",
+      "Flat by default; shadows appear only on floating surfaces (modals, the login card), never on inline cards",
+      "Emoji as the entire icon vocabulary — a project fact worth knowing, not a rule to defend"
+    ],
+    "rules": [
+      { "name": "The One State, One Color Rule", "body": "A given semantic state (available, in-use, waiting, danger) always resolves to the same signal color everywhere it appears — floor cards, queue badges, buttons. Never introduce a second color for a state that already has one.", "section": "colors" },
+      { "name": "The Floating-Only Shadow Rule", "body": "Shadows appear only on modals, dialogs, and the login card. An inline card that gets a drop shadow has been miscategorized as floating.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do resolve every state (available/in-use/waiting/danger) to its one reserved signal color, everywhere that state appears.",
+      "Do keep shadows exclusive to floating surfaces (modals, login card) — inline cards stay flat.",
+      "Do use bold, oversized action text on buttons; a Night Shift Console button is a target, not a sentence.",
+      "Do keep the type system to one family and a small weight set — hierarchy comes from size/weight/color, not a second typeface."
+    ],
+    "donts": [
+      "Don't introduce a light theme or a light-background surface — the system is dark-only by design.",
+      "Don't add a drop shadow to an inline/resting card; that's reserved for modals and the login card only.",
+      "Don't repurpose a signal color (green/red/amber/emerald/violet) for a meaning it doesn't already carry elsewhere in the system.",
+      "Don't soften the high-contrast solid-fill button style into subtle/outlined-only variants for primary actions — floor speed depends on the fill being obvious at a glance."
+    ]
+  }
+}

@@ -140,7 +140,7 @@ export default function EarningsPage() {
 
         {/* Summary tab — top items with no cost */}
         {tab === 'summary' && summary && (
-          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-slate-400 border-b border-slate-700">
@@ -189,7 +189,7 @@ export default function EarningsPage() {
           loadingCat ? (
             <div className="text-center text-slate-400 py-8">Cargando…</div>
           ) : byCategory && (
-            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-slate-400 border-b border-slate-700">
@@ -240,7 +240,7 @@ export default function EarningsPage() {
           loadingStaff ? (
             <div className="text-center text-slate-400 py-8">Cargando…</div>
           ) : byStaff && (
-            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-slate-400 border-b border-slate-700">

@@ -125,7 +125,7 @@ export default function SafeCollectionsPage() {
         </div>
 
         {/* History */}
-        <div className="bg-slate-800 rounded-2xl overflow-hidden">
+        <div className="bg-slate-800 rounded-2xl overflow-x-auto">
           <div className="p-3 bg-slate-700/50 font-semibold text-sm">📋 Historial</div>
           {(collections as any[]).length === 0 ? (
             <p className="p-8 text-center text-slate-500">Sin colectas en este período</p>

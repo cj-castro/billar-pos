@@ -105,13 +105,14 @@ export default function TicketPage() {
   const [showAddItem, setShowAddItem] = useState(false)
   const [showTransfer, setShowTransfer] = useState(false)
   const [showEditPayment, setShowEditPayment] = useState(false)
-  const [showPinForVoid, setShowPinForVoid] = useState<string[] | null>(null)
+  const [showPinForVoid, setShowPinForVoid] = useState<{ ids: string[]; name: string } | null>(null)
   const [voidQtyPicker, setVoidQtyPicker] = useState<{ ids: string[]; name: string; qty: number } | null>(null)
   const [voidReason, setVoidReason] = useState('')
-  const [showVoidReason, setShowVoidReason] = useState<{ ids: string[]; managerId: string } | null>(null)
+  const [showVoidReason, setShowVoidReason] = useState<{ ids: string[]; managerId: string; name: string } | null>(null)
   const [showPinForDiscount, setShowPinForDiscount] = useState(false)
   const [pendingDiscountPct, setPendingDiscountPct] = useState<number | null>(null)
   const [showPayment, setShowPayment] = useState(false)
+  const [paymentStep, setPaymentStep] = useState<'configure' | 'review'>('configure')
   const [paymentType, setPaymentType] = useState<'CASH' | 'CARD'>('CASH')
   const [tendered, setTendered] = useState('')
   const [splitPayment, setSplitPayment] = useState(false)
@@ -197,10 +198,10 @@ export default function TicketPage() {
     }
   }
 
-  const handleVoid = async (itemIds: string | string[], managerId: string) => {
+  const handleVoid = async (itemIds: string | string[], managerId: string, name: string) => {
     const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
     // Open the reason modal instead of using prompt()
-    setShowVoidReason({ ids, managerId })
+    setShowVoidReason({ ids, managerId, name })
     setVoidReason('')
     setShowPinForVoid(null)
     setVoidQtyPicker(null)
@@ -590,7 +591,7 @@ export default function TicketPage() {
                     <button
                       onClick={() => {
                         if (group.ids.length === 1) {
-                          setShowPinForVoid([group.ids[0]])
+                          setShowPinForVoid({ ids: [group.ids[0]], name: group.menu_item_name })
                         } else {
                           setVoidQtyPicker({ ids: group.ids, name: group.menu_item_name, qty: 1 })
                         }
@@ -754,7 +755,7 @@ export default function TicketPage() {
                           ? 'bg-slate-700 text-slate-400 hover:bg-slate-600'
                           : pct === 100
                             ? 'bg-slate-700 hover:bg-purple-700 text-purple-300 border border-purple-700'
-                            : 'bg-slate-700 hover:bg-green-700 text-slate-200'
+                            : 'bg-slate-700 hover:bg-green-700 text-slate-200 hover:text-white'
                     }`}
                   >
                     {pct === 0 ? 'Sin descuento' : pct === 100 ? '🆓 100%' : `${pct}%`}
@@ -797,6 +798,7 @@ export default function TicketPage() {
                   setSplitPayment(false); setPaymentType('CASH'); setPaymentType2('CARD')
                   setTendered2(''); setTipMode('pct'); setTipPct(null); setTipFixed('')
                   setTendered((liveTotal / 100).toFixed(2))
+                  setPaymentStep('configure')
                   setShowPayment(true)
                 }}
                 className="w-full py-3 bg-green-600 hover:bg-green-500 rounded-xl font-bold text-lg"
@@ -935,8 +937,9 @@ export default function TicketPage() {
                 onClick={() => {
                   // take the last N ids (most recently added)
                   const toVoid = voidQtyPicker.ids.slice(-voidQtyPicker.qty)
+                  const voidName = voidQtyPicker.name
                   setVoidQtyPicker(null)
-                  setShowPinForVoid(toVoid)
+                  setShowPinForVoid({ ids: toVoid, name: voidName })
                 }}
                 className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-sm font-semibold"
               >Continuar</button>
@@ -946,8 +949,8 @@ export default function TicketPage() {
       )}
       {showPinForVoid && (
         <ManagerPinDialog
-          action={`Anular ${showPinForVoid.length > 1 ? `${showPinForVoid.length} artículos` : 'Artículo'}`}
-          onConfirm={(managerId) => handleVoid(showPinForVoid, managerId)}
+          action={`Anulando: ${showPinForVoid.ids.length > 1 ? `${showPinForVoid.ids.length}× ` : ''}${showPinForVoid.name}`}
+          onConfirm={(managerId) => handleVoid(showPinForVoid.ids, managerId, showPinForVoid.name)}
           onCancel={() => setShowPinForVoid(null)}
         />
       )}
@@ -967,7 +970,12 @@ export default function TicketPage() {
       {showVoidReason && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80] p-4">
           <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 p-5 space-y-4">
-            <h2 className="font-bold text-lg">Motivo de Anulación</h2>
+            <div>
+              <h2 className="font-bold text-lg">Motivo de Anulación</h2>
+              <p className="text-sm text-red-400 mt-0.5">
+                Anulando: {showVoidReason.ids.length > 1 ? `${showVoidReason.ids.length}× ` : ''}{showVoidReason.name}
+              </p>
+            </div>
             <input
               autoFocus
               type="text"
@@ -1057,6 +1065,8 @@ export default function TicketPage() {
                     )}
                   </div>
 
+                  {paymentStep === 'configure' ? (
+                  <>
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     {(['CASH', 'CARD'] as const).map((pt) => (
                       <button key={pt} onClick={() => { setPaymentType(pt); setSplitPayment(false); setTendered2(''); setTipSource(pt) }}
@@ -1262,6 +1272,57 @@ export default function TicketPage() {
                       )}
                     </div>
                   )}
+                  </>
+                  ) : (
+                    /* Review step — static recap before charging, no live-editable controls */
+                    <div className="space-y-3">
+                      <div className="bg-slate-900 rounded-xl p-4 space-y-3">
+                        <div className="text-xs text-slate-400 uppercase font-semibold">Revisa antes de cobrar</div>
+
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-300">Método de pago</span>
+                          <span className="font-bold">
+                            {splitPayment ? '➕ Dividido (Efectivo + Tarjeta)' : paymentType === 'CASH' ? '💵 Efectivo' : '💳 Tarjeta'}
+                          </span>
+                        </div>
+
+                        {splitPayment && (() => {
+                          const cashAmt = tendered2 ? Math.round(parseFloat(tendered2) * 100) : 0
+                          const cardAmt = Math.max(0, grandTotal - cashAmt)
+                          return (
+                            <div className="pl-3 border-l-2 border-purple-700 space-y-1 text-sm">
+                              <div className="flex justify-between text-slate-300"><span>💵 Efectivo</span><span className="font-mono">{cents(cashAmt)}</span></div>
+                              <div className="flex justify-between text-slate-300"><span>💳 Tarjeta</span><span className="font-mono">{cents(cardAmt)}</span></div>
+                            </div>
+                          )
+                        })()}
+
+                        {!splitPayment && paymentType === 'CASH' && (
+                          <div className="pl-3 border-l-2 border-slate-700 space-y-1 text-sm">
+                            <div className="flex justify-between text-slate-300"><span>Recibido</span><span className="font-mono">{cents(tenderedCents)}</span></div>
+                            <div className={`flex justify-between font-semibold ${change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              <span>{change >= 0 ? 'Cambio' : 'Falta'}</span>
+                              <span className="font-mono">{cents(Math.abs(change))}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-center pt-2 border-t border-slate-700">
+                          <span className="text-slate-300">Propina</span>
+                          <span className="font-bold text-amber-400">
+                            {liveTip > 0 ? `${cents(liveTip)} — ${tipSource === 'CASH' ? '💵 Efectivo' : tipSource === 'CARD' ? '💳 Tarjeta' : '½ Ambos'}` : 'Sin propina'}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between items-center pt-2 border-t border-slate-700 text-lg">
+                          <span className="font-bold">Total a cobrar</span>
+                          <span className="font-mono font-extrabold text-sky-400">{cents(grandTotal)}</span>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-slate-500 text-center">Confirma que todo esté correcto antes de cobrar.</div>
+                    </div>
+                  )}
 
                   <div className="h-1" /> {/* bottom scroll breathing room */}
                 </>
@@ -1275,14 +1336,47 @@ export default function TicketPage() {
                 ? Math.round(liveTotal * tipPct / 100)
                 : tipFixed ? Math.round(parseFloat(tipFixed || '0') * 100) : 0
               const grandTotal2 = liveTotal + liveTip2
+
+              const handleReview = () => {
+                if (!splitPayment && paymentType === 'CASH') {
+                  const tenderedCents2 = tendered ? Math.round(parseFloat(tendered) * 100) : 0
+                  if (tenderedCents2 < grandTotal2) {
+                    toast.error(`Falta cobrar ${cents(grandTotal2 - tenderedCents2)}`)
+                    return
+                  }
+                }
+                if (tipSource === 'SPLIT' && splitTipCash) {
+                  const cashCents = Math.round(parseFloat(splitTipCash) * 100)
+                  const cardCents = Math.round(parseFloat(splitTipCard || '0') * 100)
+                  if (cashCents + cardCents !== liveTip2) {
+                    toast.error('La división de la propina no coincide con el total')
+                    return
+                  }
+                }
+                setPaymentStep('review')
+              }
+
               return (
                 <div className="px-5 py-4 border-t border-slate-700 shrink-0 flex gap-3 bg-slate-800 rounded-b-2xl">
-                  <button onClick={() => setShowPayment(false)} className="flex-1 py-3 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700 font-semibold">
-                    {t('payment.cancel')}
-                  </button>
-                  <button onClick={handleClose} disabled={closingLoading} className="flex-1 py-3 bg-green-600 hover:bg-green-500 rounded-xl font-bold text-lg disabled:opacity-50">
-                    {closingLoading ? '…' : `✅ ${cents(grandTotal2)}`}
-                  </button>
+                  {paymentStep === 'configure' ? (
+                    <>
+                      <button onClick={() => setShowPayment(false)} className="flex-1 py-3 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700 font-semibold">
+                        {t('payment.cancel')}
+                      </button>
+                      <button onClick={handleReview} className="flex-1 py-3 bg-sky-600 hover:bg-sky-500 rounded-xl font-bold text-lg">
+                        Revisar →
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => setPaymentStep('configure')} className="flex-1 py-3 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700 font-semibold">
+                        ← Editar
+                      </button>
+                      <button onClick={handleClose} disabled={closingLoading} className="flex-1 py-3 bg-green-600 hover:bg-green-500 rounded-xl font-bold text-lg disabled:opacity-50">
+                        {closingLoading ? '…' : `✅ Cobrar ${cents(grandTotal2)}`}
+                      </button>
+                    </>
+                  )}
                 </div>
               )
             })()}

@@ -168,6 +168,7 @@ export default function InventoryPage() {
   const [showSupplierCatalog, setShowSupplierCatalog] = useState(false)
   const [addToMenu, setAddToMenu] = useState<InventoryItem | null>(null)
   const [menuForm, setMenuForm] = useState({ category_id: '', price_cents: 0, requires_flavor: false })
+  const [overflowOpenId, setOverflowOpenId] = useState<string | null>(null)
 
   // restock form
   const [restockPurchaseQty, setRestockPurchaseQty] = useState('')
@@ -643,8 +644,8 @@ export default function InventoryPage() {
                   <div className="text-[10px] font-normal text-slate-400">{getUnitName(item.base_unit_key)}</div>
                 </div>
 
-                {/* Action buttons — all horizontal */}
-                <div className="flex items-center gap-1 flex-shrink-0">
+                {/* Action buttons — primary/frequent actions only; the rest live behind ⋮ */}
+                <div className="flex items-center gap-1 flex-shrink-0 relative">
                   {item.item_type === 'BOTTLE' && item.shots_per_bottle && item.yields_item_id && (
                     <button onClick={() => setOpeningBottle(item)} title="Abrir botella"
                       className="bg-amber-700 hover:bg-amber-600 px-2 py-1 rounded text-xs font-bold">🍾</button>
@@ -661,20 +662,26 @@ export default function InventoryPage() {
                     className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs text-slate-300">
                     ⚡
                   </button>
-                  <button onClick={() => openEdit(item)} title="Editar"
-                    className="bg-slate-700 hover:bg-sky-700 px-2 py-1 rounded text-xs">✏️</button>
-                  <button onClick={() => setViewingMovements(item)} title="Movimientos"
-                    className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs text-slate-300">📋</button>
-                  {isAdmin && (
-                    <button onClick={() => handleDelete(item)} title="Eliminar"
-                      className="bg-slate-700 hover:bg-red-800 px-2 py-1 rounded text-xs text-red-400">🗑</button>
+                  <button onClick={() => setOverflowOpenId(id => id === item.id ? null : item.id)} title="Más acciones"
+                    className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs text-slate-300">⋮</button>
+
+                  {overflowOpenId === item.id && (
+                    <div className="absolute right-0 top-full mt-1 z-10 bg-slate-800 border border-slate-600 rounded-lg shadow-2xl py-1 w-44 text-sm">
+                      <button onClick={() => { openEdit(item); setOverflowOpenId(null) }}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-700">✏️ Editar</button>
+                      <button onClick={() => { setViewingMovements(item); setOverflowOpenId(null) }}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-700 text-slate-300">📋 Movimientos</button>
+                      {inMenu
+                        ? <div className="w-full text-left px-3 py-2 text-emerald-400">✅ En el menú</div>
+                        : <button onClick={() => { setAddToMenu(item); setMenuForm({ category_id: '', price_cents: 0, requires_flavor: false }); setOverflowOpenId(null) }}
+                            className="w-full text-left px-3 py-2 hover:bg-slate-700">🍽️ Agregar al menú</button>
+                      }
+                      {isAdmin && (
+                        <button onClick={() => { handleDelete(item); setOverflowOpenId(null) }}
+                          className="w-full text-left px-3 py-2 hover:bg-red-900/40 text-red-400">🗑 Eliminar</button>
+                      )}
+                    </div>
                   )}
-                  {inMenu
-                    ? <span className="text-[10px] text-emerald-400 font-semibold px-1">✅</span>
-                    : <button onClick={() => { setAddToMenu(item); setMenuForm({ category_id: '', price_cents: 0, requires_flavor: false }) }}
-                        title="Agregar al menú"
-                        className="bg-slate-700 hover:bg-emerald-800 px-2 py-1 rounded text-xs">🍽️</button>
-                  }
                 </div>
               </div>
             )
@@ -1180,6 +1187,7 @@ export default function InventoryPage() {
                 <div className="text-center text-slate-500 py-8">Sin movimientos registrados</div>
               )}
               {!loadingMovements && (movements as any[]).length > 0 && (
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-xs text-slate-400 border-b border-slate-700">
@@ -1232,6 +1240,7 @@ export default function InventoryPage() {
                     })}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
 
@@ -1381,7 +1390,7 @@ function UnitCatalogModal({ onClose, isAdmin, units, getUnitName }: {
                       className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm w-full" />
                     <div className="flex items-center justify-center">
                       <button onClick={() => patch(u.key, 'active', !row.active)}
-                        className={`px-3 py-1 rounded text-xs font-semibold ${row.active ? 'bg-emerald-800 text-emerald-300' : 'bg-slate-700 text-slate-400'}`}>
+                        className={`px-3 py-1 rounded text-xs font-semibold ${row.active ? 'bg-emerald-800 text-emerald-300' : 'bg-slate-700 text-slate-300'}`}>
                         {row.active ? 'Activo' : 'Inactivo'}
                       </button>
                     </div>

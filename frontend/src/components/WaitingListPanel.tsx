@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import client from '../api/client'
 import toast from 'react-hot-toast'
 import type { ResourceState } from '../stores/floorStore'
+import { clickableDivProps } from '../utils/a11y'
 
 interface WaitingEntry {
   id: string
@@ -43,6 +45,7 @@ function WaitTimer({ createdAt }: { createdAt: string }) {
 }
 
 export default function WaitingListPanel({ allResources, isManager }: Props) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [isOpen, setIsOpen] = useState(true)
@@ -185,9 +188,14 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
 
   return (
     <div className="mb-6">
-      <div className="flex items-center justify-between cursor-pointer mb-2" onClick={() => setIsOpen(o => !o)}>
+      <div
+        className="flex items-center justify-between cursor-pointer mb-2 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400 focus-visible:outline-offset-2"
+        onClick={() => setIsOpen(o => !o)}
+        {...clickableDivProps(() => setIsOpen(o => !o))}
+        aria-expanded={isOpen}
+      >
         <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="text-lg font-bold text-slate-300 uppercase tracking-wide">⏳ Waiting List</h2>
+          <h2 className="text-lg font-bold text-slate-300 uppercase tracking-wide">⏳ {t('floor.waitingList')}</h2>
           {count > 0 && <span className="bg-yellow-500 text-black text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">{count} waiting</span>}
           {anyAvailable && count > 0 && <span className="bg-green-700 text-green-200 text-xs font-semibold px-2 py-0.5 rounded-full">{floorResources.length} mesas libres</span>}
         </div>

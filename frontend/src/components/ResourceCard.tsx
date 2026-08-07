@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTimer } from '../hooks/useTimer'
 import type { ResourceState } from '../stores/floorStore'
 import clsx from 'clsx'
+import { clickableDivProps } from '../utils/a11y'
 
 interface Props {
   resource: ResourceState
@@ -28,11 +29,15 @@ export default function ResourceCard({ resource, onOpenNew, barOpen = true, isWa
     }
   }
 
+  const clickable = inUse || (isAvailable && !locked)
+
   return (
     <div
       onClick={handleClick}
+      {...clickableDivProps(handleClick, !clickable)}
+      aria-label={`${resource.code} ${resource.name} — ${inUse ? 'en uso' : locked ? 'cerrado' : 'disponible'}`}
       className={clsx(
-        'rounded-xl p-4 border-2 transition-all select-none',
+        'rounded-xl p-4 border-2 transition-all select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400 focus-visible:outline-offset-2',
         inUse
           ? 'cursor-pointer bg-red-950 border-red-700 pulse-red'
           : locked

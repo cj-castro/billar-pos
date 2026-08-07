@@ -230,10 +230,10 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                               </div>
                               <div className="flex items-center gap-2">
                                 <button onClick={() => adjustBucket(group.id, mod.id, -1)} disabled={cnt === 0}
-                                  className="w-8 h-8 bg-slate-600 hover:bg-slate-500 rounded-lg font-bold text-lg disabled:opacity-30">−</button>
+                                  className="w-11 h-11 bg-slate-600 hover:bg-slate-500 rounded-lg font-bold text-lg disabled:opacity-30">−</button>
                                 <span className={`w-8 text-center font-bold font-mono text-lg ${cnt > 0 ? 'text-yellow-300' : 'text-slate-500'}`}>{cnt}</span>
                                 <button onClick={() => adjustBucket(group.id, mod.id, 1)} disabled={total >= target || oos}
-                                  className="w-8 h-8 bg-slate-600 hover:bg-slate-500 rounded-lg font-bold text-lg disabled:opacity-30">+</button>
+                                  className="w-11 h-11 bg-slate-600 hover:bg-slate-500 rounded-lg font-bold text-lg disabled:opacity-30">+</button>
                               </div>
                             </div>
                           )
@@ -323,9 +323,9 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
               </div>
               <div className="flex items-center gap-4 mb-4">
                 <span className="text-sm text-slate-400">Cantidad</span>
-                <button onClick={() => setQuantity(Math.max(1, quantity - 1))} className="w-8 h-8 bg-slate-700 rounded-lg font-bold">-</button>
+                <button onClick={() => setQuantity(Math.max(1, quantity - 1))} className="w-11 h-11 bg-slate-700 rounded-lg font-bold">-</button>
                 <span className="font-bold text-lg">{quantity}</span>
-                <button onClick={() => setQuantity(quantity + 1)} className="w-8 h-8 bg-slate-700 rounded-lg font-bold">+</button>
+                <button onClick={() => setQuantity(quantity + 1)} className="w-11 h-11 bg-slate-700 rounded-lg font-bold">+</button>
               </div>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
                 placeholder="Notas especiales (opcional)"

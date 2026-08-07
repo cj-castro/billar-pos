@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
+import Modal from '../../components/Modal'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 import { useEscKey } from '../../hooks/useEscKey'
@@ -140,7 +141,7 @@ export default function UsersPage() {
 
       {/* Create Modal */}
       {showCreate && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+        <Modal opacity={70}>
           <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-600 space-y-3">
             <h2 className="font-bold text-lg">Nueva Cuenta de Personal</h2>
             <div>
@@ -191,12 +192,12 @@ export default function UsersPage() {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Edit Modal */}
       {editUser && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+        <Modal opacity={70}>
           <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-600 space-y-3">
             <h2 className="font-bold text-lg">Edit: {editUser.name}</h2>
             <div>
@@ -265,7 +266,7 @@ export default function UsersPage() {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )

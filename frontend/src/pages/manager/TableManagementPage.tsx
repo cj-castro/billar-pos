@@ -218,7 +218,7 @@ export default function TableManagementPage() {
                     </button>
                   )}
                   <button onClick={() => handleToggleActive(r)}
-                    className="px-3 py-1 bg-slate-600 hover:bg-orange-600 rounded-lg text-xs text-slate-300"
+                    className="px-3 py-1 bg-slate-600 hover:bg-orange-600 rounded-lg text-xs text-slate-300 hover:text-white"
                     title="Deactivate (hide from floor)">
                     Deactivate
                   </button>
