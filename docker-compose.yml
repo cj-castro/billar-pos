@@ -110,10 +110,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
-      # ⚠️ REPLACE THESE TWO LINES WITH YOUR REAL VALUES:
-      TELEGRAM_TOKEN: 8522328915:AAES4kAstL1XEX9TbZTHwyX6QHp-5Z5i9rA
-      ADMIN_CHAT_ID: 1005661763
+    environment:     
+      TELEGRAM_TOKEN: 
+      ADMIN_CHAT_ID: 
       # This one is perfect, leave it as is:
       DATABASE_URL: postgresql://${POSTGRES_USER:-billiard}:${POSTGRES_PASSWORD:-billiard_secret}@postgres:5432/${POSTGRES_DB:-billiardbar}
     networks:
