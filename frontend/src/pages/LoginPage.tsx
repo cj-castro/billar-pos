@@ -4,7 +4,6 @@ import { useAuthStore } from '../stores/authStore'
 import { useTranslation } from 'react-i18next'
 import client from '../api/client'
 import toast from 'react-hot-toast'
-import { IconBall8 } from '../components/Icon'
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -32,13 +31,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950">
+    <div className="min-h-screen flex items-center justify-center">
       <div className="bg-zinc-800 rounded-2xl p-8 w-full max-w-sm border border-zinc-700 shadow-2xl">
         <div className="text-center mb-8">
-          <div className="w-24 h-24 rounded-full border border-dashed border-zinc-500 flex items-center justify-center relative mx-auto mb-4">
-            <div className="absolute inset-[6px] rounded-full border border-zinc-600" />
-            <IconBall8 className="w-10 h-10 text-white relative" />
-          </div>
+          <img src="/logo-mark.png" alt="Bola 8 Pool Club" className="w-24 h-24 mx-auto mb-4" />
           <h1 className="text-3xl font-extrabold tracking-tight">Bola 8 Pool Club</h1>
           <p className="text-zinc-400 text-sm mt-1.5">{t('login.title')}</p>
         </div>

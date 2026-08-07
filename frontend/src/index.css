@@ -5,6 +5,11 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #09090b; color: #f4f4f5; }
 
+/* page-root ships its own bg-zinc-950 utility for use outside the app shell
+   (e.g. isolated previews); inside the app it must stay transparent so the
+   fixed watermark layer behind it (see App.tsx) shows through. */
+.page-root { background-color: transparent !important; }
+
 /* Bottom nav safe-area padding — applied to all page roots on mobile */
 @media (max-width: 767px) {
   .page-root { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }

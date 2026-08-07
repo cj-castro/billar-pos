@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useLanguage } from '../hooks/useLanguage'
 import { useQuery } from '@tanstack/react-query'
 import client from '../api/client'
-import { IconBall8, IconHouse, IconFlame, IconMug, IconChart, IconUser, IconLock, IconTrend, IconDoor } from './Icon'
+import { IconHouse, IconFlame, IconMug, IconChart, IconUser, IconLock, IconTrend, IconDoor } from './Icon'
 
 export default function NavBar() {
   const { user, logout } = useAuthStore()
@@ -62,10 +62,7 @@ export default function NavBar() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-zinc-950 border-b border-zinc-800 px-4 py-2.5 flex items-center justify-between">
         {/* Crest mark */}
         <Link to="/floor" className="flex items-center gap-3 flex-shrink-0" onClick={close}>
-          <div className="w-9 h-9 rounded-full border border-dashed border-zinc-500 flex items-center justify-center relative">
-            <div className="absolute inset-[3px] rounded-full border border-zinc-600" />
-            <IconBall8 className="w-4 h-4 text-white relative" />
-          </div>
+          <img src="/logo-mark.png" alt="Bola 8 Pool Club" className="w-9 h-9 flex-shrink-0" />
           <div className="leading-none">
             <div className="font-display font-extrabold text-lg tracking-tight text-white">BOLA 8</div>
             <div className="text-[9px] tracking-[.22em] text-zinc-500 font-semibold uppercase mt-0.5">Pool Club</div>

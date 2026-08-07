@@ -33,6 +33,14 @@ export default function App() {
 
   return (
     <SocketProvider>
+      <img
+        src="/logo-mark.png"
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -z-10 pointer-events-none select-none opacity-[0.07]"
+        style={{ width: 'min(80vmin, 900px)', height: 'min(80vmin, 900px)' }}
+      />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/floor" element={<RequireAuth><FloorMapPage /></RequireAuth>} />

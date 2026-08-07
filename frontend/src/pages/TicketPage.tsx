@@ -1390,7 +1390,7 @@ export default function TicketPage() {
         <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-[60] p-4">
           <div className="bg-zinc-800 rounded-2xl w-full max-w-sm border border-green-700 shadow-2xl shadow-green-900/40 overflow-hidden">
             <div className="bg-green-700/30 p-6 text-center border-b border-green-700">
-              <img src="/logo.jpg" alt="Bola 8 Pool Club" className="w-20 h-20 rounded-full object-cover mx-auto mb-3 border-2 border-green-500 shadow-lg" />
+              <img src="/logo-mark.png" alt="Bola 8 Pool Club" className="w-20 h-20 mx-auto mb-3 drop-shadow-lg" />
               <div className="text-2xl font-extrabold text-green-400">{t('ticket.closed.title')}</div>
               <div className="text-zinc-300 text-sm mt-1">#{closedTicket.id?.slice(-6).toUpperCase()}</div>
             </div>

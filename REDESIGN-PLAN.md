@@ -63,6 +63,31 @@ app. Mechanical detector run: 19 findings, all pre-existing "gray-on-color"
 contrast warnings + one font-choice note, unrelated to this pass — left as a
 follow-up, not a blocker.
 
+### Done (follow-up) — real logo swap + background watermark
+
+User feedback: the drawn dashed-ring/`IconBall8` recreation "doesn't look
+original" and wasn't the actual crest. User supplied two high-res source
+PNGs (`Bola8-Logo-B&W.png` at 2084×2084, transparent alpha, black line art —
+the real vector-quality crest). Derived `frontend/public/logo-mark.png`
+(color-inverted to white-on-transparent for the dark UI) and
+`frontend/public/favicon.png` (flattened on white, 180×180). Replaced every
+drawn-crest spot with the real image: `NavBar.tsx` badge, `LoginPage.tsx`
+medallion, `TicketPage.tsx` ticket-closed overlay, and the browser favicon
+(was the old low-res `logo.jpg`, now deleted — no remaining references).
+Added a large (`min(80vmin,900px)`), centered, very subtle (7% opacity)
+fixed watermark of the same mark in `App.tsx`, present on every route.
+Getting it to sit correctly *behind* page content (not smudged on top of
+cards) required making the shared `.page-root` class transparent in
+`index.css` (`!important` override of its own `bg-zinc-950` utility) plus
+giving the watermark a negative z-index — the two together let it show in
+empty canvas space while opaque cards/modals still cleanly occlude it.
+`IconBall8` (the small inline drawn icon) is intentionally still used
+elsewhere as a generic "this is a pool table" type glyph in lists — that's
+a different job from the brand crest and was left alone.
+Verified: build clean, balance checks pass, mechanical detector shows no
+new findings (same pre-existing gray-on-color warnings as before),
+Login/Floor/Kitchen/Manager-Dashboard screens visually confirmed.
+
 ### Not done — remaining emoji inventory (gathered, not yet fixed) — SUPERSEDED, see above
 
 24 files still have emoji. Full grep for reference:
