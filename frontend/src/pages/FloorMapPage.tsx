@@ -262,7 +262,7 @@ export default function FloorMapPage() {
 
         {/* Pool Tables */}
         <div className="mb-6">
-          <h2 className="text-lg font-bold text-slate-300 mb-3 uppercase tracking-wide">🎱 {t('floor.poolTables')}</h2>
+          <h2 className="text-xl font-extrabold text-slate-300 mb-3 uppercase tracking-wide">🎱 {t('floor.poolTables')}</h2>
           <div className="flex flex-wrap gap-3">
             {poolTables.map((r) => (
               <ResourceCard key={r.id} resource={r} onOpenNew={handleOpenNew} barOpen={barOpen} isWaitingPool={seatedResourceIds.has(r.id)} />
@@ -276,7 +276,7 @@ export default function FloorMapPage() {
         {/* Regular Tables */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-slate-300 uppercase tracking-wide">🪑 {t('floor.floorTables')}</h2>
+            <h2 className="text-xl font-extrabold text-slate-300 uppercase tracking-wide">🪑 {t('floor.floorTables')}</h2>
           </div>
           {isManager && (
             <button
@@ -304,7 +304,7 @@ export default function FloorMapPage() {
 
         {/* Bar Seats */}
         <div className="mb-6">
-          <h2 className="text-lg font-bold text-slate-300 mb-3 uppercase tracking-wide">🍺 {t('floor.barSeats')}</h2>
+          <h2 className="text-xl font-extrabold text-slate-300 mb-3 uppercase tracking-wide">🍺 {t('floor.barSeats')}</h2>
           <div className="flex flex-wrap gap-3">
             {barSeats.map((r) => (
               <div key={r.id} className="relative group">
@@ -342,7 +342,7 @@ export default function FloorMapPage() {
         {/* Active Express & Rappi tickets lane */}
         {(activeExpressTickets as any[]).length > 0 && (
           <div className="mb-6">
-            <h2 className="text-lg font-bold text-sky-400 mb-3 uppercase tracking-wide flex items-center gap-2">
+            <h2 className="text-xl font-extrabold text-sky-400 mb-3 uppercase tracking-wide flex items-center gap-2">
               ⚡ Ventas Activas
               <span className="bg-sky-800 text-sky-200 text-xs px-2 py-0.5 rounded-full">
                 {(activeExpressTickets as any[]).length}
@@ -391,7 +391,7 @@ export default function FloorMapPage() {
         )}
         {(pendingPaymentTickets as any[]).length > 0 && (
           <div className="mb-6">
-            <h2 className="text-lg font-bold text-amber-400 mb-3 uppercase tracking-wide flex items-center gap-2">
+            <h2 className="text-xl font-extrabold text-amber-400 mb-3 uppercase tracking-wide flex items-center gap-2">
               🧾 Cuenta Solicitada
               <span className="bg-amber-700 text-amber-200 text-xs px-2 py-0.5 rounded-full">{(pendingPaymentTickets as any[]).length}</span>
             </h2>
@@ -447,7 +447,7 @@ export default function FloorMapPage() {
         {/* Re-opened Tabs */}
         {(reopenedTickets as any[]).length > 0 && (
           <div className="mb-6">
-            <h2 className="text-lg font-bold text-orange-400 mb-3 uppercase tracking-wide flex items-center gap-2">
+            <h2 className="text-xl font-extrabold text-orange-400 mb-3 uppercase tracking-wide flex items-center gap-2">
               ⚠️ {t('floor.reopenedTabs')}
               <span className="bg-orange-700 text-orange-200 text-xs px-2 py-0.5 rounded-full">{(reopenedTickets as any[]).length}</span>
             </h2>

@@ -731,9 +731,9 @@ export default function TicketPage() {
               <span className="font-mono">{cents(livePoolCents)}</span>
             </div>
           )}
-          <div className="flex justify-between font-bold text-xl border-t border-slate-700 pt-2 mt-2">
-            <span>{t('ticket.total')}</span>
-            <span className="text-sky-400 font-mono">{cents(liveTotal)}</span>
+          <div className="flex justify-between items-center font-extrabold border-t border-slate-700 pt-3 mt-2">
+            <span className="text-lg">{t('ticket.total')}</span>
+            <span className="text-sky-400 font-mono text-3xl">{cents(liveTotal)}</span>
           </div>
         </div>
 
@@ -801,7 +801,7 @@ export default function TicketPage() {
                   setPaymentStep('configure')
                   setShowPayment(true)
                 }}
-                className="w-full py-3 bg-green-600 hover:bg-green-500 rounded-xl font-bold text-lg"
+                className="w-full py-4 bg-green-600 hover:bg-green-500 rounded-xl font-extrabold text-xl"
               >
                 {t('ticket.closeAndPay')}
               </button>
@@ -1314,9 +1314,9 @@ export default function TicketPage() {
                           </span>
                         </div>
 
-                        <div className="flex justify-between items-center pt-2 border-t border-slate-700 text-lg">
-                          <span className="font-bold">Total a cobrar</span>
-                          <span className="font-mono font-extrabold text-sky-400">{cents(grandTotal)}</span>
+                        <div className="flex justify-between items-center pt-3 border-t border-slate-700">
+                          <span className="font-bold text-lg">Total a cobrar</span>
+                          <span className="font-mono font-extrabold text-3xl text-sky-400">{cents(grandTotal)}</span>
                         </div>
                       </div>
 
@@ -1372,7 +1372,7 @@ export default function TicketPage() {
                       <button onClick={() => setPaymentStep('configure')} className="flex-1 py-3 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700 font-semibold">
                         ← Editar
                       </button>
-                      <button onClick={handleClose} disabled={closingLoading} className="flex-1 py-3 bg-green-600 hover:bg-green-500 rounded-xl font-bold text-lg disabled:opacity-50">
+                      <button onClick={handleClose} disabled={closingLoading} className="flex-1 py-3 bg-green-600 hover:bg-green-500 rounded-xl font-extrabold text-xl disabled:opacity-50">
                         {closingLoading ? '…' : `✅ Cobrar ${cents(grandTotal2)}`}
                       </button>
                     </>

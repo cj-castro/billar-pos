@@ -217,7 +217,7 @@ export default function ModifiersPage() {
       <div className="max-w-2xl mx-auto p-4">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold">🧩 Modificadores</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight">🧩 Modificadores</h1>
             <p className="text-xs text-slate-400 mt-0.5">Grupos y opciones (sabores, salsas, extras…)</p>
           </div>
           <div className="flex items-center gap-2">

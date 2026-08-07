@@ -62,7 +62,7 @@ export default function PoolTableConfigPage() {
 
   return (
     <div className="p-6 text-white max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">🎱 Pool Table Billing Config</h1>
+      <h1 className="text-2xl font-extrabold tracking-tight mb-6">🎱 Pool Table Billing Config</h1>
       <div className="space-y-4">
         {tables.map((row) => {
           const edits = editing[row.resource_id] ?? {}

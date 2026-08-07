@@ -27,24 +27,36 @@ export default function ManagerDashboard() {
     { to: '/manager/analytics', icon: '🧠', label: t('manager.analytics'), desc: t('manager.desc.analytics') },
   ]
 
+  // The 3 screens a manager actually opens every shift get a featured
+  // treatment; everything else (setup, occasional config) stays compact.
+  // Real hierarchy from the system's own vocabulary — size, weight, color —
+  // not a new visual language.
+  const FEATURED = new Set(['/floor', '/manager/cash', '/manager/inventory'])
+
   return (
     <div className="min-h-screen bg-slate-950 page-root">
       <NavBar />
-      <div className="max-w-3xl mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-6">{t('manager.title')}</h1>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          {tiles.map((t) => (
-            <Link key={t.to} to={t.to} className="bg-slate-800 hover:bg-slate-700 rounded-2xl p-5 border border-slate-700 hover:border-sky-600 transition-all">
-              <div className="text-3xl mb-2">{t.icon}</div>
-              <div className="font-bold">{t.label}</div>
-              <div className="text-xs text-slate-400 mt-1">{t.desc}</div>
-            </Link>
-          ))}
+      <div className="max-w-4xl mx-auto p-6">
+        <h1 className="text-3xl font-extrabold mb-6 tracking-tight">{t('manager.title')}</h1>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {tiles.map((t) => {
+            const featured = FEATURED.has(t.to)
+            return (
+              <Link key={t.to} to={t.to}
+                className={featured
+                  ? 'col-span-2 bg-slate-800 hover:bg-slate-700 rounded-2xl p-6 border-2 border-sky-700 hover:border-sky-500 transition-all'
+                  : 'bg-slate-800 hover:bg-slate-700 rounded-2xl p-4 border border-slate-700 hover:border-sky-600 transition-all'}>
+                <div className={featured ? 'text-5xl mb-3' : 'text-2xl mb-1.5'}>{t.icon}</div>
+                <div className={featured ? 'font-extrabold text-lg' : 'font-semibold text-sm'}>{t.label}</div>
+                <div className={featured ? 'text-sm text-slate-400 mt-1' : 'text-[11px] text-slate-500 mt-0.5'}>{t.desc}</div>
+              </Link>
+            )
+          })}
           {isAdmin && adminTiles.map((t) => (
-            <Link key={t.to} to={t.to} className="bg-slate-800 hover:bg-slate-700 rounded-2xl p-5 border border-violet-800 hover:border-violet-500 transition-all">
-              <div className="text-3xl mb-2">{t.icon}</div>
-              <div className="font-bold text-violet-300">{t.label}</div>
-              <div className="text-xs text-slate-400 mt-1">{t.desc}</div>
+            <Link key={t.to} to={t.to} className="bg-slate-800 hover:bg-slate-700 rounded-2xl p-4 border border-violet-800 hover:border-violet-500 transition-all">
+              <div className="text-2xl mb-1.5">{t.icon}</div>
+              <div className="font-semibold text-sm text-violet-300">{t.label}</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">{t.desc}</div>
             </Link>
           ))}
         </div>

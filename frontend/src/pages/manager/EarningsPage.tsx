@@ -61,7 +61,7 @@ export default function EarningsPage() {
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-3xl mx-auto p-4">
-        <h1 className="text-xl font-bold mb-4">💹 Reporte de Ganancias</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight mb-4">💹 Reporte de Ganancias</h1>
 
         {/* Date filter */}
         <div className="flex flex-wrap gap-3 mb-4 items-end">

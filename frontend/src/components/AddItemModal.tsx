@@ -305,7 +305,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
             <div>
               <button onClick={() => setStep(allGroups.length > 0 ? 'modifiers' : 'items')} className="text-sky-400 text-sm mb-3">← Atrás</button>
               <div className="bg-slate-700 rounded-xl p-4 mb-4">
-                <div className="font-bold text-lg">{selectedItem.name}</div>
+                <div className="font-extrabold text-xl">{selectedItem.name}</div>
                 {allGroups.map((group: any) => {
                   if (group.allow_multiple) {
                     return Object.entries(bucketCounts)
@@ -332,7 +332,7 @@ export default function AddItemModal({ ticketId, ticketVersion, onClose, onAdded
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 text-sm mb-4 resize-none"
                 rows={2} />
               <button onClick={handleAddItem} disabled={loading}
-                className="w-full py-3 bg-green-600 hover:bg-green-500 rounded-xl font-bold disabled:opacity-50">
+                className="w-full py-3.5 bg-green-600 hover:bg-green-500 rounded-xl font-extrabold text-lg disabled:opacity-50">
                 {loading ? 'Añadiendo...' : `Agregar ${quantity}× ${selectedItem.name}`}
               </button>
             </div>

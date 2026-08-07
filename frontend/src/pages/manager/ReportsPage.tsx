@@ -109,7 +109,7 @@ export default function ReportsPage() {
       <ManagerBackButton />
       <div className="max-w-5xl mx-auto p-4">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-bold">📊 Reportes</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight">📊 Reportes</h1>
           <button onClick={handleExport} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm">Exportar CSV</button>
         </div>
 

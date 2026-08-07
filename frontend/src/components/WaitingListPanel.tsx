@@ -195,7 +195,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
         aria-expanded={isOpen}
       >
         <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="text-lg font-bold text-slate-300 uppercase tracking-wide">⏳ {t('floor.waitingList')}</h2>
+          <h2 className="text-xl font-extrabold text-slate-300 uppercase tracking-wide">⏳ {t('floor.waitingList')}</h2>
           {count > 0 && <span className="bg-yellow-500 text-black text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">{count} waiting</span>}
           {anyAvailable && count > 0 && <span className="bg-green-700 text-green-200 text-xs font-semibold px-2 py-0.5 rounded-full">{floorResources.length} mesas libres</span>}
         </div>

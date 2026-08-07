@@ -58,11 +58,11 @@ export default function NavBar() {
   return (
     <>
       {/* ── Top bar ── */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-900 border-b border-slate-700 px-4 py-2.5 flex items-center justify-between">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-900 border-b border-slate-700 px-4 py-3 flex items-center justify-between">
         {/* Logo */}
-        <Link to="/floor" className="flex items-center gap-2 flex-shrink-0" onClick={close}>
-          <img src="/logo.jpg" alt="Bola 8" className="w-8 h-8 rounded-full object-cover border border-slate-600" />
-          <span className="text-lg font-bold text-sky-400">Bola 8</span>
+        <Link to="/floor" className="flex items-center gap-2.5 flex-shrink-0" onClick={close}>
+          <img src="/logo.jpg" alt="Bola 8" className="w-10 h-10 rounded-full object-cover border-2 border-sky-500" />
+          <span className="text-xl font-extrabold text-sky-400 tracking-tight">Bola 8</span>
         </Link>
 
         {/* Desktop nav links */}
@@ -192,7 +192,7 @@ export default function NavBar() {
       )}
 
       {/* Spacer — top */}
-      <div className="h-[53px]" />
+      <div className="h-16" />
     </>
   )
 }

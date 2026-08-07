@@ -183,7 +183,7 @@ export default function KitchenQueuePage() {
       <NavBar />
       <div className="p-3 sm:p-4">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-bold">🍳 {t('queue.kitchen')}</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight">🍳 {t('queue.kitchen')}</h1>
           <button
             onClick={() => refetch()}
             className="text-slate-400 hover:text-white active:scale-90 transition-transform text-xl"

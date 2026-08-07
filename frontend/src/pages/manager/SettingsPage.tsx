@@ -35,7 +35,7 @@ export default function SettingsPage() {
       <NavBar />
       <ManagerBackButton />
       <div className="max-w-lg mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-6">⚙️ {t('settings.title')}</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight mb-6">⚙️ {t('settings.title')}</h1>
 
         <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 mb-4">
           <div className="font-semibold mb-4">🌐 {t('settings.language')}</div>

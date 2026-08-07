@@ -46,19 +46,19 @@ export default function ResourceCard({ resource, onOpenNew, barOpen = true, isWa
         !isPool && 'min-w-[120px]'
       )}
     >
-      <div className="font-bold text-lg">{resource.code}</div>
-      <div className="text-xs text-slate-400 mb-2">{resource.name}</div>
+      <div className="font-extrabold text-2xl leading-none tracking-tight">{resource.code}</div>
+      <div className="text-xs text-slate-400 mb-2 mt-1">{resource.name}</div>
 
       {inUse ? (
         <div className="text-center">
-          <span className="text-red-400 text-xs font-semibold block">EN USO</span>
+          <span className="text-red-400 text-sm font-extrabold tracking-wide block">EN USO</span>
           {resource.customer_name && (
             <span className="text-white text-sm font-bold block truncate max-w-[110px] mx-auto" title={resource.customer_name}>
               👤 {resource.customer_name}
             </span>
           )}
           {isPool && elapsed && (
-            <span className="text-yellow-300 font-mono text-lg">{elapsed}</span>
+            <span className="text-yellow-300 font-mono font-bold text-xl">{elapsed}</span>
           )}
           {isWaitingPool && (
             <span className="mt-1 inline-flex items-center gap-1 bg-yellow-900/70 border border-yellow-600 text-yellow-300 text-xs font-semibold px-2 py-0.5 rounded-full">
@@ -71,12 +71,12 @@ export default function ResourceCard({ resource, onOpenNew, barOpen = true, isWa
         </div>
       ) : locked ? (
         <div className="text-center">
-          <span className="text-slate-500 text-xs font-semibold">🔒 CERRADO</span>
+          <span className="text-slate-500 text-sm font-extrabold tracking-wide">🔒 CERRADO</span>
           <span className="text-slate-600 text-xs block mt-1">Bar cerrado</span>
         </div>
       ) : (
         <div className="text-center">
-          <span className="text-green-400 text-xs font-semibold">DISPONIBLE</span>
+          <span className="text-green-400 text-sm font-extrabold tracking-wide">DISPONIBLE</span>
           <span className="text-slate-500 text-xs block mt-1">Toca para abrir</span>
         </div>
       )}

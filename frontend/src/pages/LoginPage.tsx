@@ -34,9 +34,9 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-950">
       <div className="bg-slate-800 rounded-2xl p-8 w-full max-w-sm border border-slate-700 shadow-2xl">
         <div className="text-center mb-8">
-          <img src="/logo.jpg" alt="Bola 8 Pool Club" className="w-24 h-24 rounded-full object-cover mx-auto mb-3 border-2 border-sky-500 shadow-xl" />
-          <h1 className="text-2xl font-bold">Bola 8 Pool Club</h1>
-          <p className="text-slate-400 text-sm mt-1">{t('login.title')}</p>
+          <img src="/logo.jpg" alt="Bola 8 Pool Club" className="w-28 h-28 rounded-full object-cover mx-auto mb-4 border-2 border-sky-500 shadow-xl" />
+          <h1 className="text-3xl font-extrabold tracking-tight">Bola 8 Pool Club</h1>
+          <p className="text-slate-400 text-sm mt-1.5">{t('login.title')}</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -63,7 +63,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading || !username || !password}
-            className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-lg font-bold text-lg disabled:opacity-50 transition-colors"
+            className="w-full py-3.5 bg-sky-600 hover:bg-sky-500 rounded-lg font-extrabold text-xl disabled:opacity-50 transition-colors"
           >
             {loading ? t('common.loading') : t('login.submit')}
           </button>
