@@ -8,6 +8,15 @@ A self-hosted point-of-sale system for a billiards/pool bar in Mexico — floor-
 
 Staff can open a table, run the pool timer, add food/drink orders, and close out a ticket with correct billing — without the system losing track of what's open, what's been ordered, or what's been paid.
 
+## Current Milestone: v1.0 Docker/Rancher Hosting Replacement
+
+**Goal:** Replace the current Docker Desktop + Rancher hosting model on the bar's on-site Windows 11 machine (8GB RAM) with something more reliable, lighter on resources, and less all-or-nothing on failure — without changing the application architecture itself.
+
+**Target features:**
+- Researched comparison of 5+ concrete hosting/runtime alternatives to Docker/Rancher for this exact stack (Flask/eventlet backend, Postgres, Socket.IO realtime, React SPA, Telegram bot, scheduler, LAN-reachable Windows print agent) on an 8GB RAM Windows 11 box
+- A selected target architecture, chosen by the user from the researched options
+- A migration plan/implementation to move the running system onto the chosen architecture, preserving Postgres data, Socket.IO realtime behavior, and LAN print agent reachability, with a rollback path
+
 ## Requirements
 
 ### Validated
@@ -31,9 +40,9 @@ Staff can open a table, run the pool timer, add food/drink orders, and close out
 
 ### Active
 
-<!-- No target milestone defined yet. This PROJECT.md was created via a baseline-only /gsd:new-project run to establish planning docs ahead of scoping actual phases. -->
+<!-- Milestone v1.0 scoped 2026-08-08 -->
 
-(None yet — run `/gsd:plan-phase` or add phases directly once the next milestone is scoped)
+(See `.planning/REQUIREMENTS.md` once written for v1.0 requirements)
 
 ### Out of Scope
 
@@ -89,4 +98,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-08 after initialization (baseline-only, brownfield)*
+*Last updated: 2026-08-08 — milestone v1.0 (Docker/Rancher Hosting Replacement) scoped*
