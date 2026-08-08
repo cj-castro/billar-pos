@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Docker/Rancher Hosting Replacement
-status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-08-08T21:31:11.528Z"
+status: ready_to_plan
+stopped_at: Phase 1 complete (0/0) — ready to discuss Phase 2
+last_updated: 2026-08-08T21:34:06.951Z
 last_activity: 2026-08-08 — ROADMAP.md created, 24/24 v1 requirements mapped across 5 phases
 progress:
   total_phases: 5
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-08)
 
 **Core value:** Staff can open a table, run the pool timer, add food/drink orders, and close out a ticket with correct billing — without the system losing track of what's open, what's been ordered, or what's been paid.
-**Current focus:** Phase 1 — Validation & Decision Lock
+**Current focus:** Phase 2 — core service migration
 
 ## Current Position
 
-Phase: 1 of 5 (Validation & Decision Lock)
-Plan: — (not yet planned)
+Phase: 2 of 5 (core service migration)
+Plan: Not started
 Status: Ready to plan
-Last activity: 2026-08-08 — ROADMAP.md created, 24/24 v1 requirements mapped across 5 phases
+Last activity: 2026-08-08
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -44,7 +44,7 @@ Progress: [░░░░░░░░░░] 0%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 1 | 0 | - | - |
 
 **Recent Trend:**
 

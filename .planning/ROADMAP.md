@@ -12,7 +12,7 @@ Milestone v1.0 replaces the current Docker Desktop + Rancher Desktop hosting mod
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Validation & Decision Lock** - Prove on real hardware that native Windows Services deliver the researched RAM/CPU savings before committing further engineering effort
+- [x] **Phase 1: Validation & Decision Lock** - Prove on real hardware that native Windows Services deliver the researched RAM/CPU savings before committing further engineering effort (completed 2026-08-08)
 - [ ] **Phase 2: Core Service Migration** - Backend, Postgres, frontend, scheduler, and bot all run natively on Windows, independent of Docker, with data safely preserved
 - [ ] **Phase 3: Centralized Logging & Secrets** - All services log to one tail-able place and secrets are out of committed files
 - [ ] **Phase 4: Process Supervision & Reliability Hardening** - Services survive crashes/reboots independently and known data-integrity risks are closed
@@ -81,7 +81,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Validation & Decision Lock | 0/TBD | Not started | - |
+| 1. Validation & Decision Lock | 0/0 | Complete    | 2026-08-08 |
 | 2. Core Service Migration | 0/TBD | Not started | - |
 | 3. Centralized Logging & Secrets | 0/TBD | Not started | - |
 | 4. Process Supervision & Reliability Hardening | 0/TBD | Not started | - |

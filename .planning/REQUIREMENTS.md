@@ -9,8 +9,8 @@
 
 ### Hosting Decision
 
-- [ ] **HOST-01**: A documented, ranked comparison of 5+ concrete hosting alternatives exists for this stack and hardware — *satisfied by `.planning/research/SUMMARY.md`, `STACK.md`, `FEATURES.md`, `ARCHITECTURE.md`, `PITFALLS.md`*
-- [ ] **HOST-02**: Actual RAM/CPU savings from dropping Docker/Rancher are measured on the real bar machine (or an equivalent Windows 11 8GB machine) before committing to full migration
+- [x] **HOST-01**: A documented, ranked comparison of 5+ concrete hosting alternatives exists for this stack and hardware — *satisfied by `.planning/research/SUMMARY.md`, `STACK.md`, `FEATURES.md`, `ARCHITECTURE.md`, `PITFALLS.md`*
+- [x] **HOST-02**: Actual RAM/CPU savings from dropping Docker/Rancher are measured on the real bar machine (or an equivalent Windows 11 8GB machine) before committing to full migration
 
 ### Service Migration
 
@@ -87,8 +87,8 @@ Explicitly excluded from this milestone. Documented to prevent scope creep.
 
 | Requirement | Phase | Status |
 |---|---|---|
-| HOST-01 | Phase 1 | Pending |
-| HOST-02 | Phase 1 | Pending |
+| HOST-01 | Phase 1 | Complete |
+| HOST-02 | Phase 1 | Complete |
 | SVC-01 | Phase 2 | Pending |
 | SVC-02 | Phase 2 | Pending |
 | SVC-03 | Phase 2 | Pending |
