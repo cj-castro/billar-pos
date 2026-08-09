@@ -71,7 +71,17 @@ Plans:
   3. Secrets (DB password, JWT secrets, role PINs) live in a documented, git-ignored secrets file or Windows-native secret storage, not in `docker-compose.yml` or committed env files
   4. `.env.example` documents every required secret with placeholder values for the new hosting model
 
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — NSSM log-path consolidation, nginx native log rotation, unified tail-logs script (LOG-01, LOG-02, LOG-03)
+- [ ] 03-02-PLAN.md — Backend insecure-default-secret warning + .env.example (SEC-02)
+- [ ] 03-03-PLAN.md — DPAPI secrets migration + NSSM AppEnvironmentExtra reconfiguration (SEC-01)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-04-PLAN.md — Staging-machine execution + validation checkpoint (all Phase 3 requirements)
 
 ### Phase 4: Process Supervision & Reliability Hardening
 
@@ -110,6 +120,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Validation & Decision Lock | 0/0 | Complete    | 2026-08-08 |
 | 2. Core Service Migration | 5/5 | Complete   | 2026-08-09 |
-| 3. Centralized Logging & Secrets | 0/TBD | Not started | - |
+| 3. Centralized Logging & Secrets | 0/4 | Not started | - |
 | 4. Process Supervision & Reliability Hardening | 0/TBD | Not started | - |
 | 5. Cutover & Rollback | 0/TBD | Not started | - |
