@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: Docker/Rancher Hosting Replacement
 status: executing
 stopped_at: Phase 4 context gathered
-last_updated: "2026-08-09T22:39:34.804Z"
-last_activity: 2026-08-09 -- Phase 04 planning complete
+last_updated: "2026-08-09T22:49:01.468Z"
+last_activity: 2026-08-09 -- Phase 04 execution started
 progress:
   total_phases: 5
   completed_phases: 2
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-08)
 
 **Core value:** Staff can open a table, run the pool timer, add food/drink orders, and close out a ticket with correct billing — without the system losing track of what's open, what's been ordered, or what's been paid.
-**Current focus:** Phase 03 — centralized-logging-secrets
+**Current focus:** Phase 04 — process-supervision-reliability-hardening
 
 ## Current Position
 
-Phase: 03 (centralized-logging-secrets) — EXECUTING
-Plan: 2 of 4
-Status: Ready to execute
-Last activity: 2026-08-09 -- Phase 04 planning complete
+Phase: 04 (process-supervision-reliability-hardening) — EXECUTING
+Plan: 1 of 5
+Status: Executing Phase 04
+Last activity: 2026-08-09 -- Phase 04 execution started
 
 Progress: [██████████] 100%
 

@@ -100,9 +100,9 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — Backend health-check deepening, print-agent warn check, ghost-ticket DB invariant fix (SUP-04, NET-02, DATA-02)
-- [ ] 04-02-PLAN.md — Eventlet/psycopg2 monkey-patch fix + DATA-03 verification (DATA-03)
-- [ ] 04-03-PLAN.md — Unified check-health.ps1 + Postgres sc.exe failure-recovery script (SUP-01, SUP-04)
+- [x] 04-01-PLAN.md — Backend health-check deepening, print-agent warn check, ghost-ticket DB invariant fix (SUP-04, NET-02, DATA-02)
+- [x] 04-02-PLAN.md — Eventlet/psycopg2 monkey-patch fix + DATA-03 verification (DATA-03)
+- [x] 04-03-PLAN.md — Unified check-health.ps1 + Postgres sc.exe failure-recovery script (SUP-01, SUP-04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -135,5 +135,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Validation & Decision Lock | 0/0 | Complete    | 2026-08-08 |
 | 2. Core Service Migration | 5/5 | Complete   | 2026-08-09 |
 | 3. Centralized Logging & Secrets | 5/5 | Complete   | 2026-08-09 |
-| 4. Process Supervision & Reliability Hardening | 0/TBD | Not started | - |
+| 4. Process Supervision & Reliability Hardening | 3/5 | In Progress|  |
 | 5. Cutover & Rollback | 0/TBD | Not started | - |
