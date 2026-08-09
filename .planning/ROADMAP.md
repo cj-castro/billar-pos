@@ -96,7 +96,21 @@ Plans:
   4. All known ghost tickets are cleaned from the production DB and the root cause is documented (fixed if feasible within this milestone, otherwise explicitly flagged as residual risk)
   5. The eventlet single-worker constraint (`-w 1`, no raw `threading.Thread`) is explicitly verified to still hold under the new hosting model
 
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — Backend health-check deepening, print-agent warn check, ghost-ticket DB invariant fix (SUP-04, NET-02, DATA-02)
+- [ ] 04-02-PLAN.md — Eventlet/psycopg2 monkey-patch fix + DATA-03 verification (DATA-03)
+- [ ] 04-03-PLAN.md — Unified check-health.ps1 + Postgres sc.exe failure-recovery script (SUP-01, SUP-04)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 04-04-PLAN.md — Staging deployment/validation: print-agent install, TelegramBot crash-loop fix, NET-02/SUP-04/DATA-02/DATA-03 evidence (NET-02, SUP-04, DATA-02, DATA-03, SUP-01 partial)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 04-05-PLAN.md — Live crash-isolation + reboot tests, final validation compile (SUP-01, SUP-02, SUP-03, SUP-04)
 
 ### Phase 5: Cutover & Rollback
 
