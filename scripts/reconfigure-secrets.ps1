@@ -223,7 +223,10 @@ if (-not (Get-Service -Name $svcName -ErrorAction SilentlyContinue)) {
             "TZ=$Tz",
             "LOG_LEVEL=$LogLevel",
             "FLASK_ENV=$FlaskEnv",
-            "PRINT_AGENT_URL=http://localhost:9191",
+            # 127.0.0.1, not localhost: eventlet.monkey_patch() (DATA-03) breaks
+            # Python-level "localhost" DNS resolution on this Windows environment
+            # (confirmed Phase 4 04-04 staging validation).
+            "PRINT_AGENT_URL=http://127.0.0.1:9191",
             "FLASK_APP=wsgi.py",
             "REPORT_FROM=$ReportFrom",
             "REPORT_TO=$ReportTo"

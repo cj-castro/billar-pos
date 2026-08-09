@@ -34,7 +34,12 @@ def _cancel_seated_ticket(entry, user_id):
     """
     if not entry.floor_ticket_id:
         return True, None, False
-    ticket = Ticket.query.with_for_update().get(entry.floor_ticket_id)
+    # db.session.get() instead of legacy Query.get(): the legacy Query.get()
+    # form, combined with .with_for_update(), was found (Phase 4 04-04 staging
+    # validation) to throw a spurious sqlalchemy.exc.InvalidRequestError when
+    # invoked via the real eventlet-hosted request path. db.session.get() is
+    # the SQLAlchemy 2.0-native equivalent and preserves None-return semantics.
+    ticket = db.session.get(Ticket, entry.floor_ticket_id, with_for_update=True)
     if ticket is None or ticket.status != 'OPEN':
         return True, None, False
 
@@ -315,7 +320,8 @@ def transfer_to_pool(entry_id):
 
     # Free floor resource (and auto-remove if temp). Lock the row so a
     # concurrent transfer can't race us into a lost-update on status.
-    floor_resource = (Resource.query.with_for_update().get(ticket.resource_id)
+    # db.session.get() instead of legacy Query.get() — see note in _cancel_seated_ticket()
+    floor_resource = (db.session.get(Resource, ticket.resource_id, with_for_update=True)
                       if ticket.resource_id else None)
     if floor_resource:
         floor_resource.status = 'AVAILABLE'

@@ -6,7 +6,10 @@ from app.models.ticket import TicketLineItem, Ticket
 from app.models.print_job import PrintJob
 import os
 
-PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://localhost:9191')
+# Default is 127.0.0.1, not localhost (Phase 4 04-04 staging validation):
+# eventlet.monkey_patch() (DATA-03) breaks Python-level "localhost" DNS
+# resolution on this Windows environment — see tickets.py's PRINT_AGENT_URL.
+PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://127.0.0.1:9191')
 
 # Lazy prune: delete print_jobs older than 1 day, runs at most once per hour.
 _last_prune: float = 0.0
