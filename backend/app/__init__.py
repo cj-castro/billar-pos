@@ -1024,7 +1024,33 @@ def create_app(config_class=Config):
     # ── Health check ──────────────────────────────────────────────────────────
     @app.route('/api/v1/health')
     def health():
-        return {'status': 'ok'}
+        """D-01/SUP-04: real DB round-trip, not a bare liveness ping.
+
+        A process that is "running" but can't reach Postgres must not report
+        {'status': 'ok'} — Plan 04-03's check-health.ps1 and
+        install-all-native-services.ps1 both probe this exact URL to decide
+        whether the service is actually usable.
+        """
+        from sqlalchemy import text
+        from datetime import datetime, timezone
+        try:
+            db.session.execute(text('SELECT 1'))
+            db.session.commit()
+            return {
+                'status': 'ok',
+                'db': 'connected',
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+            }, 200
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(
+                f'Health check DB round-trip failed: {type(e).__name__}: {e}'
+            )
+            return {
+                'status': 'error',
+                'detail': f'Database unreachable: {type(e).__name__}',
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+            }, 503
 
     return app
 
