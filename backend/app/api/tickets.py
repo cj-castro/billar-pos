@@ -20,7 +20,12 @@ from app.models.waiting_list import WaitingListEntry
 from app.services import audit_svc, billing, inventory_svc, promotion_svc
 from app.config import Config
 
-PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://localhost:9191')
+# Default is 127.0.0.1, not localhost (Phase 4 04-04 staging validation):
+# eventlet.monkey_patch() (DATA-03) replaces Python's DNS resolution with
+# eventlet's greendns, which fails to resolve the literal hostname "localhost"
+# on this Windows environment (socket.gaierror: No address found), while
+# 127.0.0.1 (an IP literal, no DNS lookup needed) connects fine.
+PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://127.0.0.1:9191')
 
 tickets_bp = Blueprint('tickets', __name__)
 
@@ -186,7 +191,15 @@ def open_ticket():
         return jsonify(ticket.to_dict()), 201
 
     # Lock row and check availability for ALL resource types
-    resource = Resource.query.with_for_update().get(resource_id)
+    # NOTE (DATA-03 follow-up, Phase 4 04-04 staging validation): the legacy
+    # Query.get() form, when combined with .with_for_update(), was found to
+    # throw a spurious sqlalchemy.exc.InvalidRequestError ("Incorrect number
+    # of values in identifier") specifically when invoked via the real
+    # eventlet-hosted socketio.run() request path (not reproducible via
+    # Flask's test_client() or an isolated script) — db.session.get() is the
+    # SQLAlchemy 2.0-native equivalent and does not exhibit this failure,
+    # while still preserving None-return semantics for a missing row.
+    resource = db.session.get(Resource, resource_id, with_for_update=True)
     if resource is None:
         return jsonify({'error': 'NOT_FOUND'}), 404
     if resource.status == 'IN_USE':
@@ -629,7 +642,8 @@ def transfer_ticket(ticket_id):
     if ticket.status != 'OPEN':
         return jsonify({'error': 'TICKET_CLOSED'}), 403
 
-    old_resource = (Resource.query.with_for_update().get(ticket.resource_id)
+    # db.session.get() instead of legacy Query.get() — see note in open_ticket()
+    old_resource = (db.session.get(Resource, ticket.resource_id, with_for_update=True)
                     if ticket.resource_id else None)
     new_resource = Resource.query.with_for_update().get_or_404(target_resource_id)
 
@@ -1161,7 +1175,8 @@ def reopen_ticket(ticket_id):
     # ghost-cleanup sweep, which would auto-close it again.
     resource = None
     if ticket.resource_id:
-        resource = Resource.query.with_for_update().get(ticket.resource_id)
+        # db.session.get() instead of legacy Query.get() — see note in open_ticket()
+        resource = db.session.get(Resource, ticket.resource_id, with_for_update=True)
         if resource is None or not resource.is_active:
             return jsonify({
                 'error': 'RESOURCE_UNAVAILABLE',

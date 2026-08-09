@@ -108,7 +108,13 @@ def _lock_sorted(*item_ids: str) -> dict:
     """
     locked = {}
     for iid in sorted(set(item_ids)):
-        row = InventoryItem.query.with_for_update().get(iid)
+        # db.session.get() instead of legacy Query.get(): the legacy form,
+        # combined with .with_for_update(), was found (Phase 4 04-04 staging
+        # validation) to throw a spurious sqlalchemy.exc.InvalidRequestError
+        # when invoked via the real eventlet-hosted request path.
+        # db.session.get() is the SQLAlchemy 2.0-native equivalent and
+        # preserves None-return semantics.
+        row = db.session.get(InventoryItem, iid, with_for_update=True)
         if row is None:
             raise ValueError(f'InventoryItem not found: {iid}')
         locked[iid] = row
@@ -251,7 +257,8 @@ def restock_drinks(
         ValueError: Item not found, inactive, purchase_quantity ≤ 0,
             cost < 0, or effective pack size ≤ 0.
     """
-    item = InventoryItem.query.with_for_update().get(item_id)
+    # db.session.get() instead of legacy Query.get() — see note in _lock_sorted()
+    item = db.session.get(InventoryItem, item_id, with_for_update=True)
     if not item:
         raise ValueError('InventoryItem not found')
     if not item.is_active:
@@ -324,7 +331,8 @@ def restock_food_portions(
     Raises:
         ValueError: Item not found, inactive, not food, portion_count ≤ 0, cost < 0.
     """
-    item = InventoryItem.query.with_for_update().get(item_id)
+    # db.session.get() instead of legacy Query.get() — see note in _lock_sorted()
+    item = db.session.get(InventoryItem, item_id, with_for_update=True)
     if not item:
         raise ValueError('InventoryItem not found')
     if not item.is_active:
@@ -423,7 +431,8 @@ def check_stock_for_item(menu_item, modifiers_data: list, quantity: int = 1) -> 
 
     shortages = []
     for inv_id in sorted(needed.keys()):
-        item = InventoryItem.query.with_for_update().get(inv_id)
+        # db.session.get() instead of legacy Query.get() — see note in _lock_sorted()
+        item = db.session.get(InventoryItem, inv_id, with_for_update=True)
         if item is None:
             shortages.append({'name': f'[missing: {inv_id}]',
                               'available': 0, 'needed': float(needed[inv_id])})
@@ -493,7 +502,8 @@ def consume_for_line_item(line_item, performed_by: str):
     all_ids = sorted({d['inventory_item_id'] for d in deductions})
     locked: dict[str, InventoryItem] = {}
     for iid in all_ids:
-        row = InventoryItem.query.with_for_update().get(iid)
+        # db.session.get() instead of legacy Query.get() — see note in _lock_sorted()
+        row = db.session.get(InventoryItem, iid, with_for_update=True)
         if row is None:
             raise ValueError(f'Ingredient item not found: {iid}')
         locked[iid] = row
@@ -560,7 +570,8 @@ def reverse_for_line_item(line_item, performed_by: str):
     all_ids = sorted({r.inventory_item_id for r in cost_rows})
     locked: dict[str, InventoryItem] = {}
     for iid in all_ids:
-        row = InventoryItem.query.with_for_update().get(iid)
+        # db.session.get() instead of legacy Query.get() — see note in _lock_sorted()
+        row = db.session.get(InventoryItem, iid, with_for_update=True)
         if row is not None:
             locked[iid] = row
 
@@ -601,7 +612,8 @@ def record_waste(
     if not reason or not reason.strip():
         raise ValueError('Reason is required for waste recording')
 
-    item = InventoryItem.query.with_for_update().get(item_id)
+    # db.session.get() instead of legacy Query.get() — see note in _lock_sorted()
+    item = db.session.get(InventoryItem, item_id, with_for_update=True)
     if not item:
         raise ValueError('InventoryItem not found')
 
@@ -645,7 +657,8 @@ def record_count_adjustment(
     if not reason or not reason.strip():
         raise ValueError('Reason is required for count adjustments')
 
-    item = InventoryItem.query.with_for_update().get(item_id)
+    # db.session.get() instead of legacy Query.get() — see note in _lock_sorted()
+    item = db.session.get(InventoryItem, item_id, with_for_update=True)
     if not item:
         raise ValueError('InventoryItem not found')
 
@@ -681,7 +694,8 @@ def manual_adjust(
     if not reason or not reason.strip():
         raise ValueError('Reason is required for manual adjustments')
 
-    item = InventoryItem.query.with_for_update().get(item_id)
+    # db.session.get() instead of legacy Query.get() — see note in _lock_sorted()
+    item = db.session.get(InventoryItem, item_id, with_for_update=True)
     if not item:
         raise ValueError('InventoryItem not found')
 
