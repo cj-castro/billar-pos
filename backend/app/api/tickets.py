@@ -20,7 +20,7 @@ from app.models.waiting_list import WaitingListEntry
 from app.services import audit_svc, billing, inventory_svc, promotion_svc
 from app.config import Config
 
-PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://host.docker.internal:9191')
+PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://localhost:9191')
 
 tickets_bp = Blueprint('tickets', __name__)
 

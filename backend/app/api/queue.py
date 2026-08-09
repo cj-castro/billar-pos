@@ -6,7 +6,7 @@ from app.models.ticket import TicketLineItem, Ticket
 from app.models.print_job import PrintJob
 import os
 
-PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://host.docker.internal:9191')
+PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://localhost:9191')
 
 # Lazy prune: delete print_jobs older than 1 day, runs at most once per hour.
 _last_prune: float = 0.0
