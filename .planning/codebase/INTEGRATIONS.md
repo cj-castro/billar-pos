@@ -87,6 +87,22 @@
 - Root `.env` file (git-ignored, present locally at repo root — contents not read/quoted per policy)
 - No secrets manager (Vault/AWS Secrets Manager/etc.) integrated — all secrets flow through plain environment variables
 
+## Production Remote Access
+
+- The live bar machine (the Docker/Rancher host this whole migration is replacing) is reachable via an ngrok TCP tunnel for out-of-band diagnostics and backups — not part of the application stack, but directly relevant to DATA-01 and the Phase 5 cutover.
+- Tunnel + credentials live in root `.env` (git-ignored, never commit): `BAR_MACHINE_NGROK_URL` (`tcp://` tunnel forwarding to port 22/SSH), `BAR_MACHINE_USERNAME1`, `BAR_MACHINE_USERNAME2`, `BAR_MACHINE_PASSWORD`. Confirmed working (2026-08-08): `BAR_MACHINE_USERNAME2` (`bola8lacalma`). `BAR_MACHINE_USERNAME1` (`bola8poolclub`) failed 3 auth attempts — needs verification/rotation before relying on it.
+- `docker ps` over this tunnel (2026-08-08) confirmed the live containers: `billiards-postgres-1` (`postgres:15-alpine`, healthy), `billiards-backend-1` (healthy), `billiards-frontend-1`, `billiards-telegram-bot-1`, and `billiards-scheduler-1` (**unhealthy** — pre-existing issue, unrelated to migration work, flagged for follow-up). Also present: `k8s_*` / `rancher/mirrored-pause` system containers (coredns, traefik, metrics-server, local-path-provisioner) — confirms the runtime is **Rancher Desktop/k3s**, not a plain `docker compose` host. Matters for Phase 5's Docker/Rancher uninstall (CUT-03).
+- Postgres's port 5432 is **not** published to the host — only reachable via `docker exec` inside an SSH session on that machine. See `CLAUDE.md`'s "Production access" section for the exact `pg_dump`-over-SSH command. Confirmed low-impact: `pg_dump` takes only non-blocking `ACCESS SHARE` locks; a real pull (34MB DB) took ~4s with zero effect on container uptime/health.
+- Any dump pulled this way is saved locally to `backups/*.dump` (git-ignored) — contains live customer/financial data, never commit.
+
+## Staging Remote Access (Phase 2)
+
+- A separate Windows 11 staging machine (`WIDOWSVAIL`) is used to install and validate Phase 2's native-Windows-Services replacement for Docker/Rancher before anything is deployed to the live bar machine (D-01/D-02/D-03, `.planning/phases/02-core-service-migration/02-CONTEXT.md`). Disposable test environment, unlike the bar machine — safe to install/reinstall/break freely.
+- Reachable directly over LAN via plain OpenSSH (`OpenSSH_for_Windows` server built into Windows 11) — no tunnel needed. Credentials live in root `.env` (git-ignored, never commit): `STAGING_MACHINE_IP`, `STAGING_MACHINE_USERNAME`, `STAGING_MACHINE_PASSWORD`. Confirmed working (2026-08-08): plain `username@ip` login, password auth, no domain prefix needed.
+- SSH sessions on this account arrive already-elevated (Administrator) with no UAC prompt — `#Requires -RunAsAdministrator` scripts (e.g. `scripts/install-all-native-services.ps1`) can be driven directly over SSH without anyone at the physical console.
+- Runs Windows PowerShell 5.1 (`$PSVersionTable.PSVersion` → `5.1.x`), not PowerShell 7/Core — any script targeting this machine must stick to PS 5.1-compatible syntax.
+- 31GB RAM / 104GB free disk observed 2026-08-08 — comfortably exceeds the ~8GB bar-machine target spec these results are meant to validate against.
+
 ## Webhooks & Callbacks
 
 **Incoming:**

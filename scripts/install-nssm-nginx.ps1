@@ -88,15 +88,26 @@ if (Test-Path $DistDir) {
         exit 1
     }
     Write-Host "   Building frontend (npm install && npm run build)..." -ForegroundColor Yellow
-    & $npm --prefix $FrontendDir install
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "   npm install failed." -ForegroundColor Red
-        exit 1
-    }
-    & $npm --prefix $FrontendDir run build
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "   npm run build failed." -ForegroundColor Red
-        exit 1
+    # NOTE: "npm --prefix X install" does NOT make npm look for package.json
+    # in X -- confirmed against the real staging machine, 2026-08-08 (npm
+    # 10.8.2): --prefix only changes where packages get installed TO, not
+    # which directory's package.json npm reads for a local install. npm
+    # still resolves package.json from the current working directory
+    # regardless of --prefix, so this must actually cd into $FrontendDir.
+    Push-Location $FrontendDir
+    try {
+        & $npm install
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "   npm install failed." -ForegroundColor Red
+            exit 1
+        }
+        & $npm run build
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "   npm run build failed." -ForegroundColor Red
+            exit 1
+        }
+    } finally {
+        Pop-Location
     }
     if (-not (Test-Path $DistDir)) {
         Write-Host "   Build completed but frontend\dist still missing - aborting." -ForegroundColor Red

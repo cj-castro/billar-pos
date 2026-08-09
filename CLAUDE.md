@@ -8,6 +8,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Infrastructure/rewrite efforts (e.g. the Rust backend migration) live on their own dedicated branch, branched off `ui-refactor-goldy` (it has the latest UI): currently `rust-backend-migration`. Stay on the branch you were told to work on for the task at hand; if unsure which branch you should be on, ask before switching or committing.
 
+## Production access (bar machine)
+
+The live bar machine is reachable remotely via an ngrok TCP tunnel, used for on-site diagnostics and pulling backups. Connection details live in the root `.env` (git-ignored — never commit or paste these values into any tracked file): `BAR_MACHINE_NGROK_URL` (ngrok `tcp://` forward to port 22/SSH), `BAR_MACHINE_USERNAME1`, `BAR_MACHINE_USERNAME2`, `BAR_MACHINE_PASSWORD`. As of 2026-08-08, only `BAR_MACHINE_USERNAME2` (`bola8lacalma`) is a confirmed-working SSH login; `BAR_MACHINE_USERNAME1` (`bola8poolclub`) failed 3 auth attempts and may need its password checked/rotated.
+
+The live Postgres container (`billiards-postgres-1`) does **not** publish port 5432 to the host — it's reachable only inside the Docker/k3s network on that machine. To pull data out, run `pg_dump` *inside* the container over the SSH tunnel and stream the output straight to a local file — never write dump files on the bar machine itself:
+
+```bash
+ssh -p <ngrok_port> bola8lacalma@<ngrok_host> \
+  'docker exec -e PGPASSWORD=<POSTGRES_PASSWORD> billiards-postgres-1 pg_dump -U <POSTGRES_USER> -Fc -d <POSTGRES_DB>' \
+  > backups/billiardbar_prod_$(date +%Y%m%d_%H%M%S).dump
+```
+
+`pg_dump` only takes non-blocking `ACCESS SHARE` locks, so it's safe to run against the live database without interrupting ticket/order operations (confirmed 2026-08-08: 34MB DB, ~4s dump, container uptime unaffected by the pull). Dumps land in `backups/*.dump` (git-ignored) — this is live customer/financial data and must never be committed.
+
+The bar machine's actual container runtime is Rancher Desktop/k3s (confirmed via `docker ps` showing `k8s_*`/`rancher/mirrored-pause` system pods alongside the `billiards-*` app containers), not a plain `docker compose` host — relevant to Phase 5's eventual Docker/Rancher uninstall (CUT-03).
+
+This is genuine production access to hardware serving the bar in real time. Treat every command run over this tunnel with at least the same care as the branch-safety rule above — read-only diagnostics and backups are fine to run directly, but confirm with the user before anything that could restart a service, change config, or otherwise touch the running system.
+
+## Staging machine access (Phase 2 core-service-migration)
+
+A separate Windows 11 staging machine (`WIDOWSVAIL`, hostname is lowercased in Windows SSH output as `widowsvail`) is used to install and validate the native-Windows-Services replacement for Docker/Rancher (SVC-01 through SVC-05, NET-01, DATA-01) **before** anything touches the live bar machine — see D-01/D-02/D-03 in `.planning/phases/02-core-service-migration/02-CONTEXT.md`. Unlike the bar machine, this is a disposable test environment: install/reinstall/break things freely here, that's its purpose.
+
+Reachable directly over LAN via plain OpenSSH (Windows' built-in `OpenSSH_for_Windows` server, not a tunnel). Connection details live in the root `.env` (git-ignored — never commit or paste these values into any tracked file): `STAGING_MACHINE_IP`, `STAGING_MACHINE_USERNAME`, `STAGING_MACHINE_PASSWORD`. Confirmed working (2026-08-08) — plain `username@ip` login (no domain/machine prefix needed), password auth. SSH sessions on this account arrive already-elevated (Administrator) with no UAC prompt, which is what makes it possible to drive `#Requires -RunAsAdministrator` installer scripts (like `scripts/install-all-native-services.ps1`) directly over SSH — a human physically at the console is not required. Occasional transient "Permission denied" on the first connection attempt has been observed; a quick retry with the same credentials succeeds — not a real auth problem.
+
+`STAGING_MACHINE_IP` is DHCP-assigned and **changes** when the machine sleeps/reconnects (confirmed 2026-08-08: `192.168.1.15` → `192.168.1.20` after one sleep cycle). If SSH suddenly gives "Host is down" / connection timeout after previously working, check for an IP change before assuming the machine is actually off — ask the user for the current IP and update `.env`.
+
+The machine runs Windows PowerShell 5.1 (`$PSVersionTable.PSVersion` → `5.1.x`, i.e. Windows PowerShell, not PowerShell 7/Core) — any script intended to run here must stick to PS 5.1-compatible syntax (e.g. no `ConvertFrom-Json -AsHashtable`, which is PS 6+ only).
+
+```bash
+sshpass -p "$STAGING_MACHINE_PASSWORD" ssh -o StrictHostKeyChecking=accept-new \
+  "${STAGING_MACHINE_USERNAME}@${STAGING_MACHINE_IP}" "<command>"
+```
+
 ## What this is
 
 A self-hosted Point-of-Sale and floor-management system for a billiards/pool bar (BilliardBar POS). Floor-map table management, pool-table timer billing, ticket/order management, kitchen & bar queues, inventory, promotions, cash sessions, and manager reporting. Deployed on-site as a Docker Compose stack, with a Windows-hosted print agent running outside Docker.

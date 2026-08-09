@@ -176,22 +176,73 @@ function Invoke-InstallerScript {
     }
 
     $safeName = ($Name -replace '[^A-Za-z0-9_-]', '_')
-    $childLog    = Join-Path $LogsDir "${safeName}_$Timestamp.log"
-    $childErrLog = Join-Path $LogsDir "${safeName}_${Timestamp}_err.log"
 
     for ($attempt = 1; $attempt -le ($MaxRetries + 1); $attempt++) {
         Write-InfoLine "Starting: $Name (attempt $attempt of $($MaxRetries + 1), time limit ${TimeoutMinutes}m) -- please wait..."
 
+        # Unique log file PER ATTEMPT (not shared across retries): a retry
+        # previously reused the same filename, so Out-File silently
+        # overwrote attempt 1's real diagnostic output with attempt 2's --
+        # losing the actual failure reason on the very retry meant to help
+        # diagnose it (confirmed against the real staging machine, 2026-08-08).
+        $childLog = Join-Path $LogsDir "${safeName}_${Timestamp}_attempt${attempt}.log"
+
+        # IMPORTANT: capture output via PowerShell's own stream-merge-and-redirect
+        # (*>&1 | Out-File) INSIDE the child process, not via Start-Process's
+        # OS-level -RedirectStandardOutput/-RedirectStandardError. Windows
+        # PowerShell 5.1's Write-Host does not reliably write anywhere useful when
+        # a process's stdout/stderr handles are OS-redirected this way -- every
+        # script in this phase reports almost all of its progress via Write-Host,
+        # so that combination silently produces an empty log and an early,
+        # unexplained non-zero exit (confirmed against the real staging machine,
+        # 2026-08-08). Piping *>&1 inside the child's own -Command instead
+        # captures the Information stream Write-Host actually writes to (PS 5.0+)
+        # while the child still has a normal console via -NoNewWindow.
+        #
+        # Trailing "; exit $LASTEXITCODE" is REQUIRED, not cosmetic: Windows
+        # PowerShell's "-Command" host sets its OWN process exit code to 1
+        # whenever ANY error was written during execution -- including
+        # ordinary non-terminating errors under $ErrorActionPreference =
+        # "Continue" (e.g. docker's routine stderr progress output turned
+        # into NativeCommandError records). Confirmed against the real
+        # staging machine, 2026-08-08: postgres-backup-restore.ps1 completed
+        # its own PASS banner in full, but the wrapping powershell.exe still
+        # reported exit 1 and the orchestrator retried a fully-successful
+        # step. Explicitly propagating $LASTEXITCODE (which reflects the
+        # last actual external command's real result, since Out-File is a
+        # cmdlet and never touches it) makes this wrapper's exit code match
+        # the target script's real outcome instead of PowerShell's ambient
+        # "were any errors logged" state.
+        $exitCodeFile = "$childLog.exitcode"
+        if (Test-Path $exitCodeFile) { Remove-Item $exitCodeFile -Force -ErrorAction SilentlyContinue }
+
+        # The child writes ITS OWN exit code to a marker file as its very
+        # last action, and we read that file directly rather than trusting
+        # the returned Process object's .ExitCode/.HasExited. Both
+        # $proc.ExitCode (even after an explicit WaitForExit()) and the
+        # process's own exit code (even after explicitly forcing it via
+        # "; exit $LASTEXITCODE") were observed to come back empty/wrong in
+        # this specific execution context (Start-Process launched from a
+        # Scheduled Task running in the interactive session) on the real
+        # staging machine, 2026-08-08 -- every failure reported "(code )"
+        # with nothing after it, including for steps that had actually
+        # fully succeeded. Writing the result to disk sidesteps whatever
+        # .NET/PowerShell process-tracking quirk was causing that, instead
+        # of depending on it.
+        $wrappedCommand = "& '$ScriptPath' *>&1 | Out-File -FilePath '$childLog' -Encoding utf8; `$ec = if (`$LASTEXITCODE) { `$LASTEXITCODE } else { 0 }; Set-Content -Path '$exitCodeFile' -Value `$ec -NoNewline; exit `$ec"
+
         $proc = Start-Process -FilePath "powershell.exe" `
-            -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$ScriptPath`"") `
-            -RedirectStandardOutput $childLog `
-            -RedirectStandardError $childErrLog `
+            -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $wrappedCommand) `
             -NoNewWindow -PassThru
 
         $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
         $finished = $false
         while ((Get-Date) -lt $deadline) {
-            if ($proc.HasExited) { $finished = $true; break }
+            # The marker file is the real completion signal (written as the
+            # child's literal last action) -- .HasExited can flip true
+            # slightly before that write is visible, so check the file too
+            # rather than racing ahead on .HasExited alone.
+            if ((Test-Path $exitCodeFile) -or $proc.HasExited) { $finished = $true; break }
             Start-Sleep -Seconds 3
         }
 
@@ -207,20 +258,31 @@ function Invoke-InstallerScript {
                 Start-Sleep -Seconds 5
                 continue
             }
-            return [pscustomobject]@{ Ok = $false; Reason = "timeout"; Log = $childLog; ErrLog = $childErrLog }
+            return [pscustomobject]@{ Ok = $false; Reason = "timeout"; Log = $childLog }
         }
 
-        if ($proc.ExitCode -eq 0) {
+        # Brief grace period: the marker file existing doesn't guarantee the
+        # OS has finished flushing it to a readable state yet.
+        $exitCode = $null
+        for ($i = 0; $i -lt 5; $i++) {
+            if (Test-Path $exitCodeFile) {
+                $raw = (Get-Content $exitCodeFile -Raw -ErrorAction SilentlyContinue)
+                if ($raw) { $exitCode = $raw.Trim(); break }
+            }
+            Start-Sleep -Milliseconds 500
+        }
+
+        if ($exitCode -eq "0") {
             Write-OkLine "'$Name' finished successfully."
-            return [pscustomobject]@{ Ok = $true; Log = $childLog; ErrLog = $childErrLog }
+            return [pscustomobject]@{ Ok = $true; Log = $childLog }
         } else {
-            Write-WarnLine "'$Name' exited with an error (code $($proc.ExitCode))."
+            Write-WarnLine "'$Name' exited with an error (code $exitCode)."
             if ($attempt -le $MaxRetries) {
                 Write-WarnLine "Will try '$Name' one more time..."
                 Start-Sleep -Seconds 5
                 continue
             }
-            return [pscustomobject]@{ Ok = $false; Reason = "exit_$($proc.ExitCode)"; Log = $childLog; ErrLog = $childErrLog }
+            return [pscustomobject]@{ Ok = $false; Reason = "exit_$exitCode"; Log = $childLog }
         }
     }
 }
@@ -265,11 +327,47 @@ function Test-WindowsServiceHealthy {
 }
 
 function Test-PostgresAlreadyInstalled {
+    # Checking only "service exists and is Running" is not enough: the
+    # service can be up while the application role/database were never
+    # actually created (e.g. a prior run installed Postgres successfully but
+    # failed on the next step). Skipping install-postgres-native.ps1 based on
+    # service status alone would then permanently skip the one script that
+    # creates the app role too -- confirmed against the real staging machine,
+    # 2026-08-08. So this also verifies an actual app-level connection using
+    # the same POSTGRES_USER/PASSWORD/DB values from .env that the rest of
+    # the stack will use.
     $pgServiceNameFile = Join-Path $ScriptsDir ".postgres-service-name.txt"
+    $pgPortFile = Join-Path $ScriptsDir ".postgres-port.txt"
     if (-not (Test-Path $pgServiceNameFile)) { return $false }
     $svcName = (Get-Content $pgServiceNameFile -Raw -ErrorAction SilentlyContinue)
     if (-not $svcName) { return $false }
-    return (Test-WindowsServiceHealthy -ServiceName $svcName.Trim())
+    if (-not (Test-WindowsServiceHealthy -ServiceName $svcName.Trim())) { return $false }
+
+    $pgPort = if (Test-Path $pgPortFile) { (Get-Content $pgPortFile -Raw).Trim() } else { "5432" }
+    $envVars = @{}
+    $envFile = Join-Path $BaseDir ".env"
+    if (Test-Path $envFile) {
+        Get-Content $envFile | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -and -not $line.StartsWith('#') -and $line.Contains('=')) {
+                $idx = $line.IndexOf('=')
+                $envVars[$line.Substring(0, $idx).Trim()] = $line.Substring($idx + 1).Trim().Trim('"').Trim("'")
+            }
+        }
+    }
+    $pgUser = if ($envVars.ContainsKey('POSTGRES_USER')) { $envVars['POSTGRES_USER'] } else { 'billiard' }
+    $pgPassword = if ($envVars.ContainsKey('POSTGRES_PASSWORD')) { $envVars['POSTGRES_PASSWORD'] } else { 'billiard_secret' }
+    $pgDb = if ($envVars.ContainsKey('POSTGRES_DB')) { $envVars['POSTGRES_DB'] } else { 'billiardbar' }
+    $psqlExe = "C:\Program Files\PostgreSQL\15\bin\psql.exe"
+    if (-not (Test-Path $psqlExe)) { return $false }
+
+    $env:PGPASSWORD = $pgPassword
+    try {
+        & $psqlExe -U $pgUser -h localhost -p $pgPort -d $pgDb -tAc "SELECT 1" 2>&1 | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    } finally {
+        $env:PGPASSWORD = ""
+    }
 }
 
 function Get-NssmPath {
@@ -423,7 +521,19 @@ if ((Test-WindowsServiceHealthy -ServiceName "BilliardBarTelegramBot") -and -not
 } else {
     $r = Invoke-InstallerScript -Name "Telegram bot (install-nssm-telegram-bot.ps1)" `
         -ScriptPath (Join-Path $ScriptsDir "install-nssm-telegram-bot.ps1") -TimeoutMinutes 10
-    if (-not $r.Ok) { Stop-Installation -Reason "Installing the Telegram bot service failed (reason: $($r.Reason))." -Detail $r }
+    if (-not $r.Ok) {
+        # Non-blocking by design (unlike every other step): the ONE expected
+        # reason this legitimately fails is TELEGRAM_TOKEN/ADMIN_CHAT_ID
+        # missing from .env, which the sub-script itself already detects and
+        # reports clearly -- that's a missing real credential, not a script
+        # defect, and there's nothing to "install" differently to fix it.
+        # Stopping the whole remaining install over a missing bot token
+        # would block validating everything else (Postgres, backend,
+        # scheduler, nginx) that has nothing to do with Telegram. The final
+        # validation table below still reports this service's real status
+        # (SVC-05), so a missing-credential gap is visible, not hidden.
+        Write-WarnLine "Telegram bot service did not come up (reason: $($r.Reason)). This is usually caused by TELEGRAM_TOKEN/ADMIN_CHAT_ID missing from .env -- continuing with the rest of the install; the final validation table below will show SVC-05 as FAIL if it's still not Running."
+    }
 }
 
 Write-Banner "Step 6 of 6: nginx (install-nssm-nginx.ps1)"

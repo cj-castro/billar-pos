@@ -25,7 +25,18 @@
 # =============================================================================
 #Requires -RunAsAdministrator
 
-$ErrorActionPreference = "Stop"
+# NOTE: intentionally "Continue", not "Stop". This script wraps several
+# native CLIs (docker, psql, pg_dump, pg_restore) that routinely write
+# non-fatal progress/notice text to stderr (e.g. "postgres Pulling...",
+# pg_restore -v's verbose notices). Under "Stop", Windows PowerShell 5.1
+# turns that stderr text into a terminating NativeCommandError the instant
+# it appears -- confirmed against the real staging machine (2026-08-08),
+# where a normal "docker compose up" progress line aborted the whole
+# function before reaching its own $LASTEXITCODE check below. Every native
+# call in this file is already followed by an explicit $LASTEXITCODE check
+# or try/throw, which is the actual error-detection mechanism -- it does not
+# rely on PowerShell's automatic stop-on-error behavior.
+$ErrorActionPreference = "Continue"
 
 $BaseDir     = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $EnvFile     = Join-Path $BaseDir ".env"
@@ -85,7 +96,14 @@ function New-SyntheticSourceBackup {
         $seeded = $false
         $deadline = (Get-Date).AddSeconds(60)
         while ((Get-Date) -lt $deadline) {
-            $count = (docker compose exec -T postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -tAc "SELECT COUNT(*) FROM users" 2>$null).Trim()
+            # Early in the wait, the "users" table may not exist yet (backend's
+            # flask init-db hasn't run), so this query legitimately fails and
+            # returns nothing -- guard against $null before .Trim() instead of
+            # letting that crash the whole wait loop (confirmed against the
+            # real staging machine, 2026-08-08: an unguarded null.Trim() here
+            # aborted the synthetic backup before it ever produced a dump).
+            $rawCount = docker compose exec -T postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -tAc "SELECT COUNT(*) FROM users" 2>$null
+            $count = if ($rawCount) { $rawCount.Trim() } else { "" }
             if ($count -eq "6") { $seeded = $true; break }
             Start-Sleep -Seconds 3
         }
@@ -147,30 +165,39 @@ function Restore-NativePostgres {
 function Test-RestoredData {
     Write-Host "`n[Verify] Checking restored row counts..." -ForegroundColor Cyan
 
+    # Same null-guard rationale as the seed-wait loop above -- a query that
+    # fails (wrong port, table missing because restore didn't actually work)
+    # must produce a clean FAIL line here, not an unhandled null.Trim()/[int]
+    # cast crash that hides what actually went wrong.
+    function Get-PsqlCountSafe([string]$Table) {
+        $raw = & "$PgBin\psql.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost -p $PgPort -tAc "SELECT COUNT(*) FROM $Table" 2>$null
+        if ($raw) { return $raw.Trim() } else { return "" }
+    }
+
     $allPass = $true
     $env:PGPASSWORD = $POSTGRES_PASSWORD
     try {
-        $usersCount = (& "$PgBin\psql.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost -p $PgPort -tAc "SELECT COUNT(*) FROM users").Trim()
+        $usersCount = Get-PsqlCountSafe -Table "users"
         if ($usersCount -eq "6") {
             Write-Host "   PASS: users count == 6" -ForegroundColor Green
         } else {
-            Write-Host "   FAIL: users count == $usersCount (expected 6)" -ForegroundColor Red
+            Write-Host "   FAIL: users count == '$usersCount' (expected 6)" -ForegroundColor Red
             $allPass = $false
         }
 
-        $menuItemsCount = (& "$PgBin\psql.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost -p $PgPort -tAc "SELECT COUNT(*) FROM menu_items").Trim()
-        if ([int]$menuItemsCount -ge 17) {
+        $menuItemsCount = Get-PsqlCountSafe -Table "menu_items"
+        if ($menuItemsCount -and [int]$menuItemsCount -ge 17) {
             Write-Host "   PASS: menu_items count == $menuItemsCount (>= 17)" -ForegroundColor Green
         } else {
-            Write-Host "   FAIL: menu_items count == $menuItemsCount (expected >= 17)" -ForegroundColor Red
+            Write-Host "   FAIL: menu_items count == '$menuItemsCount' (expected >= 17)" -ForegroundColor Red
             $allPass = $false
         }
 
-        $resourcesCount = (& "$PgBin\psql.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost -p $PgPort -tAc "SELECT COUNT(*) FROM resources").Trim()
-        if ([int]$resourcesCount -gt 0) {
+        $resourcesCount = Get-PsqlCountSafe -Table "resources"
+        if ($resourcesCount -and [int]$resourcesCount -gt 0) {
             Write-Host "   PASS: resources count == $resourcesCount (> 0)" -ForegroundColor Green
         } else {
-            Write-Host "   FAIL: resources count == $resourcesCount (expected > 0)" -ForegroundColor Red
+            Write-Host "   FAIL: resources count == '$resourcesCount' (expected > 0)" -ForegroundColor Red
             $allPass = $false
         }
     } finally {
