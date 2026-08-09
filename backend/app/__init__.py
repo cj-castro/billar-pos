@@ -25,6 +25,10 @@ def create_app(config_class=Config):
     _check_default_secrets(app)
     # ================================================================================================
 
+    # ========== D-12/D-13/NET-02: warn (never exit) if the print agent is unreachable ==========
+    _check_print_agent_reachability(app)
+    # ================================================================================================
+
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
@@ -1113,3 +1117,54 @@ def _check_default_secrets(app):
         print(warning_msg)
         print('=' * 70 + '\n')
         # D-11: this function never terminates the process — warn only, service keeps starting.
+
+
+def _check_print_agent_reachability(app):
+    """Warn (never fail) if the print agent at PRINT_AGENT_URL is unreachable.
+
+    D-12/D-13/NET-02: the print agent is a separate Windows-hosted process
+    outside Docker (see backend/app/api/tickets.py PRINT_AGENT_URL). If it's
+    down or unreachable at backend startup, printing will fail until it's
+    fixed — but a live bar's POS must never be blocked from starting just
+    because a receipt printer helper isn't up yet. This function only ever
+    logs a warning; it must never raise or delay startup beyond its bounded
+    timeout.
+    """
+    print_agent_url = os.environ.get('PRINT_AGENT_URL', 'http://localhost:9191')
+    import requests
+    try:
+        resp = requests.get(f'{print_agent_url}/health', timeout=3)
+        if resp.status_code == 200:
+            app.logger.info(f'Print agent reachable at {print_agent_url}')
+            return
+        app.logger.warning(
+            f'Print agent at {print_agent_url} responded with HTTP {resp.status_code} '
+            '(expected 200) — printing will fail until this is resolved. '
+            'Check that: (1) the print agent service is running, (2) PRINT_AGENT_URL '
+            'is correct for this environment, (3) Windows Firewall allows the '
+            'connection. Startup continues anyway.'
+        )
+    except requests.exceptions.Timeout:
+        app.logger.warning(
+            f'Print agent at {print_agent_url} timed out after 3s — printing will '
+            'fail until this is resolved. Check that: (1) the print agent service '
+            'is running, (2) PRINT_AGENT_URL is correct for this environment, '
+            '(3) Windows Firewall allows the connection. Startup continues anyway.'
+        )
+    except requests.exceptions.ConnectionError:
+        app.logger.warning(
+            f'Print agent at {print_agent_url} is unreachable (connection refused/'
+            'no route) — printing will fail until this is resolved. Check that: '
+            '(1) the print agent service is running, (2) PRINT_AGENT_URL is correct '
+            'for this environment, (3) Windows Firewall allows the connection. '
+            'Startup continues anyway.'
+        )
+    except Exception as exc:  # noqa: BLE001 — never let this block startup
+        app.logger.warning(
+            f'Print agent reachability check at {print_agent_url} failed unexpectedly '
+            f'({type(exc).__name__}: {exc}) — printing may fail until this is resolved. '
+            'Check that: (1) the print agent service is running, (2) PRINT_AGENT_URL '
+            'is correct for this environment, (3) Windows Firewall allows the '
+            'connection. Startup continues anyway.'
+        )
+        # D-13: this function never terminates the process — warn only, service keeps starting.
