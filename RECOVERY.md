@@ -265,3 +265,94 @@ After any restart, confirm:
 - [ ] Login works with manager credentials
 - [ ] Floor map shows tables
 - [ ] `health-check.ps1` shows all green
+
+---
+
+## Root Cause & Structural Fix — Ghost Tickets (Phase 4 / DATA-02)
+
+### Investigation
+
+A ghost ticket is an `OPEN` ticket whose `resource_id` points at a resource
+that is `AVAILABLE` (i.e. the floor map shows the table as free while the
+ticket underneath it is still open) — see the "Ghost tickets" integrity
+query above. Every currently-shipped code path in
+`backend/app/api/tickets.py` and `backend/app/api/waiting_list.py` that
+sets a resource's `status` to `'AVAILABLE'` was audited:
+
+- `open_ticket` — creates the ticket, sets the resource to `IN_USE`, and
+  creates the pool timer, all inside one `db.session.commit()`. Never frees
+  a resource, not relevant to this invariant.
+- `close_ticket` — frees the resource to `AVAILABLE` and sets
+  `ticket.status = 'CLOSED'` in the same commit.
+- `cancel_ticket` — same pattern; `ticket.status` becomes `CANCELLED` in the
+  same commit the resource is freed.
+- `void_timer` — frees the resource **and** always clears
+  `ticket.resource_id` to `None` in the same commit, specifically to avoid
+  leaving an OPEN ticket pointed at a freed resource.
+- `reopen_ticket` — sets the resource back to `IN_USE` in the same commit as
+  `ticket.status = 'OPEN'` (the inverse direction; doesn't free anything).
+- `waiting_list.py`'s `_cancel_seated_ticket` and `transfer_to_pool` — both
+  also change the linked ticket's status/resource_id in the same commit
+  that frees a resource.
+- `request_payment` — **the one intentional, legitimate exception.** Frees
+  a pool table to `AVAILABLE` while the ticket stays `OPEN`, because the
+  guest asked for the check while still seated. This is safe because
+  `ticket.payment_requested` is set to `True` in the exact same commit, and
+  `clean_ghost_tickets()`'s existing `WHERE` clause already excludes any
+  ticket with `payment_requested IS TRUE` from being treated as a ghost.
+
+**Conclusion:** ghost tickets are not caused by a non-atomic write in the
+currently-shipped application code — every code path that frees a resource
+does so atomically, in the same transaction as the corresponding
+ticket-state change. The historical ghost tickets seen in production are
+most plausibly explained by process crashes/restarts interrupting an
+in-flight request between separate statements pre-dating this atomic
+pattern, or by direct manual DB intervention during past incident recovery
+— not a reproducible bug in the code as it stands today.
+
+### Structural Fix (STEP 27, `backend/app/__init__.py`)
+
+Because "audited and looks atomic today" is not the same guarantee as
+"structurally impossible to violate in the future," `flask init-db`'s STEP
+27 now installs `fn_check_ticket_resource_consistency()` plus two deferred
+constraint triggers — `trg_ticket_resource_consistency` (on `tickets`,
+`AFTER INSERT OR UPDATE`) and `trg_resource_ticket_consistency` (on
+`resources`, `AFTER UPDATE`) — both declared `DEFERRABLE INITIALLY
+DEFERRED`, meaning Postgres only evaluates them once at transaction
+`COMMIT` time, never mid-transaction. If a future code change ever commits
+a transaction leaving an `OPEN` ticket pointing at an `AVAILABLE` resource
+without `payment_requested = TRUE`, the `COMMIT` itself raises a Postgres
+exception containing the literal text `ghost-ticket invariant violated`
+plus the violating row count — surfacing immediately in the backend log at
+the point of the offending commit, rather than silently corrupting state
+that's only discovered later via the integrity-check queries above. The
+two-trigger design (one on each table) closes the theoretical gap where a
+future transaction updates only the `resources` table without touching
+`tickets` at all.
+
+This is enforced at the database level, independent of the application
+layer — it is a structural backstop against regression, not a
+replacement for careful code review of new ticket/resource-mutating paths.
+
+### Residual Risk (accepted, not fixable at this layer)
+
+Per DATA-02's "fixed if feasible... otherwise explicitly flagged"
+allowance: the only way to still corrupt this invariant is a **direct SQL
+write to the database that bypasses the application entirely, combined
+with `session_replication_role = replica`** (a Postgres superuser-only
+session setting that disables all triggers, including these two). Postgres
+on this deployment is only reachable from the local machine (native
+Windows service, not exposed externally per Phase 2's SVC-02), and
+triggering this bypass requires superuser access — this residual risk is
+accepted, not fixed, and is out of scope for this phase's network
+boundary.
+
+### What did NOT change
+
+`clean_ghost_tickets()` and its `was_reopened` guard (the F-1 fix) are
+**unchanged** and remain the operator-run recovery path for any ghost
+ticket that does occur, per D-06: **no automated cleanup was added or
+scheduled against any database, staging or production**, by this plan.
+STEP 27 adds prevention (a structural invariant enforced going forward); it
+does not replace or automate the existing manual recovery tooling
+described earlier in this document.

@@ -705,6 +705,56 @@ def create_app(config_class=Config):
             print(f"STEP 26: analytics layer FAILED — {exc}")
             print("         init-db continues; dashboards will 503 until fixed.")
 
+        # ── STEP 27: Ghost-ticket structural invariant (DATA-02) ──────────────
+        # Every application code path that frees a resource to AVAILABLE already
+        # does so in the same commit as the corresponding ticket-state change
+        # (see RECOVERY.md "Root Cause & Structural Fix" section). These two
+        # These two deferred constraint triggers are a database-level
+        # backstop, independent of the application layer, against any future
+        # code regression reintroducing a ghost ticket (OPEN ticket referencing
+        # an AVAILABLE resource without payment_requested=True). Deferred to
+        # COMMIT time so a multi-statement transaction (e.g. open_ticket's
+        # ticket-INSERT-then-resource-UPDATE) is only checked once every write
+        # in that transaction has landed, never mid-transaction. Two triggers
+        # (one on tickets, one on resources) close the theoretical gap where a
+        # future transaction updates only the resources table.
+        for stmt in [
+            """CREATE OR REPLACE FUNCTION fn_check_ticket_resource_consistency()
+               RETURNS TRIGGER AS $$
+               DECLARE
+                   violation_count INTEGER;
+               BEGIN
+                   SELECT count(*) INTO violation_count
+                   FROM tickets t
+                   JOIN resources r ON r.id = t.resource_id
+                   WHERE t.status = 'OPEN'
+                     AND t.resource_id IS NOT NULL
+                     AND r.status = 'AVAILABLE'
+                     AND t.payment_requested IS NOT TRUE;
+
+                   IF violation_count > 0 THEN
+                       RAISE EXCEPTION
+                           'ghost-ticket invariant violated: % OPEN ticket(s) reference an AVAILABLE resource without payment_requested',
+                           violation_count;
+                   END IF;
+
+                   RETURN NULL;
+               END;
+               $$ LANGUAGE plpgsql""",
+            "DROP TRIGGER IF EXISTS trg_ticket_resource_consistency ON tickets",
+            """CREATE CONSTRAINT TRIGGER trg_ticket_resource_consistency
+               AFTER INSERT OR UPDATE ON tickets
+               DEFERRABLE INITIALLY DEFERRED
+               FOR EACH ROW EXECUTE FUNCTION fn_check_ticket_resource_consistency()""",
+            "DROP TRIGGER IF EXISTS trg_resource_ticket_consistency ON resources",
+            """CREATE CONSTRAINT TRIGGER trg_resource_ticket_consistency
+               AFTER UPDATE ON resources
+               DEFERRABLE INITIALLY DEFERRED
+               FOR EACH ROW EXECUTE FUNCTION fn_check_ticket_resource_consistency()""",
+        ]:
+            run(stmt, 'step27')
+        print("STEP 27: ghost-ticket structural invariant trigger installed")
+
 
     @app.cli.command('restate-costs')
     @click.option('--dry-run', is_flag=True, help='Report what would change without writing.')
