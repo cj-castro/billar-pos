@@ -39,7 +39,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Flask/eventlet backend, PostgreSQL 15, and the React frontend all run as native Windows processes/services, with no Docker dependency
   3. The scheduler (`backend/scheduler.py`) and Telegram bot (`telegram-bot/bot.py`) run as their own independent native Windows services, decoupled from backend crashes
   4. Backend reaches the Windows print agent via `localhost` (configurable via env var), with no remaining `host.docker.internal` references
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+- [ ] 02-01-PLAN.md — Backend native service entrypoint + NSSM install script (SVC-01, NET-01)
+- [ ] 02-02-PLAN.md — Scheduler + Telegram bot NSSM install scripts (SVC-04, SVC-05)
+- [ ] 02-03-PLAN.md — Native nginx config + NSSM install script (SVC-03)
+- [ ] 02-04-PLAN.md — Native PostgreSQL 15 install/hardening + Docker-to-native backup/restore procedure (SVC-02, DATA-01)
+- [ ] 02-05-PLAN.md — Orchestration script + staging-machine validation checkpoint (all Phase 2 requirements)
 
 ### Phase 3: Centralized Logging & Secrets
 **Goal**: An operator can observe all service activity from one place, and secrets no longer live in committed files or docker-compose.yml.
@@ -82,7 +88,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Validation & Decision Lock | 0/0 | Complete    | 2026-08-08 |
-| 2. Core Service Migration | 0/TBD | Not started | - |
+| 2. Core Service Migration | 0/5 | Not started | - |
 | 3. Centralized Logging & Secrets | 0/TBD | Not started | - |
 | 4. Process Supervision & Reliability Hardening | 0/TBD | Not started | - |
 | 5. Cutover & Rollback | 0/TBD | Not started | - |
