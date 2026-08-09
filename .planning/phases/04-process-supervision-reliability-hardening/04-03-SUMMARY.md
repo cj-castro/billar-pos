@@ -95,3 +95,12 @@ None - no external service configuration required. Both scripts are self-contain
 ---
 *Phase: 04-process-supervision-reliability-hardening*
 *Completed: 2026-08-09*
+
+## Self-Check: PASSED
+
+- FOUND: scripts/check-health.ps1
+- FOUND: scripts/configure-postgres-failure-recovery.ps1
+- FOUND: .planning/phases/04-process-supervision-reliability-hardening/04-03-SUMMARY.md
+- FOUND: commit 68c3703d (Task 1)
+- FOUND: commit 269e85be (Task 2)
+- FOUND: commit 543ed6b8 (SUMMARY.md)
