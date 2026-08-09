@@ -50,10 +50,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Backend native service entrypoint + NSSM install script (SVC-01, NET-01)
-- [ ] 02-02-PLAN.md — Scheduler + Telegram bot NSSM install scripts (SVC-04, SVC-05)
-- [ ] 02-03-PLAN.md — Native nginx config + NSSM install script (SVC-03)
-- [ ] 02-04-PLAN.md — Native PostgreSQL 15 install/hardening + Docker-to-native backup/restore procedure (SVC-02, DATA-01)
+- [x] 02-01-PLAN.md — Backend native service entrypoint + NSSM install script (SVC-01, NET-01)
+- [x] 02-02-PLAN.md — Scheduler + Telegram bot NSSM install scripts (SVC-04, SVC-05)
+- [x] 02-03-PLAN.md — Native nginx config + NSSM install script (SVC-03)
+- [x] 02-04-PLAN.md — Native PostgreSQL 15 install/hardening + Docker-to-native backup/restore procedure (SVC-02, DATA-01)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -109,7 +109,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Validation & Decision Lock | 0/0 | Complete    | 2026-08-08 |
-| 2. Core Service Migration | 0/5 | Not started | - |
+| 2. Core Service Migration | 4/5 | In Progress|  |
 | 3. Centralized Logging & Secrets | 0/TBD | Not started | - |
 | 4. Process Supervision & Reliability Hardening | 0/TBD | Not started | - |
 | 5. Cutover & Rollback | 0/TBD | Not started | - |
