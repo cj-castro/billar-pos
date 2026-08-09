@@ -5,6 +5,7 @@ SQL (IF NOT EXISTS, DO $$ blocks with information_schema checks). No separate
 Alembic runner is needed; the entrypoint calls flask init-db before gunicorn starts.
 """
 import logging
+import os
 import click
 from flask import Flask
 from .config import Config
@@ -19,6 +20,10 @@ def create_app(config_class=Config):
         level=getattr(logging, app.config['LOG_LEVEL'], logging.INFO),
         format='%(asctime)s %(levelname)s %(name)s %(message)s'
     )
+
+    # ========== D-11/D-12: warn (never exit) if secrets are at known-insecure defaults ==========
+    _check_default_secrets(app)
+    # ================================================================================================
 
     db.init_app(app)
     migrate.init_app(app, db)
@@ -1022,3 +1027,63 @@ def create_app(config_class=Config):
         return {'status': 'ok'}
 
     return app
+
+
+def _check_default_secrets(app):
+    """Warn (never fail) if any in-scope secret is still at its known-insecure
+    default value.
+
+    D-11: this is a live bar's POS — a hard startup failure risks blocking
+    operation until someone with machine access intervenes, so this function
+    only ever logs/prints a loud warning. It must never terminate the process
+    or raise; it performs no I/O beyond reading already-loaded config/env.
+
+    D-12: runs once, from create_app(), so every entrypoint that builds the
+    Flask app (service_entry.py, scheduler.py, the `flask` CLI) gets the same
+    check for free.
+    """
+    warnings = []
+
+    # ── Flask-config-backed secrets ─────────────────────────────────────────
+    secret_key = app.config.get('SECRET_KEY')
+    if secret_key in ('dev-secret-change-me', 'dev-secret-key-change-in-production'):
+        warnings.append(f"SECRET_KEY is at an insecure default value ('{secret_key}')")
+
+    jwt_refresh_secret = app.config.get('JWT_REFRESH_SECRET_KEY')
+    if jwt_refresh_secret in ('dev-refresh-secret', 'dev-refresh-secret-change-in-production'):
+        warnings.append(
+            f"JWT_REFRESH_SECRET_KEY is at an insecure default value ('{jwt_refresh_secret}')"
+        )
+
+    db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '') or ''
+    if 'billiard_secret' in db_uri or db_uri == 'postgresql://billiard:billiard@localhost:5432/billiardbar':
+        warnings.append('SQLALCHEMY_DATABASE_URI (POSTGRES_PASSWORD) is at an insecure default value')
+
+    # ── Role passwords/PINs — read directly from os.environ, same as seed.py ──
+    role_secret_defaults = {
+        'ADMIN_PASSWORD': 'admin123',
+        'ADMIN_PIN': '1234',
+        'MANAGER_PASSWORD': 'manager123',
+        'MANAGER_PIN': '5678',
+        'WAITER1_PASSWORD': 'waiter123',
+        'WAITER2_PASSWORD': 'waiter123',
+        'KITCHEN_PASSWORD': 'kitchen123',
+        'BARSTAFF_PASSWORD': 'bar123',
+    }
+    for key, default in role_secret_defaults.items():
+        if os.environ.get(key) == default:
+            warnings.append(f"{key} is at an insecure default value ('{default}')")
+
+    if warnings:
+        warning_msg = (
+            'INSECURE DEFAULT SECRET(S) DETECTED — change these before real use:\n  '
+            + '\n  '.join(warnings)
+        )
+        # app.logger may not be flushed to the consolidated log file yet at this
+        # point in startup, so also print() a banner that's impossible to miss
+        # in raw console output.
+        app.logger.warning(warning_msg)
+        print('\n' + '=' * 70)
+        print(warning_msg)
+        print('=' * 70 + '\n')
+        # D-11: this function never terminates the process — warn only, service keeps starting.
