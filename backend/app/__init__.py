@@ -25,6 +25,10 @@ def create_app(config_class=Config):
     _check_default_secrets(app)
     # ================================================================================================
 
+    # ========== D-12/D-13/NET-02: warn (never exit) if the print agent is unreachable ==========
+    _check_print_agent_reachability(app)
+    # ================================================================================================
+
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
@@ -701,6 +705,56 @@ def create_app(config_class=Config):
             print(f"STEP 26: analytics layer FAILED — {exc}")
             print("         init-db continues; dashboards will 503 until fixed.")
 
+        # ── STEP 27: Ghost-ticket structural invariant (DATA-02) ──────────────
+        # Every application code path that frees a resource to AVAILABLE already
+        # does so in the same commit as the corresponding ticket-state change
+        # (see RECOVERY.md "Root Cause & Structural Fix" section). These two
+        # These two deferred constraint triggers are a database-level
+        # backstop, independent of the application layer, against any future
+        # code regression reintroducing a ghost ticket (OPEN ticket referencing
+        # an AVAILABLE resource without payment_requested=True). Deferred to
+        # COMMIT time so a multi-statement transaction (e.g. open_ticket's
+        # ticket-INSERT-then-resource-UPDATE) is only checked once every write
+        # in that transaction has landed, never mid-transaction. Two triggers
+        # (one on tickets, one on resources) close the theoretical gap where a
+        # future transaction updates only the resources table.
+        for stmt in [
+            """CREATE OR REPLACE FUNCTION fn_check_ticket_resource_consistency()
+               RETURNS TRIGGER AS $$
+               DECLARE
+                   violation_count INTEGER;
+               BEGIN
+                   SELECT count(*) INTO violation_count
+                   FROM tickets t
+                   JOIN resources r ON r.id = t.resource_id
+                   WHERE t.status = 'OPEN'
+                     AND t.resource_id IS NOT NULL
+                     AND r.status = 'AVAILABLE'
+                     AND t.payment_requested IS NOT TRUE;
+
+                   IF violation_count > 0 THEN
+                       RAISE EXCEPTION
+                           'ghost-ticket invariant violated: % OPEN ticket(s) reference an AVAILABLE resource without payment_requested',
+                           violation_count;
+                   END IF;
+
+                   RETURN NULL;
+               END;
+               $$ LANGUAGE plpgsql""",
+            "DROP TRIGGER IF EXISTS trg_ticket_resource_consistency ON tickets",
+            """CREATE CONSTRAINT TRIGGER trg_ticket_resource_consistency
+               AFTER INSERT OR UPDATE ON tickets
+               DEFERRABLE INITIALLY DEFERRED
+               FOR EACH ROW EXECUTE FUNCTION fn_check_ticket_resource_consistency()""",
+            "DROP TRIGGER IF EXISTS trg_resource_ticket_consistency ON resources",
+            """CREATE CONSTRAINT TRIGGER trg_resource_ticket_consistency
+               AFTER UPDATE ON resources
+               DEFERRABLE INITIALLY DEFERRED
+               FOR EACH ROW EXECUTE FUNCTION fn_check_ticket_resource_consistency()""",
+        ]:
+            run(stmt, 'step27')
+        print("STEP 27: ghost-ticket structural invariant trigger installed")
+
 
     @app.cli.command('restate-costs')
     @click.option('--dry-run', is_flag=True, help='Report what would change without writing.')
@@ -1024,7 +1078,33 @@ def create_app(config_class=Config):
     # ── Health check ──────────────────────────────────────────────────────────
     @app.route('/api/v1/health')
     def health():
-        return {'status': 'ok'}
+        """D-01/SUP-04: real DB round-trip, not a bare liveness ping.
+
+        A process that is "running" but can't reach Postgres must not report
+        {'status': 'ok'} — Plan 04-03's check-health.ps1 and
+        install-all-native-services.ps1 both probe this exact URL to decide
+        whether the service is actually usable.
+        """
+        from sqlalchemy import text
+        from datetime import datetime, timezone
+        try:
+            db.session.execute(text('SELECT 1'))
+            db.session.commit()
+            return {
+                'status': 'ok',
+                'db': 'connected',
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+            }, 200
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(
+                f'Health check DB round-trip failed: {type(e).__name__}: {e}'
+            )
+            return {
+                'status': 'error',
+                'detail': f'Database unreachable: {type(e).__name__}',
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+            }, 503
 
     return app
 
@@ -1087,3 +1167,54 @@ def _check_default_secrets(app):
         print(warning_msg)
         print('=' * 70 + '\n')
         # D-11: this function never terminates the process — warn only, service keeps starting.
+
+
+def _check_print_agent_reachability(app):
+    """Warn (never fail) if the print agent at PRINT_AGENT_URL is unreachable.
+
+    D-12/D-13/NET-02: the print agent is a separate Windows-hosted process
+    outside Docker (see backend/app/api/tickets.py PRINT_AGENT_URL). If it's
+    down or unreachable at backend startup, printing will fail until it's
+    fixed — but a live bar's POS must never be blocked from starting just
+    because a receipt printer helper isn't up yet. This function only ever
+    logs a warning; it must never raise or delay startup beyond its bounded
+    timeout.
+    """
+    print_agent_url = os.environ.get('PRINT_AGENT_URL', 'http://localhost:9191')
+    import requests
+    try:
+        resp = requests.get(f'{print_agent_url}/health', timeout=3)
+        if resp.status_code == 200:
+            app.logger.info(f'Print agent reachable at {print_agent_url}')
+            return
+        app.logger.warning(
+            f'Print agent at {print_agent_url} responded with HTTP {resp.status_code} '
+            '(expected 200) — printing will fail until this is resolved. '
+            'Check that: (1) the print agent service is running, (2) PRINT_AGENT_URL '
+            'is correct for this environment, (3) Windows Firewall allows the '
+            'connection. Startup continues anyway.'
+        )
+    except requests.exceptions.Timeout:
+        app.logger.warning(
+            f'Print agent at {print_agent_url} timed out after 3s — printing will '
+            'fail until this is resolved. Check that: (1) the print agent service '
+            'is running, (2) PRINT_AGENT_URL is correct for this environment, '
+            '(3) Windows Firewall allows the connection. Startup continues anyway.'
+        )
+    except requests.exceptions.ConnectionError:
+        app.logger.warning(
+            f'Print agent at {print_agent_url} is unreachable (connection refused/'
+            'no route) — printing will fail until this is resolved. Check that: '
+            '(1) the print agent service is running, (2) PRINT_AGENT_URL is correct '
+            'for this environment, (3) Windows Firewall allows the connection. '
+            'Startup continues anyway.'
+        )
+    except Exception as exc:  # noqa: BLE001 — never let this block startup
+        app.logger.warning(
+            f'Print agent reachability check at {print_agent_url} failed unexpectedly '
+            f'({type(exc).__name__}: {exc}) — printing may fail until this is resolved. '
+            'Check that: (1) the print agent service is running, (2) PRINT_AGENT_URL '
+            'is correct for this environment, (3) Windows Firewall allows the '
+            'connection. Startup continues anyway.'
+        )
+        # D-13: this function never terminates the process — warn only, service keeps starting.
