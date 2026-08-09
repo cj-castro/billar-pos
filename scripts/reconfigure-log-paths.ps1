@@ -76,29 +76,74 @@ $services = @(
     @{ Name = "BilliardBarPrintAgent";  Stdout = "print_agent.log";    Stderr = "print_agent_err.log";    RotateBytes = 1048576  },
     @{ Name = "BilliardBarNginx";       Stdout = "nginx_service.log";  Stderr = "nginx_service_err.log";  RotateBytes = 10485760 }
 )
+$serviceMap = @{}
+foreach ($svc in $services) { $serviceMap[$svc.Name] = $svc }
 
+# BilliardBarNginx declares BilliardBarBackend as a service dependency, so
+# Windows SCM refuses to actually stop Backend while Nginx (from a previous
+# run) still needs it -- `nssm stop`/`Stop-Service` on Backend then silently
+# no-ops instead of failing, and the old script proceeded straight to
+# `nssm set`/`nssm start` believing the stop worked (03-VERIFICATION.md
+# Gap #1). Fix: stop Nginx FIRST (releasing the dependency) so Backend's stop
+# can genuinely succeed, and start Nginx LAST (after its dependency, Backend,
+# is confirmed running again). Every stop/start is now verified via a poll
+# loop instead of a fixed Start-Sleep -- a service that never reaches the
+# expected state hard-fails the script instead of silently continuing.
+$StopOrder = @("BilliardBarNginx", "BilliardBarBackend", "BilliardBarScheduler", "BilliardBarTelegramBot", "BilliardBarPrintAgent")
+$StartOrder = @("BilliardBarBackend", "BilliardBarScheduler", "BilliardBarTelegramBot", "BilliardBarPrintAgent", "BilliardBarNginx")
+
+function Wait-ServiceState {
+    param(
+        [string]$ServiceName,
+        [string]$ExpectedStatus,
+        [int]$MaxAttempts = 5,
+        [int]$DelaySeconds = 1
+    )
+    for ($i = 1; $i -le $MaxAttempts; $i++) {
+        $status = (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue).Status
+        if ($status -eq $ExpectedStatus) { return $true }
+        Start-Sleep -Seconds $DelaySeconds
+    }
+    return $false
+}
+
+$installed = @{}
+foreach ($name in ($StopOrder | Select-Object -Unique)) {
+    $existing = Get-Service -Name $name -ErrorAction SilentlyContinue
+    $installed[$name] = [bool]$existing
+    if (-not $existing) {
+        Write-Host "`n[*] $name" -ForegroundColor Yellow
+        Write-Host "    Service not installed -- skipping (run Phase 2 install-nssm-*.ps1 first)." -ForegroundColor Gray
+    }
+}
+
+# -- Phase A (stop, dependency order: Nginx first) -----------------------------
+Write-Host "`n--- Phase A: Stopping services (dependency order) ---" -ForegroundColor Cyan
+foreach ($name in $StopOrder) {
+    if (-not $installed[$name]) { continue }
+    Write-Host "`n[*] $name" -ForegroundColor Yellow
+    Write-Host "    Stopping service..." -ForegroundColor Yellow
+    & $NssmExe stop $name confirm 2>&1 | Out-Null
+    if (-not (Wait-ServiceState -ServiceName $name -ExpectedStatus "Stopped")) {
+        Write-Host "    ERROR: $name did not reach Stopped state -- refusing to reconfigure or restart it." -ForegroundColor Red
+        Write-Host "    This is the dependency-ordering bug this script fixes: proceeding here would silently no-op the reconfiguration." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "    $name is Stopped" -ForegroundColor Green
+}
+
+# -- Phase B (reconfigure -- all services are confirmed stopped) --------------
+Write-Host "`n--- Phase B: Reconfiguring log paths ---" -ForegroundColor Cyan
 $summary = @()
-
-foreach ($svc in $services) {
+foreach ($name in $StopOrder) {
+    if (-not $installed[$name]) { continue }
+    $svc = $serviceMap[$name]
     $serviceName = $svc.Name
     Write-Host "`n[*] $serviceName" -ForegroundColor Yellow
-
-    $existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-    if (-not $existing) {
-        Write-Host "    Service not installed -- skipping (run Phase 2 install-nssm-*.ps1 first)." -ForegroundColor Gray
-        continue
-    }
 
     $oldStdout = & $NssmExe get $serviceName AppStdout 2>$null
     $stdoutPath = Join-Path $LogsDir $svc.Stdout
     $stderrPath = Join-Path $LogsDir $svc.Stderr
-
-    # AppStdout/AppStderr only take effect once the service is stopped --
-    # Pitfall 1 / T-03-02: nssm set on a running service silently no-ops
-    # until restart, so we always stop first.
-    Write-Host "    Stopping service..." -ForegroundColor Yellow
-    & $NssmExe stop $serviceName confirm 2>&1 | Out-Null
-    Start-Sleep -Seconds 2
 
     Write-Host "    Setting AppStdout: $stdoutPath" -ForegroundColor Green
     & $NssmExe set $serviceName AppStdout $stdoutPath 2>&1 | Out-Null
@@ -115,21 +160,25 @@ foreach ($svc in $services) {
         exit 1
     }
 
-    Write-Host "    Starting service..." -ForegroundColor Yellow
-    & $NssmExe start $serviceName 2>&1 | Out-Null
-    Start-Sleep -Seconds 3
-
-    $svcStatus = (Get-Service -Name $serviceName -ErrorAction SilentlyContinue).Status
-    if ($svcStatus -eq "Running") {
-        Write-Host "    $serviceName is running" -ForegroundColor Green
-    } else {
-        Write-Host "    WARNING: $serviceName status is '$svcStatus' -- check $stderrPath" -ForegroundColor Yellow
-    }
-
     $summary += [PSCustomObject]@{
         Service = $serviceName
         OldPath = $oldStdout
         NewPath = $stdoutPath
+    }
+}
+
+# -- Phase C (start, dependency order: Nginx last) -----------------------------
+Write-Host "`n--- Phase C: Starting services (dependency order) ---" -ForegroundColor Cyan
+foreach ($name in $StartOrder) {
+    if (-not $installed[$name]) { continue }
+    Write-Host "`n[*] $name" -ForegroundColor Yellow
+    Write-Host "    Starting service..." -ForegroundColor Yellow
+    & $NssmExe start $name 2>&1 | Out-Null
+    if (-not (Wait-ServiceState -ServiceName $name -ExpectedStatus "Running")) {
+        $svcStatus = (Get-Service -Name $name -ErrorAction SilentlyContinue).Status
+        Write-Host "    WARNING: $name status is '$svcStatus' -- check its stderr log under $LogsDir" -ForegroundColor Yellow
+    } else {
+        Write-Host "    $name is running" -ForegroundColor Green
     }
 }
 
