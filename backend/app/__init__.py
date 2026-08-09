@@ -1179,8 +1179,17 @@ def _check_print_agent_reachability(app):
     because a receipt printer helper isn't up yet. This function only ever
     logs a warning; it must never raise or delay startup beyond its bounded
     timeout.
+
+    Default is 127.0.0.1, not localhost (Phase 4 04-04 staging validation):
+    eventlet.monkey_patch() (DATA-03) replaces Python's DNS resolution with
+    eventlet's greendns, which was found to raise
+    socket.gaierror: [Errno 11001] No address found for the literal hostname
+    "localhost" on this Windows environment, while 127.0.0.1 (an IP literal,
+    no DNS lookup needed) connects fine. This broke both this reachability
+    check and the real print dispatch in tickets.py, which share this same
+    default.
     """
-    print_agent_url = os.environ.get('PRINT_AGENT_URL', 'http://localhost:9191')
+    print_agent_url = os.environ.get('PRINT_AGENT_URL', 'http://127.0.0.1:9191')
     import requests
     try:
         resp = requests.get(f'{print_agent_url}/health', timeout=3)

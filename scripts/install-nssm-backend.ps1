@@ -165,11 +165,15 @@ foreach ($key in $DotEnv.Keys) {
 # (if anything) came from .env for the same keys -- native-environment values
 # take precedence over any Docker-oriented values that might be sitting in .env.
 $EnvArgs += "DATABASE_URL=postgresql://${PgUser}:${PgPassword}@localhost:${PgPort}/${PgDb}"
-$EnvArgs += "PRINT_AGENT_URL=http://localhost:9191"
+# 127.0.0.1, not localhost: eventlet.monkey_patch() (DATA-03) breaks
+# Python-level "localhost" DNS resolution on this Windows environment
+# (confirmed Phase 4 04-04 staging validation) -- an IP literal avoids the
+# DNS lookup entirely.
+$EnvArgs += "PRINT_AGENT_URL=http://127.0.0.1:9191"
 $EnvArgs += "FLASK_APP=wsgi.py"
 $EnvArgs += "FLASK_ENV=production"
 
-Write-Host "   Forwarding $($EnvArgs.Count) environment variables (DATABASE_URL -> localhost:$PgPort, PRINT_AGENT_URL -> localhost:9191)." -ForegroundColor Green
+Write-Host "   Forwarding $($EnvArgs.Count) environment variables (DATABASE_URL -> localhost:$PgPort, PRINT_AGENT_URL -> 127.0.0.1:9191)." -ForegroundColor Green
 
 # -- Step 4: Stop & remove existing service if reinstalling -------------------
 Write-Host "`n[4/6] Registering Windows Service..."
