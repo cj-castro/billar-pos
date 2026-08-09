@@ -105,3 +105,11 @@ None - both new files fall within the threat_model already declared in `02-01-PL
 ---
 *Phase: 02-core-service-migration*
 *Completed: 2026-08-08*
+
+## Self-Check: PASSED
+
+- FOUND: backend/service_entry.py
+- FOUND: scripts/install-nssm-backend.ps1
+- FOUND: .planning/phases/02-core-service-migration/02-01-SUMMARY.md
+- FOUND commit: 68baa82d
+- FOUND commit: 22582341
