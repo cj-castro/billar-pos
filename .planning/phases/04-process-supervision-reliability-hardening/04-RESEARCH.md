@@ -679,27 +679,31 @@ _check_print_agent_reachability(app)
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does the native PostgreSQL Windows service need explicit `sc.exe failure` configuration?**
    - What we know: Phase 2 installed Postgres via EDB installer (native Windows service). Phase 2 scripts do not configure failure recovery for Postgres, unlike NSSM services which have `AppExit Default Restart` + `AppRestartDelay`.
    - What's unclear: Whether native Postgres service auto-restarts on crash, or requires manual restart. Windows services can be configured to restart on failure via `sc.exe failure <service>`, but this is separate from the NSSM pattern.
    - Recommendation: During Phase 4 implementation, check current Postgres service failure recovery policy via `sc.exe qfailure PostgreSQL15` (or equivalent) and add config if missing for SUP-01 parity.
+   - RESOLVED: Confirmed as a genuine gap — Phase 2 left Postgres without failure-recovery config. Addressed in Plan 04-03 Task 2 (`scripts/configure-postgres-failure-recovery.ps1`), which applies `sc.exe failure` parity with the NSSM restart behavior.
 
 2. **What's the exact transaction scope that prevents ghost tickets?**
    - What we know: The ticket-open flow spans: lock resource → create ticket → flush → update resource.status → create timer → commit. A crash between flush and commit leaves state inconsistent.
    - What's unclear: Is wrapping all these steps in one `db.session.commit()` sufficient, or is there a nested flush that could fail mid-sequence? Does the existing `was_reopened` F-1 fix guard against a different desync scenario?
    - Recommendation: D-04 investigation should trace the exact code path and identify the smallest atomic unit that must succeed together (i.e., the `db.session.commit()` boundary).
+   - RESOLVED: Investigation (carried out during planning) found every current code path that frees a resource already commits the ticket-state change and resource-status change atomically in one `db.session.commit()` — `request_payment` is the one intentional, guarded exception. The fix is therefore a structural backstop, not a transaction patch: Plan 04-01 Task 3 adds deferred (`DEFERRABLE INITIALLY DEFERRED`) DB-level constraint triggers on `tickets`/`resources` as a last-line invariant.
 
 3. **Should scheduler/bot responsiveness checks include actual job execution verification?**
    - What we know: D-02 accepts Windows `Get-Service Running` status as the responsiveness signal for scheduler/bot (no HTTP listener). But a process can be running and stuck in a long-running job (or in an infinite loop).
    - What's unclear: Is `Get-Service Running` sufficient for operational "is scheduler working?", or should the health-check script actually trigger a test job and verify completion?
    - Recommendation: For Phase 4 MVP, `Get-Service Running` is acceptable. A future phase (OPX-01 v2) could add actual job-execution verification (e.g., trigger `daily-report` via backend API and confirm it completes within N seconds).
+   - RESOLVED: Phase 4 MVP scope confirmed — `Get-Service Running` is the accepted signal, implemented in Plan 04-03 Task 1 (`scripts/check-health.ps1`). Actual job-execution verification is explicitly deferred, not part of this phase's requirements (SUP-04 is satisfied by process-responsiveness, not job-completion, checks).
 
 4. **What's the print-agent's actual `/health` endpoint contract?**
    - What we know: `scripts/install-all-native-services.ps1:636-642` already tries to probe `http://localhost:9191/health`. Phase 3 may have documented or validated this endpoint.
    - What's unclear: Does `/health` actually exist in the current print-agent code? What status codes does it return (200 ok, 503 unhealthy, etc.)?
    - Recommendation: Before D-12 implementation, verify print-agent codebase has `/health` endpoint. If not, either add it or modify the check to probe a different endpoint (e.g., `/printers` or `GET / 200`).
+   - RESOLVED: Addressed by Plan 04-01 Task 2 (backend-side warn-only startup probe of the print-agent, following the `_check_default_secrets()` never-block pattern) and validated live in Plan 04-04, which installs the print-agent on staging for the first time and captures real evidence of the endpoint's actual behavior.
 
 ---
 
