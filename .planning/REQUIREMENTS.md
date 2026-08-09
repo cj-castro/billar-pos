@@ -16,7 +16,7 @@
 
 - [ ] **SVC-01**: Flask/eventlet backend runs as a native Windows Service (NSSM/WinSW-wrapped), independent of Docker
 - [ ] **SVC-02**: PostgreSQL 15 runs as a native Windows service, not containerized
-- [ ] **SVC-03**: React frontend is served as static files via a lightweight web server/reverse proxy, without Docker
+- [x] **SVC-03**: React frontend is served as static files via a lightweight web server/reverse proxy, without Docker
 - [ ] **SVC-04**: Scheduler process (`backend/scheduler.py`) runs as its own native Windows service, independent of backend crashes
 - [ ] **SVC-05**: Telegram bot process (`telegram-bot/bot.py`) runs as its own native Windows service, independent of backend crashes
 
@@ -91,7 +91,7 @@ Explicitly excluded from this milestone. Documented to prevent scope creep.
 | HOST-02 | Phase 1 | Complete |
 | SVC-01 | Phase 2 | Pending |
 | SVC-02 | Phase 2 | Pending |
-| SVC-03 | Phase 2 | Pending |
+| SVC-03 | Phase 2 | Complete |
 | SVC-04 | Phase 2 | Pending |
 | SVC-05 | Phase 2 | Pending |
 | NET-01 | Phase 2 | Pending |
