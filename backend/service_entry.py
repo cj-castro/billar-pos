@@ -15,6 +15,16 @@ this process non-zero; NSSM's AppExit Default Restart policy then retries the
 whole sequence from the top, matching entrypoint.sh's fail-fast `set -e`
 behavior.
 """
+# Docker's `gunicorn --worker-class eventlet` used to call eventlet.monkey_patch()
+# implicitly inside its own EventletWorker.init_process(). This native entrypoint
+# runs socketio.run() directly with no gunicorn in between, so this process must
+# do it explicitly (DATA-03) -- including psycopg2, which monkey_patch() alone
+# does NOT cooperatively patch. Must run before any other import in this file.
+import eventlet
+eventlet.monkey_patch()
+from eventlet.support import psycopg2_patcher
+psycopg2_patcher.make_psycopg_green()
+
 import os
 import subprocess
 import sys
