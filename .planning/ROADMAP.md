@@ -106,7 +106,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 04-04-PLAN.md — Staging deployment/validation: print-agent install, TelegramBot crash-loop fix, NET-02/SUP-04/DATA-02/DATA-03 evidence (NET-02, SUP-04, DATA-02, DATA-03, SUP-01 partial)
+- [x] 04-04-PLAN.md — Staging deployment/validation: print-agent install, TelegramBot crash-loop fix, NET-02/SUP-04/DATA-02/DATA-03 evidence (NET-02, SUP-04, DATA-02, DATA-03, SUP-01 partial)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -135,5 +135,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Validation & Decision Lock | 0/0 | Complete    | 2026-08-08 |
 | 2. Core Service Migration | 5/5 | Complete   | 2026-08-09 |
 | 3. Centralized Logging & Secrets | 5/5 | Complete   | 2026-08-09 |
-| 4. Process Supervision & Reliability Hardening | 3/5 | In Progress|  |
+| 4. Process Supervision & Reliability Hardening | 4/5 | In Progress|  |
 | 5. Cutover & Rollback | 0/TBD | Not started | - |
