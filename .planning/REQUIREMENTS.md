@@ -15,10 +15,10 @@
 ### Service Migration
 
 - [x] **SVC-01**: Flask/eventlet backend runs as a native Windows Service (NSSM/WinSW-wrapped), independent of Docker
-- [ ] **SVC-02**: PostgreSQL 15 runs as a native Windows service, not containerized
+- [x] **SVC-02**: PostgreSQL 15 runs as a native Windows service, not containerized
 - [x] **SVC-03**: React frontend is served as static files via a lightweight web server/reverse proxy, without Docker
-- [ ] **SVC-04**: Scheduler process (`backend/scheduler.py`) runs as its own native Windows service, independent of backend crashes
-- [ ] **SVC-05**: Telegram bot process (`telegram-bot/bot.py`) runs as its own native Windows service, independent of backend crashes
+- [x] **SVC-04**: Scheduler process (`backend/scheduler.py`) runs as its own native Windows service, independent of backend crashes
+- [x] **SVC-05**: Telegram bot process (`telegram-bot/bot.py`) runs as its own native Windows service, independent of backend crashes
 
 ### Centralized Logging
 
@@ -45,7 +45,7 @@
 
 ### Data Integrity & Migration Safety
 
-- [ ] **DATA-01**: A verified Postgres backup exists and is restore-tested before any cutover away from Docker
+- [x] **DATA-01**: A verified Postgres backup exists and is restore-tested before any cutover away from Docker
 - [ ] **DATA-02**: All known ghost tickets are cleaned from the production DB before cutover, and the ghost-ticket root cause is documented (fixed if feasible within this milestone, otherwise explicitly flagged as residual risk)
 - [ ] **DATA-03**: The eventlet single-worker constraint (`-w 1`, no raw `threading.Thread`) is explicitly preserved and verified under the new hosting model
 
@@ -90,12 +90,12 @@ Explicitly excluded from this milestone. Documented to prevent scope creep.
 | HOST-01 | Phase 1 | Complete |
 | HOST-02 | Phase 1 | Complete |
 | SVC-01 | Phase 2 | Complete |
-| SVC-02 | Phase 2 | Pending |
+| SVC-02 | Phase 2 | Complete |
 | SVC-03 | Phase 2 | Complete |
-| SVC-04 | Phase 2 | Pending |
-| SVC-05 | Phase 2 | Pending |
+| SVC-04 | Phase 2 | Complete |
+| SVC-05 | Phase 2 | Complete |
 | NET-01 | Phase 2 | Complete |
-| DATA-01 | Phase 2 | Pending |
+| DATA-01 | Phase 2 | Complete |
 | LOG-01 | Phase 3 | Pending |
 | LOG-02 | Phase 3 | Pending |
 | LOG-03 | Phase 3 | Pending |
