@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Validation & Decision Lock** - Prove on real hardware that native Windows Services deliver the researched RAM/CPU savings before committing further engineering effort (completed 2026-08-08)
 - [x] **Phase 2: Core Service Migration** - Backend, Postgres, frontend, scheduler, and bot all run natively on Windows, independent of Docker, with data safely preserved (completed 2026-08-09)
-- [ ] **Phase 3: Centralized Logging & Secrets** - All services log to one tail-able place and secrets are out of committed files
+- [x] **Phase 3: Centralized Logging & Secrets** - All services log to one tail-able place and secrets are out of committed files (completed 2026-08-09)
 - [ ] **Phase 4: Process Supervision & Reliability Hardening** - Services survive crashes/reboots independently and known data-integrity risks are closed
 - [ ] **Phase 5: Cutover & Rollback** - Live cutover to the new hosting model with a proven rollback path, Docker/Rancher removed only after a stable period
 
@@ -81,7 +81,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-04-PLAN.md — Staging-machine execution + validation checkpoint (all Phase 3 requirements)
+- [x] 03-04-PLAN.md — Staging-machine execution + validation checkpoint (all Phase 3 requirements)
 
 ### Phase 4: Process Supervision & Reliability Hardening
 
@@ -120,6 +120,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Validation & Decision Lock | 0/0 | Complete    | 2026-08-08 |
 | 2. Core Service Migration | 5/5 | Complete   | 2026-08-09 |
-| 3. Centralized Logging & Secrets | 3/4 | In Progress|  |
+| 3. Centralized Logging & Secrets | 4/4 | Complete   | 2026-08-09 |
 | 4. Process Supervision & Reliability Hardening | 0/TBD | Not started | - |
 | 5. Cutover & Rollback | 0/TBD | Not started | - |
