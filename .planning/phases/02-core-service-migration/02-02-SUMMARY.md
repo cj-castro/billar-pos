@@ -110,3 +110,11 @@ None — this plan's `<threat_model>` (T-02-05 secrets sourcing, T-02-06 LocalSy
 ---
 *Phase: 02-core-service-migration*
 *Completed: 2026-08-08*
+
+## Self-Check: PASSED
+
+- FOUND: scripts/install-nssm-scheduler.ps1
+- FOUND: scripts/install-nssm-telegram-bot.ps1
+- FOUND commit: 48e864e (Task 1)
+- FOUND commit: 8bfee90 (Task 2)
+- FOUND commit: 82721e4 (SUMMARY.md commit)
