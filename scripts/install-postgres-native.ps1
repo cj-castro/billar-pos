@@ -59,7 +59,7 @@ Write-Host "`n=== PostgreSQL 15 Native Windows Service Installer ===" -Foregroun
 # Step 1: Parse repo-root .env into a hashtable (same values docker-compose.yml
 #         itself reads via ${VAR:-default}) — never hardcode secrets here.
 # ---------------------------------------------------------------------------
-Write-Host "`n[1/6] Reading configuration from .env..."
+Write-Host "`n[1/7] Reading configuration from .env..."
 
 function Read-DotEnv {
     param([string]$Path)
@@ -122,7 +122,7 @@ $PreExistingPgServiceNames = @(Get-Service | Where-Object { $_.Name -like "postg
 #         the direct-download fallback — same fallback-chain shape as
 #         scripts/install-nssm-print-agent.ps1's NSSM locate/install logic).
 # ---------------------------------------------------------------------------
-Write-Host "`n[2/6] Installing PostgreSQL $PgVersion (port $PgPort)..."
+Write-Host "`n[2/7] Installing PostgreSQL $PgVersion (port $PgPort)..."
 
 $installed = $false
 try {
@@ -157,7 +157,7 @@ if (-not $installed) {
 #         installer register slightly different names) and record it for
 #         Plan 05's install-all-native-services.ps1 (NSSM DependOnService).
 # ---------------------------------------------------------------------------
-Write-Host "`n[3/6] Discovering registered Postgres service name..."
+Write-Host "`n[3/7] Discovering registered Postgres service name..."
 
 if ($PreviouslyDiscoveredPgService) {
     $PgService = $PreviouslyDiscoveredPgService
@@ -201,7 +201,7 @@ Write-Host "   Written to $PgServiceNameFile and $PgPortFile" -ForegroundColor G
 # Step 4: Locate the Postgres bin dir and create the app role + database
 #         (matching docker-compose.yml's POSTGRES_USER/POSTGRES_DB exactly).
 # ---------------------------------------------------------------------------
-Write-Host "`n[4/6] Creating application role and database..."
+Write-Host "`n[4/7] Creating application role and database..."
 
 $PgBin = "C:\Program Files\PostgreSQL\$PgVersion\bin"
 if (-not (Test-Path $PgBin)) {
@@ -263,7 +263,7 @@ try {
 #       (PostgreSQL 15's own modern installer default).
 #   (3) Deliberately do NOT open a Windows Firewall rule for port 5432.
 # ---------------------------------------------------------------------------
-Write-Host "`n[5/6] Hardening listen_addresses and pg_hba.conf auth..."
+Write-Host "`n[5/7] Hardening listen_addresses and pg_hba.conf auth..."
 
 $PgDataDir = "C:\Program Files\PostgreSQL\$PgVersion\data"
 $PgConf    = Join-Path $PgDataDir "postgresql.conf"
@@ -305,7 +305,7 @@ if (Test-Path $PgHba) {
 # ---------------------------------------------------------------------------
 # Step 6: Restart the service to pick up config changes, then verify.
 # ---------------------------------------------------------------------------
-Write-Host "`n[6/6] Restarting service and verifying connection..."
+Write-Host "`n[6/7] Restarting service and verifying connection..."
 
 Restart-Service $PgService
 Start-Sleep -Seconds 4
@@ -321,6 +321,20 @@ try {
     }
 } finally {
     $env:PGPASSWORD = ""
+}
+
+# ---------------------------------------------------------------------------
+# Step 7: Configure crash-restart failure recovery (SUP-01 parity with the
+#         5 NSSM-wrapped services -- see configure-postgres-failure-recovery.ps1
+#         for the full rationale). Runs automatically on every fresh install
+#         so this is never a separate manual step an operator can forget.
+# ---------------------------------------------------------------------------
+Write-Host "`n[7/7] Configuring crash-restart failure recovery..."
+$FailureRecoveryScript = Join-Path $BaseDir "scripts\configure-postgres-failure-recovery.ps1"
+if (Test-Path $FailureRecoveryScript) {
+    & $FailureRecoveryScript
+} else {
+    Write-Host "   WARNING: $FailureRecoveryScript not found -- skipping failure-recovery configuration. Postgres is installed and running, but has no crash-restart policy yet." -ForegroundColor Yellow
 }
 
 Write-Host "`n=== Done! ==================================================" -ForegroundColor Cyan
