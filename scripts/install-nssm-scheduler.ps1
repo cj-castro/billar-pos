@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # install-nssm-scheduler.ps1
 # BilliardBar Daily Report Scheduler - installs as a REAL Windows Service
 # using NSSM, independent of the backend service (SVC-04).
@@ -164,6 +164,13 @@ $PgUser     = if ($DotEnv.ContainsKey('POSTGRES_USER'))     { $DotEnv['POSTGRES_
 $PgPassword = if ($DotEnv.ContainsKey('POSTGRES_PASSWORD')) { $DotEnv['POSTGRES_PASSWORD'] } else { 'billiard_secret' }
 $PgDb       = if ($DotEnv.ContainsKey('POSTGRES_DB'))       { $DotEnv['POSTGRES_DB'] }       else { 'billiardbar' }
 
+# The native Postgres install's port is auto-discovered from
+# scripts\.postgres-port.txt (written by install-postgres-native.ps1), never
+# assumed to be the Postgres-standard 5432 -- this machine may already have a
+# different, unrelated Postgres installation bound to 5432.
+$PgPortFile = Join-Path $BaseDir "scripts\.postgres-port.txt"
+$PgPort     = if (Test-Path $PgPortFile) { (Get-Content $PgPortFile -Raw).Trim() } else { '5432' }
+
 $SecretKey  = if ($DotEnv.ContainsKey('SECRET_KEY'))  { $DotEnv['SECRET_KEY'] }  else { 'dev-secret-key-change-in-production' }
 $Tz         = if ($DotEnv.ContainsKey('TZ'))          { $DotEnv['TZ'] }          else { 'America/Mexico_City' }
 $SmtpHost   = if ($DotEnv.ContainsKey('SMTP_HOST'))    { $DotEnv['SMTP_HOST'] }   else { 'smtp.gmail.com' }
@@ -173,9 +180,9 @@ $SmtpPass   = if ($DotEnv.ContainsKey('SMTP_PASSWORD')) { $DotEnv['SMTP_PASSWORD
 $ReportFrom = if ($DotEnv.ContainsKey('REPORT_FROM'))  { $DotEnv['REPORT_FROM'] } else { 'bola.8gdl@gmail.com' }
 $ReportTo   = if ($DotEnv.ContainsKey('REPORT_TO'))    { $DotEnv['REPORT_TO'] }   else { 'bola.8gdl@gmail.com,isc.castro@gmail.com' }
 
-# Native Windows connects to Postgres via localhost:5432, not the Docker
+# Native Windows connects to Postgres via localhost:<port>, not the Docker
 # service name "postgres" — same fix as the backend's own install script.
-$DatabaseUrl = "DATABASE_URL=postgresql://${PgUser}:${PgPassword}@localhost:5432/${PgDb}"
+$DatabaseUrl = "DATABASE_URL=postgresql://${PgUser}:${PgPassword}@localhost:${PgPort}/${PgDb}"
 
 & $NssmExe set $ServiceName AppEnvironmentExtra `
     $DatabaseUrl `

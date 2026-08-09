@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # install-nssm-nginx.ps1
 # Bola 8 POS - installs native Windows nginx as a REAL Windows Service using NSSM
 #

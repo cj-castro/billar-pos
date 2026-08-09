@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # install-nssm-backend.ps1
 # BilliardBar Backend - installs as a REAL Windows Service using NSSM
 #
@@ -145,6 +145,13 @@ $PgUser     = if ($DotEnv.ContainsKey('POSTGRES_USER') -and $DotEnv['POSTGRES_US
 $PgPassword = if ($DotEnv.ContainsKey('POSTGRES_PASSWORD') -and $DotEnv['POSTGRES_PASSWORD']) { $DotEnv['POSTGRES_PASSWORD'] } else { 'billiard_secret' }
 $PgDb       = if ($DotEnv.ContainsKey('POSTGRES_DB') -and $DotEnv['POSTGRES_DB'])             { $DotEnv['POSTGRES_DB'] }       else { 'billiardbar' }
 
+# The native Postgres install's port is auto-discovered from
+# scripts\.postgres-port.txt (written by install-postgres-native.ps1), never
+# assumed to be the Postgres-standard 5432 -- this machine may already have a
+# different, unrelated Postgres installation bound to 5432.
+$PgPortFile = Join-Path $BaseDir "scripts\.postgres-port.txt"
+$PgPort     = if (Test-Path $PgPortFile) { (Get-Content $PgPortFile -Raw).Trim() } else { '5432' }
+
 # POSTGRES_DB/POSTGRES_USER/POSTGRES_PASSWORD are consumed above to build
 # DATABASE_URL, not forwarded raw.
 $ExcludedKeys = @('POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD')
@@ -157,12 +164,12 @@ foreach ($key in $DotEnv.Keys) {
 # These are appended AFTER the loop so they always win, overriding whatever
 # (if anything) came from .env for the same keys -- native-environment values
 # take precedence over any Docker-oriented values that might be sitting in .env.
-$EnvArgs += "DATABASE_URL=postgresql://${PgUser}:${PgPassword}@localhost:5432/${PgDb}"
+$EnvArgs += "DATABASE_URL=postgresql://${PgUser}:${PgPassword}@localhost:${PgPort}/${PgDb}"
 $EnvArgs += "PRINT_AGENT_URL=http://localhost:9191"
 $EnvArgs += "FLASK_APP=wsgi.py"
 $EnvArgs += "FLASK_ENV=production"
 
-Write-Host "   Forwarding $($EnvArgs.Count) environment variables (DATABASE_URL -> localhost:5432, PRINT_AGENT_URL -> localhost:9191)." -ForegroundColor Green
+Write-Host "   Forwarding $($EnvArgs.Count) environment variables (DATABASE_URL -> localhost:$PgPort, PRINT_AGENT_URL -> localhost:9191)." -ForegroundColor Green
 
 # -- Step 4: Stop & remove existing service if reinstalling -------------------
 Write-Host "`n[4/6] Registering Windows Service..."

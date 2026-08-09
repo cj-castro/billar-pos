@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # postgres-backup-restore.ps1
 # Proves the Docker-to-native PostgreSQL logical dump/restore procedure
 # (D-08/D-09) works end-to-end, using only backend/seed.py's synthetic demo
@@ -33,6 +33,13 @@ $BackupsDir  = Join-Path $BaseDir "backups"
 $DumpFile    = Join-Path $BackupsDir "billiardbar_staging.dump"
 $PgVersion   = "15"
 $PgBin       = "C:\Program Files\PostgreSQL\$PgVersion\bin"
+
+# The native install's port is auto-discovered from scripts\.postgres-port.txt
+# (written by install-postgres-native.ps1), never assumed -- this machine may
+# already have another Postgres installation on the standard 5432 port, so
+# our native install may be running on a different port instead.
+$PgPortFile  = Join-Path $BaseDir "scripts\.postgres-port.txt"
+$PgPort      = if (Test-Path $PgPortFile) { (Get-Content $PgPortFile -Raw).Trim() } else { "5432" }
 
 function Read-DotEnv {
     param([string]$Path)
@@ -119,7 +126,7 @@ function Restore-NativePostgres {
 
     $env:PGPASSWORD = $POSTGRES_PASSWORD
     try {
-        & "$PgBin\pg_restore.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost --no-acl --no-owner -v $DumpFile
+        & "$PgBin\pg_restore.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost -p $PgPort --no-acl --no-owner -v $DumpFile
         if ($LASTEXITCODE -ne 0) {
             Write-Host "   WARNING: pg_restore exited non-zero (some notices are expected on an empty target DB); continuing to verification." -ForegroundColor Yellow
         } else {
@@ -143,7 +150,7 @@ function Test-RestoredData {
     $allPass = $true
     $env:PGPASSWORD = $POSTGRES_PASSWORD
     try {
-        $usersCount = (& "$PgBin\psql.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost -tAc "SELECT COUNT(*) FROM users").Trim()
+        $usersCount = (& "$PgBin\psql.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost -p $PgPort -tAc "SELECT COUNT(*) FROM users").Trim()
         if ($usersCount -eq "6") {
             Write-Host "   PASS: users count == 6" -ForegroundColor Green
         } else {
@@ -151,7 +158,7 @@ function Test-RestoredData {
             $allPass = $false
         }
 
-        $menuItemsCount = (& "$PgBin\psql.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost -tAc "SELECT COUNT(*) FROM menu_items").Trim()
+        $menuItemsCount = (& "$PgBin\psql.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost -p $PgPort -tAc "SELECT COUNT(*) FROM menu_items").Trim()
         if ([int]$menuItemsCount -ge 17) {
             Write-Host "   PASS: menu_items count == $menuItemsCount (>= 17)" -ForegroundColor Green
         } else {
@@ -159,7 +166,7 @@ function Test-RestoredData {
             $allPass = $false
         }
 
-        $resourcesCount = (& "$PgBin\psql.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost -tAc "SELECT COUNT(*) FROM resources").Trim()
+        $resourcesCount = (& "$PgBin\psql.exe" -U $POSTGRES_USER -d $POSTGRES_DB -h localhost -p $PgPort -tAc "SELECT COUNT(*) FROM resources").Trim()
         if ([int]$resourcesCount -gt 0) {
             Write-Host "   PASS: resources count == $resourcesCount (> 0)" -ForegroundColor Green
         } else {

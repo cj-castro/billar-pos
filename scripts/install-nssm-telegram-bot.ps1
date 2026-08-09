@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # install-nssm-telegram-bot.ps1
 # BilliardBar Telegram Bot - installs as a REAL Windows Service using NSSM,
 # independent of the backend service (SVC-05).
@@ -162,13 +162,20 @@ $PgUser     = if ($DotEnv.ContainsKey('POSTGRES_USER'))     { $DotEnv['POSTGRES_
 $PgPassword = if ($DotEnv.ContainsKey('POSTGRES_PASSWORD')) { $DotEnv['POSTGRES_PASSWORD'] } else { 'billiard_secret' }
 $PgDb       = if ($DotEnv.ContainsKey('POSTGRES_DB'))       { $DotEnv['POSTGRES_DB'] }       else { 'billiardbar' }
 
+# The native Postgres install's port is auto-discovered from
+# scripts\.postgres-port.txt (written by install-postgres-native.ps1), never
+# assumed to be the Postgres-standard 5432 -- this machine may already have a
+# different, unrelated Postgres installation bound to 5432.
+$PgPortFile = Join-Path $BaseDir "scripts\.postgres-port.txt"
+$PgPort     = if (Test-Path $PgPortFile) { (Get-Content $PgPortFile -Raw).Trim() } else { '5432' }
+
 $TelegramToken = if ($DotEnv.ContainsKey('TELEGRAM_TOKEN')) { $DotEnv['TELEGRAM_TOKEN'] } else { '' }
 $AdminChatId   = if ($DotEnv.ContainsKey('ADMIN_CHAT_ID'))  { $DotEnv['ADMIN_CHAT_ID'] }  else { '' }
 
-# Native Windows connects to Postgres via localhost:5432, not the Docker
+# Native Windows connects to Postgres via localhost:<port>, not the Docker
 # service name "postgres" — same fix as the backend's/scheduler's own
 # install scripts.
-$DatabaseUrl = "DATABASE_URL=postgresql://${PgUser}:${PgPassword}@localhost:5432/${PgDb}"
+$DatabaseUrl = "DATABASE_URL=postgresql://${PgUser}:${PgPassword}@localhost:${PgPort}/${PgDb}"
 
 # bot.py raises ValueError and exits immediately at import time if
 # TELEGRAM_TOKEN, ADMIN_CHAT_ID, or DATABASE_URL is missing — all three
