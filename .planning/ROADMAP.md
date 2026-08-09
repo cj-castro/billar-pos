@@ -120,6 +120,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Validation & Decision Lock | 0/0 | Complete    | 2026-08-08 |
 | 2. Core Service Migration | 5/5 | Complete   | 2026-08-09 |
-| 3. Centralized Logging & Secrets | 4/4 | Complete   | 2026-08-09 |
+| 3. Centralized Logging & Secrets | 5/5 | Complete   | 2026-08-09 |
 | 4. Process Supervision & Reliability Hardening | 0/TBD | Not started | - |
 | 5. Cutover & Rollback | 0/TBD | Not started | - |

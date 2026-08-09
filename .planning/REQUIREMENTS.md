@@ -22,7 +22,7 @@
 
 ### Centralized Logging
 
-- [ ] **LOG-01**: All services (backend, scheduler, bot, print agent) write logs to a single shared logs directory as plain-text files — not scattered across per-service Windows Event Viewer entries
+- [x] **LOG-01**: All services (backend, scheduler, bot, print agent) write logs to a single shared logs directory as plain-text files — not scattered across per-service Windows Event Viewer entries
 - [ ] **LOG-02**: Logs are timestamped and rotated (size- or date-based) so no single service's logs grow unbounded on the 8GB machine's disk
 - [ ] **LOG-03**: An operator can view/tail all service logs from one place without Event Viewer knowledge
 
@@ -40,7 +40,7 @@
 
 ### Secrets & Configuration
 
-- [ ] **SEC-01**: Secrets (DB password, JWT secrets, role PINs) move out of `docker-compose.yml`/plain committed env files into a documented, git-ignored secrets file or Windows-native secret storage
+- [x] **SEC-01**: Secrets (DB password, JWT secrets, role PINs) move out of `docker-compose.yml`/plain committed env files into a documented, git-ignored secrets file or Windows-native secret storage
 - [ ] **SEC-02**: `.env.example` documents all required secrets with placeholder values for the new hosting model
 
 ### Data Integrity & Migration Safety
@@ -96,10 +96,10 @@ Explicitly excluded from this milestone. Documented to prevent scope creep.
 | SVC-05 | Phase 2 | Complete |
 | NET-01 | Phase 2 | Complete |
 | DATA-01 | Phase 2 | Complete |
-| LOG-01 | Phase 3 | Pending |
+| LOG-01 | Phase 3 | Complete |
 | LOG-02 | Phase 3 | Pending |
 | LOG-03 | Phase 3 | Pending |
-| SEC-01 | Phase 3 | Pending |
+| SEC-01 | Phase 3 | Complete |
 | SEC-02 | Phase 3 | Pending |
 | SUP-01 | Phase 4 | Pending |
 | SUP-02 | Phase 4 | Pending |
