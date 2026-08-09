@@ -106,13 +106,49 @@ if ($failureExitCode -eq 0) {
 }
 
 # ---------------------------------------------------------------------------
+# Step 2b: Set the failure-actions flag so the restart policy above also
+# fires on a "clean" (exit code 0) service termination, not only on a
+# genuine crash exit code.
+#
+# WHY THIS IS REQUIRED (found via a real live kill test, Plan 04-05 Task 1):
+# Postgres's native Windows service is NOT postgres.exe directly -- it's
+# `pg_ctl.exe runservice -w`, which launches and supervises the actual
+# postmaster (postgres.exe) as its own child. When the postmaster dies
+# unexpectedly (e.g. `Stop-Process -Force` on the real postmaster PID, or
+# any real OS-level crash), `pg_ctl.exe runservice` detects the child is
+# gone and exits *itself* with exit code 0 -- from pg_ctl's own perspective
+# this looks like a normal/expected shutdown, not a failure. Windows SCM's
+# `sc.exe failure` recovery actions only apply to *non-zero* (crash) exit
+# codes by default (`FAILURE_ACTIONS_ON_NONCRASH_FAILURES: FALSE`, confirmed
+# via `sc.exe qfailureflag`) -- so a real Postgres crash was silently NOT
+# triggering the restart policy configured in Step 2 above, leaving Postgres
+# permanently down until a human manually ran `Start-Service`. This is
+# exactly the gap `sc.exe failureflag <service> 1` exists to close: it tells
+# SCM to apply the configured failure actions even when the service process
+# exits with code 0, which is the only way to get genuine SUP-01 parity for
+# Postgres given how `pg_ctl.exe runservice` reports its own exit status.
+# ---------------------------------------------------------------------------
+Write-Host "`n[2b/3] Enabling failure actions on non-crash (exit code 0) terminations..."
+
+& sc.exe failureflag "$PgServiceName" 1 | Out-Null
+$failureFlagExitCode = $LASTEXITCODE
+
+if ($failureFlagExitCode -eq 0) {
+    Write-Host "   Applied: FAILURE_ACTIONS_ON_NONCRASH_FAILURES enabled -- the restart policy above now also fires when pg_ctl.exe's monitored postmaster dies and pg_ctl exits with code 0 (its normal self-reported exit path on an unexpected postmaster death)." -ForegroundColor Green
+} else {
+    Write-Host "   WARNING: 'sc.exe failureflag' returned exit code $failureFlagExitCode. The restart policy from Step 2 will only apply to non-zero-exit-code failures, not the pg_ctl.exe clean-exit-on-crashed-child case. Re-run this script to try again." -ForegroundColor Yellow
+}
+
+# ---------------------------------------------------------------------------
 # Step 3: Print the applied policy so an operator can visually confirm it.
 # ---------------------------------------------------------------------------
-Write-Host "`n[3/3] Current failure policy (sc.exe qfailure):"
+Write-Host "`n[3/3] Current failure policy (sc.exe qfailure / qfailureflag):"
 & sc.exe qfailure "$PgServiceName"
+& sc.exe qfailureflag "$PgServiceName"
 
 Write-Host "`n=== Done! ==================================================" -ForegroundColor Cyan
 Write-Host " Service:       $PgServiceName"
 Write-Host " Reset window:  3600 seconds (1 hour)"
 Write-Host " Actions:       restart / 5000ms x3 (bounded -- prevents infinite fast-restart loop)"
+Write-Host " Non-crash flag: enabled (restart policy also applies to pg_ctl.exe's own clean exit-code-0 when its postmaster child dies)"
 Write-Host "============================================================"
