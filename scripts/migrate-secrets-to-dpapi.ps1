@@ -30,6 +30,14 @@
 # =============================================================================
 #Requires -RunAsAdministrator
 
+# System.Security.Cryptography.ProtectedData lives in the System.Security
+# assembly, which a plain PowerShell 5.1 host process does NOT load by
+# default -- without this, every Protect-Secret call below throws a
+# non-terminating "Unable to find type" error that this script's
+# ErrorActionPreference silently swallows, producing corrupted .dat files
+# while still reporting "Encrypted: ... " success (03-05 gap-closure fix).
+Add-Type -AssemblyName System.Security
+
 $BaseDir    = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $EnvFile    = Join-Path $BaseDir ".env"
 $SecretsDir = "C:\POS\secrets"

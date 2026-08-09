@@ -35,6 +35,15 @@
 # =============================================================================
 #Requires -RunAsAdministrator
 
+# System.Security.Cryptography.ProtectedData lives in the System.Security
+# assembly, which a plain PowerShell 5.1 host process does NOT load by
+# default -- without this, every Unprotect-Secret call below throws a
+# non-terminating "Unable to find type" error, caught by this function's
+# try/catch and correctly treated as a decrypt failure ($null), but only
+# because migrate-secrets-to-dpapi.ps1 also needs this fix to ever produce
+# genuinely-decryptable .dat files in the first place (03-05 gap-closure fix).
+Add-Type -AssemblyName System.Security
+
 $BaseDir     = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $EnvFile     = Join-Path $BaseDir ".env"
 $SecretsDir  = "C:\POS\secrets"
