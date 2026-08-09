@@ -180,3 +180,91 @@ the live bar machine.
 3. `BilliardBarTelegramBot`'s pre-existing crash-loop (`"The parameter is incorrect"`, NSSM
    event log) predates Phase 3 and is unrelated to it, but blocks full validation of its log
    consolidation and secrets reconfiguration — worth its own investigation.
+
+## Gap Closure Re-Validation (Plan 03-05)
+
+Real staging evidence (WIDOWSVAIL, `192.168.1.18`) closing both gaps recorded in
+`03-VERIFICATION.md`'s Gaps Summary (status: `gaps_found`).
+
+### LOG-01 — dependency-ordering bug closed
+
+**Status: PASS**
+
+`scripts/reconfigure-log-paths.ps1` was restructured into three explicit phases (`$StopOrder`
+with `BilliardBarNginx` first, `$StartOrder` with it last, plus a `Wait-ServiceState` poll loop
+that hard-fails the script if a service never reaches the expected `Stopped`/`Running` state)
+and pushed to staging via `scp` (staging's checkout is a file copy, not a git clone).
+
+Running the fixed script as Administrator required **no manual Stop-Service/restart
+workaround** — the original 03-04 validation's documented workaround is no longer necessary:
+
+- Phase A stopped `BilliardBarNginx` first, then `BilliardBarBackend` genuinely reached
+  `Stopped` (previously it silently no-op'd while Nginx held the dependency).
+- Backend's process identity proves a real restart occurred, not a stale no-op:
+  **PID `4772` @ `2026-08-09 14:13:40` → PID `13856` @ `2026-08-09 15:25:14`.**
+- Post-run `Get-Service BilliardBar*`: `BilliardBarBackend`, `BilliardBarNginx`, and
+  `BilliardBarScheduler` all `Running`. (`BilliardBarTelegramBot` was already `Stopped` before
+  this plan's work began — see "Out of scope" below.)
+- `C:\POS\logs\backend_err.log` is actively written by the new process (184 bytes, fresh
+  `LastWriteTime`), containing the live D-11 insecure-default-secret warning. `backend.log`
+  (stdout) remains 0 bytes both before and after — gunicorn's eventlet worker does not write
+  access logs to stdout by default in this deployment's configuration, which is unrelated to
+  the dependency-ordering bug this task fixes; the stdout/stderr redirection mechanism itself
+  (Plan 03-01) was already proven sound and remains unaffected.
+- Backend health check (`Invoke-WebRequest http://localhost:5000/api/v1/auth/me`) returned
+  `HTTP 401` (a real, well-formed response, not a connection error) after the restart.
+
+### SEC-01 — Backend DPAPI migration completed
+
+**Status: PASS**
+
+All 8 previously-missing role secrets (`ADMIN_PASSWORD`, `ADMIN_PIN`, `MANAGER_PASSWORD`,
+`MANAGER_PIN`, `WAITER1_PASSWORD`, `WAITER2_PASSWORD`, `KITCHEN_PASSWORD`,
+`BARSTAFF_PASSWORD`) were generated server-side (24-char alphanumeric for passwords, 4-digit
+for PINs) and appended to staging's `.env` in a single remote invocation that only ever
+printed key names back over SSH — no generated value left the remote session.
+
+**Deviation found and fixed (Rule 1 — bug, not in original plan scope):** re-running
+`migrate-secrets-to-dpapi.ps1` initially reproduced the same `ADMIN_PASSWORD` skip from
+03-VERIFICATION.md's Gap #2, but investigation revealed the real root cause was different from
+what 03-VERIFICATION.md assumed. `[System.Security.Cryptography.ProtectedData]` lives in the
+`System.Security` .NET assembly, which a plain PowerShell 5.1 host process does **not**
+auto-load. Every `Protect-Secret`/`Unprotect-Secret` call was throwing a non-terminating
+"Unable to find type" error that both scripts silently swallowed — `migrate-secrets-to-dpapi.ps1`
+wrote corrupted `.dat` files while still printing "Encrypted: ..." success messages, and
+`reconfigure-secrets.ps1`'s fail-closed guard correctly (if for the wrong apparent reason)
+refused to apply an undecryptable `POSTGRES_PASSWORD`. Added `Add-Type -AssemblyName
+System.Security` to both scripts (committed separately from Task 1's fix). After that fix and
+seeding the 8 role secrets:
+
+- `migrate-secrets-to-dpapi.ps1` re-run: **Migrated (16/16)**, `Skipped (0)`.
+- `reconfigure-secrets.ps1` re-run: **Reconfigured (3/3)** — `BilliardBarBackend`,
+  `BilliardBarScheduler`, `BilliardBarTelegramBot` all left the Skipped list;
+  `BilliardBarBackend` specifically is now `Reconfigured`, not `Skipped`, closing the gap
+  03-VERIFICATION.md documented.
+- `AppEnvironmentExtra` marker check (`ADMIN_PASSWORD=` AND `DATABASE_URL=` both present,
+  boolean-only, no value printed): **`True`**.
+- `C:\POS\secrets\` file count: **16** (matches the full D-07 scope, not a Backend-specific
+  carve-out).
+- Backend health check after the reconfiguration restart: **`HTTP 401`** (healthy).
+
+Per the code-review finding already recorded in this plan's `<interfaces>` context:
+`ADMIN_PASSWORD`'s only runtime consumer in the Flask app is
+`backend/app/__init__.py`'s `_check_default_secrets()` (D-12's warn-only default-value check)
+— it is never used to authenticate a request. The only place it sets an actual credential is
+`backend/seed.py`, which already ran once against staging's database at initial seed time.
+Seeding a fresh `ADMIN_PASSWORD` value into `.env` now (purely to satisfy
+`reconfigure-secrets.ps1`'s fail-closed guard) did not change the already-hashed admin login
+already stored in staging's database, and did not risk locking out any existing staging login.
+
+No plaintext secret value appears anywhere in this section or was printed during Task 2's
+execution.
+
+**Out of scope, noted for transparency:** `BilliardBarTelegramBot` was already `Stopped`
+(the pre-existing crash-loop documented in this file's Follow-ups #3) before any of this
+plan's work began, and remained `Stopped` after `reconfigure-secrets.ps1`'s restart attempt —
+this is unchanged, pre-existing behavior, not a regression introduced by Plan 03-05, and is
+unrelated to LOG-01/SEC-01.
+
+**Next step:** the next `/gsd:verify-phase 03` run should re-derive LOG-01 and SEC-01's status
+from this evidence rather than from the original 03-04 validation's `PARTIAL` findings above.
