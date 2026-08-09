@@ -112,3 +112,12 @@ None - no external service configuration required. Both scripts are self-contain
 ---
 *Phase: 02-core-service-migration*
 *Completed: 2026-08-08*
+
+## Self-Check: PASSED
+
+- FOUND: scripts/install-postgres-native.ps1
+- FOUND: scripts/postgres-backup-restore.ps1
+- FOUND: .planning/phases/02-core-service-migration/02-04-SUMMARY.md
+- FOUND: commit c13b61af (Task 1)
+- FOUND: commit 5c2ff781 (Task 2)
+- FOUND: commit 9150a08a (SUMMARY)
