@@ -15,6 +15,8 @@ from collections import Counter
 from datetime import datetime
 from typing import Optional
 from flask import Flask, request, jsonify
+import dedup_store
+import circuit_breaker
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger(__name__)
@@ -34,27 +36,15 @@ KITCHEN_PRINTER_NAME = os.environ.get('KITCHEN_PRINTER_NAME', '')  # e.g. "Cocin
 PORT = int(os.environ.get('PRINT_PORT', 9191))
 CHARS = 32          # POS-58 characters per line (normal font)
 
-# ---------------------------------------------------------------------------
-# Idempotency: track recently-printed job_ids to avoid duplicate prints.
-# TTL of 60 s covers accidental double-taps and mobile retry storms.
-# ---------------------------------------------------------------------------
-_DEDUP_TTL = 60.0   # seconds
-_printed_jobs: dict[str, float] = {}   # job_id → unix timestamp
+PRINT_AGENT_TOKEN = os.environ.get('PRINT_AGENT_TOKEN', '')  # empty = auth disabled (dev only)
 
-def _dedup_check(job_id: Optional[str]) -> bool:
-    """Return True if job_id was already printed within the TTL window."""
-    if not job_id:
-        return False
-    now = time.time()
-    # Evict stale entries to keep the dict small
-    stale = [k for k, ts in _printed_jobs.items() if now - ts > _DEDUP_TTL]
-    for k in stale:
-        del _printed_jobs[k]
-    return job_id in _printed_jobs
 
-def _dedup_record(job_id: Optional[str]):
-    if job_id:
-        _printed_jobs[job_id] = time.time()
+def _check_auth() -> bool:
+    """True if the request carries the correct token, or auth is disabled
+    (PRINT_AGENT_TOKEN unset — dev mode only, never leave unset in production)."""
+    if not PRINT_AGENT_TOKEN:
+        return True
+    return request.headers.get('X-Print-Token') == PRINT_AGENT_TOKEN
 
 # ---------------------------------------------------------------------------
 # ESC/POS helpers
@@ -669,216 +659,6 @@ def fmt_date(iso):
         return iso[:16] if iso else ''
 
 # ---------------------------------------------------------------------------
-# Receipt formatter
-# ---------------------------------------------------------------------------
-def format_receipt(data: dict, unpaid: bool = False, reprint: bool = False) -> bytes:
-    buf = bytearray()
-
-    buf += cmd_init()
-    buf += cmd_codepage()
-
-    # ---- Reprint banner (shown before main header) ----
-    if reprint:
-        buf += cmd_align(1)
-        buf += cmd_bold(True)
-        buf += enc('*** REIMPRESION ***') + LF
-        buf += cmd_bold(False)
-        buf += enc(datetime.now().strftime('%d/%m/%Y %H:%M')) + LF
-        buf += divider('=')
-
-    # ---- Header ----
-    buf += cmd_align(1)
-    buf += cmd_double(True)
-    buf += enc('BOLA 8') + LF
-    buf += cmd_double(False)
-    buf += enc('POOL CLUB') + LF
-    buf += enc('Pool * Food * Drinks') + LF
-    buf += cmd_align(0)
-    buf += divider()
-
-    ticket_id  = (data.get('id') or '')[-6:].upper()
-    resource   = data.get('resource_code') or ''
-    opened_at  = data.get('opened_at') or ''
-    closed_at  = data.get('closed_at') or ''
-
-    buf += cmd_bold(True)
-    buf += left_line(f'Ticket: #{ticket_id}')
-    buf += cmd_bold(False)
-    buf += left_line(f'Mesa:   {resource}')
-    buf += left_line(f'Fecha:  {fmt_date(closed_at or opened_at)}')
-    buf += divider()
-
-    # ---- Items: two-level grouping ----
-    # Level 1: same base product (name + price) → merged row with total qty
-    # Level 2: within that row, each modifier/flavor combo is a sub-line
-    # Example: 3 Micheladas → "3x Michelada  $XX" then "  2x Clamato / 1x Tamarindo"
-    line_items = [i for i in (data.get('line_items') or []) if i.get('status') != 'VOIDED']
-    if line_items:
-        base_groups = {}  # key=(name,price) → {qty, variants:[{mods,notes,qty}]}
-        for item in line_items:
-            name  = item.get('menu_item_name') or item.get('item_name') or 'Item'
-            price = item.get('unit_price_cents', 0)
-            mods  = item.get('modifiers') or []
-            notes = item.get('notes') or ''
-            mod_key = '|'.join(sorted(m.get('name', '') for m in mods))
-            var_key = f'{mod_key}::{notes}'
-            base_key = (name, price)
-            if base_key not in base_groups:
-                base_groups[base_key] = {'name': name, 'price': price, 'qty': 0,
-                                         'variants': {}, 'promotions': {}}
-            bg = base_groups[base_key]
-            bg['qty'] += item.get('quantity', 1)
-            for p in (item.get('promotions') or []):
-                pname = p.get('name') or 'Promocion'
-                bg['promotions'][pname] = bg['promotions'].get(pname, 0) + (p.get('discount_cents') or 0)
-            if var_key not in bg['variants']:
-                bg['variants'][var_key] = {'mods': mods, 'notes': notes, 'qty': 0}
-            bg['variants'][var_key]['qty'] += item.get('quantity', 1)
-
-        buf += cmd_bold(True)
-        buf += left_line('CONSUMO')
-        buf += cmd_bold(False)
-        for bg in base_groups.values():
-            base_price = bg['price']
-            variants = list(bg['variants'].values())
-            multi = len(variants) > 1
-            # total = sum of each variant's qty × (base + modifier prices)
-            total = sum(
-                v['qty'] * (base_price + sum(m.get('price_cents', 0) for m in v['mods']))
-                for v in variants
-            )
-            buf += two_col(f'{bg["qty"]}x {bg["name"]}', fmt_cents(total))
-            if multi:
-                # Show each flavor/variant as a sub-line; compact repeated modifier names
-                for v in variants:
-                    mod_counts = Counter(m.get('name', '') for m in v['mods'] if m.get('name', ''))
-                    parts = [f'{cnt}x {name}' if cnt > 1 else name
-                             for name, cnt in mod_counts.items()]
-                    if v['notes']:
-                        parts.append(f'({v["notes"]})')
-                    prefix = f'  {v["qty"]}x ' if bg['qty'] > 1 else '  '
-                    label = ', '.join(parts) or 'sin modificadores'
-                    buf += wrap_lines(f'{prefix}{label}', indent=' ' * len(prefix))
-            else:
-                # Single variant: show modifier names only, NO price (rolled into total above)
-                v = variants[0]
-                mod_counts = {}
-                _mult = max(1, int(v.get('qty') or 1))
-                for mod in v['mods']:
-                    mname = mod.get('name', '')
-                    if mname:
-                        mod_counts[mname] = mod_counts.get(mname, 0) + _mult
-                for mname, cnt in mod_counts.items():
-                    label_m = f'  + {mname}' + (f' x{cnt}' if cnt > 1 else '')
-                    buf += left_line(label_m)  # no price column — price is in the total
-                if v['notes']:
-                    buf += left_line(f'  * {v["notes"]}')
-            for pname, pcents in sorted(bg.get('promotions', {}).items(),
-                                        key=lambda kv: (-kv[1], kv[0])):
-                buf += two_col(f'  {pname}', f'-{fmt_cents(pcents)}')
-
-    # ---- Pool time ----
-    timer_sessions = [s for s in (data.get('timer_sessions') or [])
-                      if (s.get('charge_cents') or 0) > 0 or (not s.get('end_time') and s.get('start_time'))]
-    if timer_sessions:
-        buf += divider()
-        buf += cmd_bold(True)
-        buf += left_line('TIEMPO DE POOL')
-        buf += cmd_bold(False)
-        for s in timer_sessions:
-            charge    = s.get('charge_cents', 0)
-            dur_secs  = s.get('duration_seconds', 0)
-            mode      = (s.get('billing_mode') or '').replace('_', ' ')
-            resource  = s.get('resource_code') or ''
-            # Live session
-            if not s.get('end_time') and s.get('start_time'):
-                import time as _t
-                start = datetime.fromisoformat(s['start_time'].replace('Z', '+00:00'))
-                dur_secs = max(0, int((_t.time() - start.timestamp())))
-                rate = s.get('rate_cents', 0)
-                charge = int(dur_secs / 3600 * rate)
-            label = f'{resource} {fmt_dur(dur_secs)}'
-            buf += two_col(label, fmt_cents(charge))
-            buf += left_line(f'  ({mode})')
-
-    # ---- Totals ----
-    buf += divider('=')
-    sub       = data.get('subtotal_cents', 0)
-    disc      = data.get('discount_cents', 0)
-    pool_c    = data.get('pool_time_cents', 0)
-    total     = data.get('total_cents', 0)
-    tip       = data.get('tip_cents', 0) or 0
-    disc_pct  = data.get('manual_discount_pct', 0) or 0
-
-    buf += two_col('Subtotal', fmt_cents(sub))
-    if disc > 0:
-        pct_str = f' ({disc_pct}%)' if disc_pct else ''
-        buf += two_col(f'Descuento{pct_str}', f'-{fmt_cents(disc)}')
-        for promo in applied_promotions(data):
-            buf += two_col(f'  * {promo.get("name") or "Promocion"}',
-                           f'-{fmt_cents(promo.get("discount_cents") or 0)}')
-    if pool_c > 0:
-        buf += two_col('Pool Time', fmt_cents(pool_c))
-
-    buf += cmd_bold(True)
-    buf += two_col('TOTAL', fmt_cents(total))
-    buf += cmd_bold(False)
-
-    if tip > 0:
-        buf += two_col('Propina', fmt_cents(tip))
-        buf += cmd_bold(True)
-        buf += two_col('TOTAL + PROPINA', fmt_cents(total + tip))
-        buf += cmd_bold(False)
-
-    buf += divider()
-
-    if unpaid:
-        # Tip suggestion table
-        buf += cmd_align(1)
-        buf += enc('-- Sugerencia de Propina --') + LF
-        buf += cmd_align(0)
-        buf += enc(f'{"% ":>4}{"Propina":>10}{"Total":>10}') + LF
-        buf += divider('-')
-        for pct in [10, 15, 18, 20]:
-            tip_amt = round(total * pct / 100)
-            buf += enc(f'{pct:>3}% {fmt_cents(tip_amt):>10}{fmt_cents(total + tip_amt):>10}') + LF
-        buf += divider()
-        buf += cmd_align(1)
-        buf += cmd_bold(True)
-        buf += enc('** CUENTA NO PAGADA **') + LF
-        buf += cmd_bold(False)
-        buf += cmd_align(0)
-    else:
-        # Payment info
-        pt  = data.get('payment_type', '')
-        pt2 = data.get('payment_type_2')
-        tc  = data.get('tendered_cents') or 0
-        tc2 = data.get('tendered_cents_2') or 0
-        chg = data.get('change_due', 0) or max(0, tc - total)
-
-        if pt2:
-            cash_amt = tc  if pt  == 'CASH' else tc2
-            card_amt = tc  if pt  == 'CARD' else tc2
-            buf += two_col('Efectivo', fmt_cents(cash_amt))
-            buf += two_col('Tarjeta',  fmt_cents(card_amt))
-        elif pt == 'CASH' and tc > 0:
-            buf += two_col('Recibido', fmt_cents(tc))
-            if chg > 0:
-                buf += two_col('Cambio',   fmt_cents(chg))
-        else:
-            buf += left_line(f'Pago: {pt}')
-
-    buf += divider()
-    buf += cmd_align(1)
-    buf += enc('Gracias por su visita!') + LF
-    buf += enc('Vuelva pronto :)') + LF
-    buf += cmd_align(0)
-    buf += cmd_feed(3)
-    buf += cmd_cut()
-
-    return bytes(buf)
-
-# ---------------------------------------------------------------------------
 # Windows printing
 # ---------------------------------------------------------------------------
 def get_printer_name(kind: str = 'receipt') -> str:
@@ -907,6 +687,42 @@ def get_printer_name(kind: str = 'receipt') -> str:
         log.warning(f'Could not enumerate printers: {e}')
         return ''
 
+# win32 printer status bit flags (winspool.h) — decoded here so /health can
+# tell "temporarily unreachable, safe to retry" (offline) apart from
+# "needs a human" (paper out), which the backend retry worker relies on.
+_STATUS_OFFLINE   = 0x00000080
+_STATUS_PAPER_OUT = 0x00000010
+_STATUS_ERROR     = 0x00000002
+_STATUS_BUSY      = 0x00000200
+
+
+def get_printer_status(kind: str = 'receipt') -> str:
+    if sys.platform != 'win32':
+        return 'unknown'
+    name = get_printer_name(kind=kind)
+    if not name:
+        return 'unknown'
+    try:
+        import win32print
+        handle = win32print.OpenPrinter(name)
+        try:
+            info = win32print.GetPrinter(handle, 2)
+        finally:
+            win32print.ClosePrinter(handle)
+        status = info.get('Status', 0)
+        if status & _STATUS_OFFLINE:
+            return 'offline'
+        if status & _STATUS_PAPER_OUT:
+            return 'paper_out'
+        if status & _STATUS_ERROR:
+            return 'error'
+        if status & _STATUS_BUSY:
+            return 'busy'
+        return 'ok'
+    except Exception as e:
+        log.warning(f'Could not read status for "{name}": {e}')
+        return 'unknown'
+
 def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False, kind: str = 'receipt') -> bool:
     """Send raw ESC/POS bytes to the correct Windows printer, or HTML preview on Mac/Linux."""
     import sys
@@ -916,7 +732,14 @@ def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False, kind: s
     if not printer_name:
         log.error('No printer found')
         return False
-    try:
+
+    if circuit_breaker.is_open(printer_name):
+        log.warning(f'Circuit open for "{printer_name}" — skipping attempt, printer likely unreachable')
+        return False
+
+    import concurrent.futures
+
+    def _do_print():
         import win32print
         handle = win32print.OpenPrinter(printer_name)
         try:
@@ -929,10 +752,20 @@ def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False, kind: s
                 win32print.EndDocPrinter(handle)
         finally:
             win32print.ClosePrinter(handle)
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            ex.submit(_do_print).result(timeout=10)
         log.info(f'Printed {len(raw_bytes)} bytes to "{printer_name}" (kind={kind})')
+        circuit_breaker.record_success(printer_name)
         return True
+    except concurrent.futures.TimeoutError:
+        log.error(f'Print timed out on "{printer_name}" after 10s — printer may be offline/stuck')
+        circuit_breaker.record_failure(printer_name)
+        return False
     except Exception as e:
         log.error(f'Print error on "{printer_name}": {e}')
+        circuit_breaker.record_failure(printer_name)
         return False
 
 # ---------------------------------------------------------------------------
@@ -941,25 +774,29 @@ def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False, kind: s
 @app.route('/health')
 def health():
     return jsonify({
-        'status':           'ok',
-        'printer':          get_printer_name('receipt'),
-        'kitchen_printer':  get_printer_name('kitchen'),
+        'status':                  'ok',
+        'printer':                 get_printer_name('receipt'),
+        'kitchen_printer':         get_printer_name('kitchen'),
+        'receipt_printer_status':  get_printer_status('receipt'),
+        'kitchen_printer_status':  get_printer_status('kitchen'),
     })
 
 @app.route('/print', methods=['POST'])
 def print_receipt():
+    if not _check_auth():
+        return jsonify({'error': 'UNAUTHORIZED'}), 401
     data    = request.get_json(force=True)
     job_id  = data.get('job_id')
     unpaid  = data.pop('unpaid', False)
     reprint = data.pop('reprint', False)
 
-    if _dedup_check(job_id):
+    if dedup_store.was_printed(job_id):
         log.info(f'Dedup hit for job_id={job_id} — skipping duplicate print')
         return jsonify({'ok': True, 'duplicate': True})
 
     ok = print_receipt_html(data, unpaid=unpaid, reprint=reprint)
     if ok:
-        _dedup_record(job_id)
+        dedup_store.record_printed(job_id)
     return jsonify({'ok': ok}), (200 if ok else 500)
 
 
@@ -1037,22 +874,26 @@ def print_chit():
     KITCHEN → KITCHEN_PRINTER_NAME  (cocina)
     BAR     → PRINTER_NAME          (la barra)
     """
+    if not _check_auth():
+        return jsonify({'error': 'UNAUTHORIZED'}), 401
     data      = request.get_json(force=True)
     job_id    = data.get('job_id')
     chit_kind = 'kitchen' if data.get('type', '').upper() == 'KITCHEN' else 'receipt'
 
-    if _dedup_check(job_id):
+    if dedup_store.was_printed(job_id):
         log.info(f'Dedup hit for chit job_id={job_id} — skipping duplicate print')
         return jsonify({'ok': True, 'duplicate': True})
 
     raw = format_chit(data)
     ok  = print_raw(raw, kind=chit_kind)
     if ok:
-        _dedup_record(job_id)
+        dedup_store.record_printed(job_id)
     return jsonify({'ok': ok}), (200 if ok else 500)
 
 @app.route('/printers')
 def list_printers():
+    if not _check_auth():
+        return jsonify({'error': 'UNAUTHORIZED'}), 401
     try:
         import win32print
         printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
@@ -1064,4 +905,11 @@ def list_printers():
 if __name__ == '__main__':
     log.info(f'Bola 8 Print Agent starting on port {PORT}')
     log.info(f'Configured printer: "{PRINTER_NAME or "(auto-detect)"}"')
-    app.run(host='0.0.0.0', port=PORT, debug=False)
+    bind_host = os.environ.get('PRINT_AGENT_BIND', '127.0.0.1')
+    if sys.platform == 'win32':
+        from waitress import serve
+        serve(app, host=bind_host, port=PORT, threads=4)
+    else:
+        # Dev fallback (Mac/Linux) — waitress isn't declared as a dependency
+        # there; the Flask dev server is fine for local receipt-HTML preview.
+        app.run(host=bind_host, port=PORT, debug=False)
