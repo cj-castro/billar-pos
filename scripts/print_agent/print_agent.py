@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Optional
 from flask import Flask, request, jsonify
 import dedup_store
+import circuit_breaker
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger(__name__)
@@ -905,7 +906,14 @@ def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False, kind: s
     if not printer_name:
         log.error('No printer found')
         return False
-    try:
+
+    if circuit_breaker.is_open(printer_name):
+        log.warning(f'Circuit open for "{printer_name}" — skipping attempt, printer likely unreachable')
+        return False
+
+    import concurrent.futures
+
+    def _do_print():
         import win32print
         handle = win32print.OpenPrinter(printer_name)
         try:
@@ -918,10 +926,20 @@ def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False, kind: s
                 win32print.EndDocPrinter(handle)
         finally:
             win32print.ClosePrinter(handle)
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            ex.submit(_do_print).result(timeout=10)
         log.info(f'Printed {len(raw_bytes)} bytes to "{printer_name}" (kind={kind})')
+        circuit_breaker.record_success(printer_name)
         return True
+    except concurrent.futures.TimeoutError:
+        log.error(f'Print timed out on "{printer_name}" after 10s — printer may be offline/stuck')
+        circuit_breaker.record_failure(printer_name)
+        return False
     except Exception as e:
         log.error(f'Print error on "{printer_name}": {e}')
+        circuit_breaker.record_failure(printer_name)
         return False
 
 # ---------------------------------------------------------------------------
@@ -1059,4 +1077,11 @@ def list_printers():
 if __name__ == '__main__':
     log.info(f'Bola 8 Print Agent starting on port {PORT}')
     log.info(f'Configured printer: "{PRINTER_NAME or "(auto-detect)"}"')
-    app.run(host='0.0.0.0', port=PORT, debug=False)
+    bind_host = os.environ.get('PRINT_AGENT_BIND', '127.0.0.1')
+    if sys.platform == 'win32':
+        from waitress import serve
+        serve(app, host=bind_host, port=PORT, threads=4)
+    else:
+        # Dev fallback (Mac/Linux) — waitress isn't declared as a dependency
+        # there; the Flask dev server is fine for local receipt-HTML preview.
+        app.run(host=bind_host, port=PORT, debug=False)
