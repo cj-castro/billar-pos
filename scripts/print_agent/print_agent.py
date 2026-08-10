@@ -905,7 +905,12 @@ def list_printers():
 if __name__ == '__main__':
     log.info(f'Bola 8 Print Agent starting on port {PORT}')
     log.info(f'Configured printer: "{PRINTER_NAME or "(auto-detect)"}"')
-    bind_host = os.environ.get('PRINT_AGENT_BIND', '127.0.0.1')
+    # Default stays 0.0.0.0: install-nssm-print-agent.ps1 deliberately opens
+    # the Windows Firewall on this port for LAN/mobile access — narrowing the
+    # bind by default would silently break that. PRINT_AGENT_TOKEN (see
+    # _check_auth above) is the real access control; PRINT_AGENT_BIND is an
+    # opt-in override for anyone who wants to narrow it further.
+    bind_host = os.environ.get('PRINT_AGENT_BIND', '0.0.0.0')
     if sys.platform == 'win32':
         from waitress import serve
         serve(app, host=bind_host, port=PORT, threads=4)
