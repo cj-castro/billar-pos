@@ -27,11 +27,19 @@ def check(label, condition, detail=''):
 
 
 def _load_print_agent():
-    """Import the standalone Windows print agent by path (not a package)."""
-    path = os.path.join(
+    """Import the standalone Windows print agent by path (not a package).
+
+    print_agent.py imports sibling modules (dedup_store, circuit_breaker) by
+    plain module name, so its own directory must be on sys.path before
+    exec_module runs — spec_from_file_location alone doesn't provide that.
+    """
+    agent_dir = os.path.normpath(os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        '..', 'scripts', 'print_agent', 'print_agent.py',
-    )
+        '..', 'scripts', 'print_agent',
+    ))
+    if agent_dir not in sys.path:
+        sys.path.insert(0, agent_dir)
+    path = os.path.join(agent_dir, 'print_agent.py')
     spec = importlib.util.spec_from_file_location('print_agent_under_test', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
