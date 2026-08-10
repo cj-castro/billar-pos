@@ -897,6 +897,42 @@ def get_printer_name(kind: str = 'receipt') -> str:
         log.warning(f'Could not enumerate printers: {e}')
         return ''
 
+# win32 printer status bit flags (winspool.h) — decoded here so /health can
+# tell "temporarily unreachable, safe to retry" (offline) apart from
+# "needs a human" (paper out), which the backend retry worker relies on.
+_STATUS_OFFLINE   = 0x00000080
+_STATUS_PAPER_OUT = 0x00000010
+_STATUS_ERROR     = 0x00000002
+_STATUS_BUSY      = 0x00000200
+
+
+def get_printer_status(kind: str = 'receipt') -> str:
+    if sys.platform != 'win32':
+        return 'unknown'
+    name = get_printer_name(kind=kind)
+    if not name:
+        return 'unknown'
+    try:
+        import win32print
+        handle = win32print.OpenPrinter(name)
+        try:
+            info = win32print.GetPrinter(handle, 2)
+        finally:
+            win32print.ClosePrinter(handle)
+        status = info.get('Status', 0)
+        if status & _STATUS_OFFLINE:
+            return 'offline'
+        if status & _STATUS_PAPER_OUT:
+            return 'paper_out'
+        if status & _STATUS_ERROR:
+            return 'error'
+        if status & _STATUS_BUSY:
+            return 'busy'
+        return 'ok'
+    except Exception as e:
+        log.warning(f'Could not read status for "{name}": {e}')
+        return 'unknown'
+
 def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False, kind: str = 'receipt') -> bool:
     """Send raw ESC/POS bytes to the correct Windows printer, or HTML preview on Mac/Linux."""
     import sys
@@ -948,9 +984,11 @@ def print_raw(raw_bytes: bytes, data: dict = None, unpaid: bool = False, kind: s
 @app.route('/health')
 def health():
     return jsonify({
-        'status':           'ok',
-        'printer':          get_printer_name('receipt'),
-        'kitchen_printer':  get_printer_name('kitchen'),
+        'status':                  'ok',
+        'printer':                 get_printer_name('receipt'),
+        'kitchen_printer':         get_printer_name('kitchen'),
+        'receipt_printer_status':  get_printer_status('receipt'),
+        'kitchen_printer_status':  get_printer_status('kitchen'),
     })
 
 @app.route('/print', methods=['POST'])
