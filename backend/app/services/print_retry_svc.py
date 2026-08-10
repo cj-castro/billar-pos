@@ -96,9 +96,21 @@ def run_retry_cycle(app):
 
 
 def start(app, socketio) -> None:
-    """Schedule run_retry_cycle on a repeating background greenlet."""
+    """Schedule run_retry_cycle on a repeating background greenlet.
+
+    No-ops outside the real running server (e.g. `flask init-db` and other
+    one-off CLI commands, which call create_app() but never run
+    eventlet.monkey_patch() first — see wsgi.py/service_entry.py's DATA-03
+    comment). Starting an eventlet-dependent greenlet in an unpatched
+    process doesn't crash the process, but it does spam every CLI command
+    with "RLock not greened" / "working outside of app context" tracebacks
+    on stderr, which is exactly the kind of noise that masks real errors.
+    """
+    import eventlet
+    if not eventlet.patcher.is_monkey_patched('socket'):
+        return
+
     def _loop():
-        import eventlet
         while True:
             eventlet.sleep(_BACKOFF_SECONDS[0])
             try:
