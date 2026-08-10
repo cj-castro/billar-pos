@@ -5,31 +5,56 @@
 # HOW TO RUN:
 #   1. Open PowerShell (no Admin required)
 #   2. Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-#   3. .\scripts\test-print-agent.ps1
+#   3. (optional but recommended) $env:PRINT_AGENT_TOKEN = "<same token the agent is configured with>"
+#   4. .\scripts\test-print-agent.ps1
 #
 # Tests:
 #   1. Agent reachable on port 9191
-#   2. /health returns ok + printer name
-#   3. /printers lists Windows printers
-#   4. /print with a test receipt (prints to detected printer)
+#   2. /health returns ok + printer name + real per-printer status
+#   3. Auth is enforced on /print and /printers (skipped with a warning if
+#      PRINT_AGENT_TOKEN isn't set in this shell)
+#   4. /printers lists Windows printers
+#   5. /print with a test receipt (prints to detected printer)
 # =============================================================================
 
 $AgentUrl = "http://localhost:9191"
+$PrintAgentToken = $env:PRINT_AGENT_TOKEN
 $Pass = 0; $Fail = 0; $Warn = 0
 
 function ok($msg)   { Write-Host "  [PASS] $msg" -ForegroundColor Green;  $script:Pass++ }
 function fail($msg) { Write-Host "  [FAIL] $msg" -ForegroundColor Red;    $script:Fail++ }
 function warn($msg) { Write-Host "  [WARN] $msg" -ForegroundColor Yellow; $script:Warn++ }
 
+function AuthHeaders() {
+    if ($PrintAgentToken) { return @{ 'X-Print-Token' = $PrintAgentToken } }
+    return @{}
+}
+
+# GET /health only — the one endpoint the agent leaves unauthenticated.
 function GET($path) {
     try { return Invoke-RestMethod -Uri "$AgentUrl$path" -TimeoutSec 5 }
+    catch { return $null }
+}
+# Authenticated GET, for /printers.
+function AuthGET($path) {
+    try { return Invoke-RestMethod -Uri "$AgentUrl$path" -Headers (AuthHeaders) -TimeoutSec 5 }
     catch { return $null }
 }
 function POST($path, $body) {
     try {
         $json = $body | ConvertTo-Json -Depth 10
         return Invoke-RestMethod -Uri "$AgentUrl$path" -Method POST `
-            -Body $json -ContentType "application/json" -TimeoutSec 10
+            -Headers (AuthHeaders) -Body $json -ContentType "application/json" -TimeoutSec 10
+    } catch { return $null }
+}
+# Raw POST that ignores auth entirely, to prove the agent actually rejects
+# unauthenticated requests rather than just returning $null on any error.
+function UnauthPOST($path, $body) {
+    try {
+        $json = $body | ConvertTo-Json -Depth 10
+        $r = Invoke-WebRequest -Uri "$AgentUrl$path" -Method POST `
+            -Body $json -ContentType "application/json" -TimeoutSec 5 -SkipHttpErrorCheck
+        return $r.StatusCode
     } catch { return $null }
 }
 
@@ -49,9 +74,38 @@ if ($health -and $health.status -eq "ok") {
     exit 1
 }
 
+# ── T-HEALTH2: real per-printer status fields ─────────────────────────────────
+Write-Host "`n--- T-HEALTH2: printer status fields ---"
+if ($health.PSObject.Properties.Name -contains "receipt_printer_status") {
+    ok "health includes receipt_printer_status: $($health.receipt_printer_status)"
+} else { fail "health missing receipt_printer_status" }
+if ($health.PSObject.Properties.Name -contains "kitchen_printer_status") {
+    ok "health includes kitchen_printer_status: $($health.kitchen_printer_status)"
+} else { fail "health missing kitchen_printer_status" }
+
+# ── T-AUTH: token enforcement ──────────────────────────────────────────────────
+Write-Host "`n--- T-AUTH: token enforcement ---"
+if (-not $PrintAgentToken) {
+    warn "PRINT_AGENT_TOKEN not set in this shell - skipping auth checks (agent may still enforce it; set the env var to test)"
+} else {
+    $code = UnauthPOST "/print" @{ id = "auth-test" }
+    if ($code -eq 401) { ok "POST /print without token is rejected (401)" }
+    else                { fail "POST /print without token returned $code, expected 401" }
+
+    $unauthPrinters = $null
+    try { $unauthPrinters = Invoke-WebRequest -Uri "$AgentUrl/printers" -TimeoutSec 5 -SkipHttpErrorCheck }
+    catch {}
+    if ($unauthPrinters -and $unauthPrinters.StatusCode -eq 401) { ok "GET /printers without token is rejected (401)" }
+    else { fail "GET /printers without token returned $($unauthPrinters.StatusCode), expected 401" }
+
+    $authedPrinters = AuthGET "/printers"
+    if ($authedPrinters) { ok "GET /printers WITH token succeeds" }
+    else { fail "GET /printers WITH the correct token still failed - check PRINT_AGENT_TOKEN matches the agent's" }
+}
+
 # ── T2: Printer enumeration ───────────────────────────────────────────────────
 Write-Host "`n--- T2: Printer enumeration (/printers) ---"
-$printers = GET "/printers"
+$printers = AuthGET "/printers"
 if ($printers -and $printers.printers) {
     ok "Found $($printers.printers.Count) printer(s):"
     foreach ($p in $printers.printers) {
