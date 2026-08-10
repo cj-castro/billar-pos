@@ -1447,6 +1447,18 @@ Found while preparing Task D1, after all three lanes were merged and full-suite-
 
 Both were caught by integration verification *before* touching the staging machine — exactly the value of not skipping that step.
 
+3. **Retry-worker greenlet started under unpatched CLI processes.** `print_retry_svc.start()` called `socketio.start_background_task` unconditionally; harmless (exit 0) but noisy under `flask init-db` and other CLI commands, which never call `eventlet.monkey_patch()` (only `wsgi.py`/`service_entry.py` do). Guarded with `eventlet.patcher.is_monkey_patched('socket')`. Commit `fc4473d7`. **Note:** staging testing then showed the exact same "RLock not greened" / "Working outside of application context" noise persists on `flask init-db` even with this guard *and* with the retry-worker call removed entirely — confirmed pre-existing on this codebase's `flask init-db` + `wsgi.py` + Flask-SocketIO(`async_mode='eventlet'`) combination on Windows, unrelated to this plan. Left as-is; out of scope here.
+
+## Task D1 — Completed
+
+Ran on staging (`WIDOWSVAIL`, USB printer only — no Bluetooth hardware there, see design spec). Deployed via file sync (staging has no `.git`; confirmed pre-existing), `PRINT_AGENT_TOKEN` set via `nssm set <service> AppEnvironmentExtra` on both `BilliardBarPrintAgent` and `BilliardBarBackend`, `waitress` installed into the agent's venv, both services restarted (nginx stopped/started around the backend restart — it's a declared Windows service dependency).
+
+`test-print-agent.ps1`: **11 PASS, 1 WARN (pre-existing, Docker-era check — not applicable to the native-Windows-Services architecture), 0 FAIL.** Auth enforced (401 without token, works with token), a real ESC/POS receipt printed successfully, LAN/mobile reachability confirmed intact (validates the Post-Merge Correction #2 fix above).
+
+**Caveat found, not fixed (out of scope):** `/health`'s `receipt_printer_status` reported `'error'` for the USB printer even though it printed successfully seconds later — `win32print.GetPrinter` returns raw status `0x2` (`PRINTER_STATUS_ERROR`) for this driver's idle state, which apparently doesn't block RAW ESC/POS jobs. Nothing in this plan wires `/health`'s status into retry-gating or circuit-breaker logic, so this has zero functional impact today — worth refining the status-bit interpretation if that field is ever surfaced to a manager UI or used to gate retries later.
+
+**Untested:** the actual Bluetooth/COM3 transport, since staging has no Bluetooth printer. The code path is identical to USB (Windows presents both as normal printer objects), but real-world radio-layer behavior (pairing drift, disconnect/reconnect) can only be validated against the bar's actual "Cocina Comandas" printer — not attempted here, per production caution.
+
 ## Self-Review Notes
 
 - **Spec coverage:** All 8 design-doc items map to tasks — #1 auth → A2; #2 production server/timeout/breaker → A3+A4; #3 durable state → A1; #4 printer health → A5; #5 auto-retry → B5; #6 human-readable errors → B1+B3+B4+C2; #7 dead code → A6+C1; #8 testing/rollout → D1.
