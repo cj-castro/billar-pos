@@ -4,12 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.extensions import db, socketio
 from app.models.ticket import TicketLineItem, Ticket
 from app.models.print_job import PrintJob
-import os
-
-# Default is 127.0.0.1, not localhost (Phase 4 04-04 staging validation):
-# eventlet.monkey_patch() (DATA-03) breaks Python-level "localhost" DNS
-# resolution on this Windows environment — see tickets.py's PRINT_AGENT_URL.
-PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://127.0.0.1:9191')
+from app.services.print_client import send_print_job
 
 # Lazy prune: delete print_jobs older than 1 day, runs at most once per hour.
 _last_prune: float = 0.0
@@ -165,21 +160,17 @@ def print_queue_chit(item_id):
         'sent_at': item.sent_at.isoformat() if item.sent_at else '',
     }
 
-    try:
-        import requests as http_requests
-        r = http_requests.post(f'{PRINT_AGENT_URL}/chit', json=chit_data, timeout=8)
-        if r.ok:
-            job.status = 'PRINTED'
-            job.printed_at = datetime.now(timezone.utc)
-            item.needs_reprint = False
-            db.session.commit()
-            return jsonify({'ok': True, 'job_id': job.id})
-        raise RuntimeError(r.text)
-    except Exception as e:
-        err_msg = str(e)
+    ok, error_code, error_message = send_print_job('/chit', chit_data)
+    if ok:
+        job.status = 'PRINTED'
+        job.printed_at = datetime.now(timezone.utc)
+        item.needs_reprint = False
+        db.session.commit()
+        return jsonify({'ok': True, 'job_id': job.id})
 
     job.status = 'FAILED'
-    job.error_msg = err_msg
+    job.error_msg = error_message
+    job.error_code = error_code
     item.needs_reprint = True
     db.session.commit()
 
@@ -191,7 +182,8 @@ def print_queue_chit(item_id):
         'job_id':        job.id,
         'queue_item_id': item_id,
         'type':          'CHIT',
-        'error':         err_msg,
+        'error':         error_message,
+        'error_code':    error_code,
     }, room='manager')
 
-    return jsonify({'ok': False, 'job_id': job.id, 'error': err_msg}), 503
+    return jsonify({'ok': False, 'job_id': job.id, 'error': error_message, 'error_code': error_code}), 503

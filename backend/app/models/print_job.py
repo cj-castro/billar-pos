@@ -18,6 +18,7 @@ class PrintJob(db.Model):
     status        = db.Column(db.String(20), nullable=False, default='PENDING')
     requested_by  = db.Column(db.String(36), nullable=True)   # user.id
     error_msg     = db.Column(db.Text, nullable=True)
+    error_code    = db.Column(db.String(30), nullable=True)
     retry_count   = db.Column(db.Integer, default=0)
     created_at    = db.Column(db.DateTime(timezone=True), server_default=db.func.now())
     printed_at    = db.Column(db.DateTime(timezone=True), nullable=True)
@@ -31,6 +32,7 @@ class PrintJob(db.Model):
             'status':        self.status,
             'retry_count':   self.retry_count,
             'error_msg':     self.error_msg,
+            'error_code':    self.error_code,
             'created_at':    self.created_at.isoformat() if self.created_at else None,
             'printed_at':    self.printed_at.isoformat() if self.printed_at else None,
         }
