@@ -1117,6 +1117,9 @@ def create_app(config_class=Config):
                 'timestamp': datetime.now(timezone.utc).isoformat(),
             }, 503
 
+    from app.services import print_retry_svc
+    print_retry_svc.start(app, socketio)
+
     return app
 
 
