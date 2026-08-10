@@ -59,7 +59,7 @@ Write-Host "`n=== PostgreSQL 15 Native Windows Service Installer ===" -Foregroun
 # Step 1: Parse repo-root .env into a hashtable (same values docker-compose.yml
 #         itself reads via ${VAR:-default}) — never hardcode secrets here.
 # ---------------------------------------------------------------------------
-Write-Host "`n[1/7] Reading configuration from .env..."
+Write-Host "`n[1/8] Reading configuration from .env..."
 
 function Read-DotEnv {
     param([string]$Path)
@@ -122,7 +122,7 @@ $PreExistingPgServiceNames = @(Get-Service | Where-Object { $_.Name -like "postg
 #         the direct-download fallback — same fallback-chain shape as
 #         scripts/install-nssm-print-agent.ps1's NSSM locate/install logic).
 # ---------------------------------------------------------------------------
-Write-Host "`n[2/7] Installing PostgreSQL $PgVersion (port $PgPort)..."
+Write-Host "`n[2/8] Installing PostgreSQL $PgVersion (port $PgPort)..."
 
 $installed = $false
 try {
@@ -157,7 +157,7 @@ if (-not $installed) {
 #         installer register slightly different names) and record it for
 #         Plan 05's install-all-native-services.ps1 (NSSM DependOnService).
 # ---------------------------------------------------------------------------
-Write-Host "`n[3/7] Discovering registered Postgres service name..."
+Write-Host "`n[3/8] Discovering registered Postgres service name..."
 
 if ($PreviouslyDiscoveredPgService) {
     $PgService = $PreviouslyDiscoveredPgService
@@ -201,7 +201,7 @@ Write-Host "   Written to $PgServiceNameFile and $PgPortFile" -ForegroundColor G
 # Step 4: Locate the Postgres bin dir and create the app role + database
 #         (matching docker-compose.yml's POSTGRES_USER/POSTGRES_DB exactly).
 # ---------------------------------------------------------------------------
-Write-Host "`n[4/7] Creating application role and database..."
+Write-Host "`n[4/8] Creating application role and database..."
 
 $PgBin = "C:\Program Files\PostgreSQL\$PgVersion\bin"
 if (-not (Test-Path $PgBin)) {
@@ -263,7 +263,7 @@ try {
 #       (PostgreSQL 15's own modern installer default).
 #   (3) Deliberately do NOT open a Windows Firewall rule for port 5432.
 # ---------------------------------------------------------------------------
-Write-Host "`n[5/7] Hardening listen_addresses and pg_hba.conf auth..."
+Write-Host "`n[5/8] Hardening listen_addresses and pg_hba.conf auth..."
 
 $PgDataDir = "C:\Program Files\PostgreSQL\$PgVersion\data"
 $PgConf    = Join-Path $PgDataDir "postgresql.conf"
@@ -305,7 +305,7 @@ if (Test-Path $PgHba) {
 # ---------------------------------------------------------------------------
 # Step 6: Restart the service to pick up config changes, then verify.
 # ---------------------------------------------------------------------------
-Write-Host "`n[6/7] Restarting service and verifying connection..."
+Write-Host "`n[6/8] Restarting service and verifying connection..."
 
 Restart-Service $PgService
 Start-Sleep -Seconds 4
@@ -329,12 +329,30 @@ try {
 #         for the full rationale). Runs automatically on every fresh install
 #         so this is never a separate manual step an operator can forget.
 # ---------------------------------------------------------------------------
-Write-Host "`n[7/7] Configuring crash-restart failure recovery..."
+Write-Host "`n[7/8] Configuring crash-restart failure recovery..."
 $FailureRecoveryScript = Join-Path $BaseDir "scripts\configure-postgres-failure-recovery.ps1"
 if (Test-Path $FailureRecoveryScript) {
     & $FailureRecoveryScript
 } else {
     Write-Host "   WARNING: $FailureRecoveryScript not found -- skipping failure-recovery configuration. Postgres is installed and running, but has no crash-restart policy yet." -ForegroundColor Yellow
+}
+
+# ---------------------------------------------------------------------------
+# Step 8: Register the Task Scheduler watchdog (SUP-01 safety net -- closes
+#         the residual gap Step 7's sc.exe failure/failureflag config alone
+#         cannot cover, since pg_ctl.exe runservice self-reports exit code 0
+#         when its supervised postmaster dies unexpectedly; confirmed via a
+#         real live kill test, Plan 04-05 Task 1). See
+#         install-postgres-watchdog-task.ps1 and watchdog-postgres.ps1 for
+#         the full explanation. Runs automatically on every fresh install,
+#         same wiring pattern as Step 7.
+# ---------------------------------------------------------------------------
+Write-Host "`n[8/8] Registering Postgres watchdog Scheduled Task..."
+$WatchdogInstallScript = Join-Path $BaseDir "scripts\install-postgres-watchdog-task.ps1"
+if (Test-Path $WatchdogInstallScript) {
+    & $WatchdogInstallScript
+} else {
+    Write-Host "   WARNING: $WatchdogInstallScript not found -- skipping watchdog registration. Postgres is installed and running, but has no Task Scheduler safety net if it ever crashes without SCM noticing." -ForegroundColor Yellow
 }
 
 Write-Host "`n=== Done! ==================================================" -ForegroundColor Cyan
