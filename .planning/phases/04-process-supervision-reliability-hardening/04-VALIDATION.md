@@ -1,11 +1,11 @@
 ---
 phase: 04-process-supervision-reliability-hardening
-plan: 04
-validated: 2026-08-09
-scope: staging (WIDOWSVAIL, 192.168.1.18) only — no bar-machine deployment occurred
+plan: 05
+validated: 2026-08-10
+scope: staging (WIDOWSVAIL, 192.168.1.18 → 192.168.1.19 after Plan 04-05's reboot/DHCP reassignment) only — no bar-machine deployment occurred
 ---
 
-# Phase 4 Validation (Partial) — Process Supervision & Reliability Hardening
+# Phase 4 Validation (Complete) — Process Supervision & Reliability Hardening
 
 Every file Plans 04-01/04-02/04-03 produced was pushed to the real staging Windows
 machine (`C:\Users\giris\billiards-staging`, a file copy per Phase 2/3 precedent — pushed
@@ -13,9 +13,13 @@ via `scp`, never `git pull`) and exercised live: `backend/app/__init__.py`, `bac
 `backend/service_entry.py`, `scripts/check-health.ps1`,
 `scripts/configure-postgres-failure-recovery.ps1`, `scripts/install-postgres-native.ps1`,
 plus `scripts/install-nssm-print-agent.ps1`. Live execution surfaced two real, previously
-undetected bugs (documented below, both found and fixed during this validation) and one
-genuine environment-separation issue (documented, not fixed — see SUP-01 (partial) below).
-No placeholder text; every PASS/FAIL/PARTIAL below is backed by real staging command output.
+undetected bugs (documented below, both found and fixed during Plan 04-04) and one
+genuine environment-separation issue (documented, not fixed — TelegramBot, see SUP-01
+(full) below). Plan 04-05 then ran the full live 6-service kill-isolation matrix and an
+actual reboot, found and fixed one more real gap (Postgres's crash-restart path), and
+completed this document with SUP-01 (full)/SUP-02/SUP-03 and the final Summary table
+below. No placeholder text; every PASS/FAIL/PARTIAL below is backed by real staging
+command output.
 
 ## NET-02 — Backend warns (never blocks) when the print agent is unreachable
 
@@ -137,9 +141,11 @@ observed. `grep -rn "threading\.Thread(" backend/` (already confirmed zero match
 `04-DATA-03-VERIFICATION.md`) remains the case — no raw thread usage was introduced during
 this plan's fixes either.
 
-## SUP-01 (partial) — Postgres failure-recovery, print-agent install, TelegramBot diagnosis
+## SUP-01 (partial, Plan 04-04) — Postgres failure-recovery, print-agent install, TelegramBot diagnosis
 
-**Status: PARTIAL** (as planned — full 6-service kill-isolation matrix continues in Plan 04-05)
+> **Superseded by "SUP-01 (full)" below.** This section is preserved as the historical record of Plan 04-04's Postgres failure-recovery policy application, print-agent install, and TelegramBot diagnosis. Plan 04-05 completed the full 6-service live kill-isolation matrix and found (then closed) a real gap in the Postgres recovery path this section's `sc.exe qfailure` evidence alone did not surface — see "SUP-01 (full)" for the definitive, current status.
+
+**Status: PARTIAL** (as planned — full 6-service kill-isolation matrix continued in Plan 04-05)
 
 **Postgres failure-recovery policy — PASS.** `scripts\configure-postgres-failure-recovery.ps1`
 ran against staging's already-installed `postgresql-x64-15` service. `sc.exe qfailure`
@@ -198,29 +204,96 @@ real bot's polling connection. Resolving this requires a staging-specific Telegr
 
 `Get-Service BilliardBarTelegramBot` final status: `Stopped` (intentional).
 
+## SUP-01 (full, Plan 04-05) — All 6 services individually force-killed, real crash-restart proven
+
+**Status: PASS** (real bug found live, fixed with a Task Scheduler watchdog, and re-verified — see below)
+
+**Methodology correction found live (first cycle):** the naive approach of reading `(Get-CimInstance Win32_Service -Filter "Name='<svc>'").ProcessId` and killing that PID does **not** correctly exercise NSSM's `AppExit Default Restart` for the 5 NSSM-wrapped services — that PID is NSSM's own wrapper process, not the application it supervises. Confirmed by observing `BilliardBarPrintAgent` fail to recover for 35s when its wrapper PID was killed directly (no Windows Recovery is configured for these services; only NSSM's own child-death detection triggers a restart, and killing the wrapper bypasses that entirely). Corrected by using `nssm.exe processes <svc>` to identify each service's actual direct-child PID and re-running every cycle against the correct target.
+
+**Results — 4 NSSM-wrapped services, correct child PID killed:**
+
+| Service | Direct-child PID before | PID after | Recovery time | Other services' PIDs |
+|---|---|---|---|---|
+| BilliardBarPrintAgent | 17984 | 10096 | 6.6s | Unchanged (confirmed) |
+| BilliardBarBackend | 2616 | 21680 | 6.6s | Unchanged (confirmed) |
+| BilliardBarScheduler | 18100 | 4568 | 6.6s | Unchanged (confirmed) |
+| BilliardBarNginx | 5508 (master) | 22216 | 6.6s | Unchanged (confirmed) |
+
+For every cycle above, all 4 other NSSM services' PIDs were captured before and after and diffed programmatically — all `UNCHANGED`. No service was manually restarted during any cycle; only NSSM's own `AppExit Default Restart` (`AppRestartDelay 5000`) brought each one back, consistently at 6.6s (5s configured delay + ~1.6s process startup).
+
+**PostgreSQL — real gap found, then genuinely fixed:**
+
+`Stop-Process -Force` on the actual postmaster (the real listener on port 5433 — same SCM-registered-PID-vs-real-listener mismatch first documented in Plan 04-04's partial section above, confirmed again here: SCM PID 9844 was `pg_ctl.exe`, the real listener was PID 15816) left `postgresql-x64-15` `Stopped` for 33+ seconds with **no auto-restart**, even after applying `sc.exe failureflag postgresql-x64-15 1` (commit `bd603f22`) in an attempt to fix it. Root cause, confirmed via `sc.exe qfailureflag` and repeated live testing: `pg_ctl.exe runservice` self-reports **exit code 0** when its supervised postmaster dies unexpectedly — a "clean" self-report from pg_ctl's own perspective — and Windows SCM never invokes Recovery actions on a literal `ERROR_SUCCESS` (0) exit, regardless of `FAILURE_ACTIONS_ON_NONCRASH_FAILURES`. No `sc.exe` configuration can close this specific gap.
+
+**User-approved fix:** built and deployed a minimal Task Scheduler watchdog (`scripts/watchdog-postgres.ps1` + `scripts/install-postgres-watchdog-task.ps1`, wired into `install-postgres-native.ps1` Step 8 — commits `d4a394e1`, `df694ce2`). Registered live on staging: `BilliardBarPostgresWatchdog`, triggers `AtStartup` + every 1 minute for 10 years, runs as `SYSTEM`, idempotent (unregister-then-reregister). Logs only when it takes action (never on a healthy check).
+
+**Re-verified live, for real** (this is the definitive SUP-01 evidence for Postgres):
+- Killed the real postmaster (PID 7604) at `2026-08-10T01:42:46.75-06:00`, **no manual `Start-Service` performed**.
+- `C:\POS\logs\postgres-watchdog.log`:
+  ```
+  2026-08-10 01:43:33.485 WARNING watchdog-postgres: service 'postgresql-x64-15' was NOT Running (status=Stopped) -- issuing Start-Service.
+  2026-08-10 01:43:39.013 INFO watchdog-postgres: Start-Service issued for 'postgresql-x64-15' -- status now Running.
+  ```
+- Total recovery: **52.8s** (bounded by the watchdog's 1-minute polling interval, not instantaneous like NSSM's 6.6s — an accepted, documented tradeoff of this safety-net approach vs. the sub-10s NSSM path).
+- New postmaster PID confirmed listening on port 5433 (7392, distinct from the killed PID); new SCM wrapper PID also distinct (20824), confirming a genuinely fresh service start, not a leftover process.
+- All 4 other services' PIDs captured before/after this cycle too — all `UNCHANGED`.
+- `check-health.ps1` re-run immediately after: identical clean result to every prior baseline (`status=ok db=connected`, nginx serving SPA, print agent reachable) — the same POS state as before the kill, fully self-healed with zero manual intervention.
+
+**TelegramBot — deliberately excluded from this matrix, per explicit prior user decision (Plan 04-04):** its `TELEGRAM_TOKEN` conflicts with a live production poller; starting it on staging to run a kill cycle would directly contend with the production bar's real bot. Confirmed during the reboot test (SUP-02/SUP-03 below) that its `StartMode` is `Disabled` (not just manually `Stopped`), a deliberate and durable safeguard. This is the one service SUP-01's live matrix does not (and, per that prior decision, should not) cover — documented here plainly rather than silently omitted.
+
+## SUP-02 — Correct dependency-ordered startup at boot
+
+**Status: PASS**
+
+A real `Restart-Computer -Force` was issued on staging (`2026-08-09T23:53:36Z`) — not a simulated stop/start. Startup order reconstructed from `LastBootUpTime` (`2026-08-10T01:31:47` local) plus millisecond-precision NSSM Application-log events and `Get-Process` `StartTime` values (System-log `7036` "service entered running state" events were not emitted for these services on this box — a pre-existing OS logging-verbosity characteristic unrelated to this phase; the NSSM provider's own events supplied full-precision timestamps instead):
+
+| Time (local) | Event |
+|---|---|
+| 01:32:00.708 | `BilliardBarPrintAgent` received START (no `DependOnService` wiring — starts independently, as designed) |
+| ~01:32:00 | Postgres (`postgresql-x64-15`) process start |
+| 01:32:01.199 | `BilliardBarBackend` received START control — **after** Postgres |
+| 01:32:01.211 | `BilliardBarScheduler` received START control — **after** Postgres |
+| 01:32:02.768 | Backend's actual process (`service_entry.py`) started |
+| 01:32:02.774 | `BilliardBarNginx` received START control — **after** Backend's process started |
+| 01:32:04.304 | Nginx's actual process (`nginx.exe`) started |
+
+This exactly matches the configured `DependOnService` chain (`install-all-native-services.ps1:561-566`: PostgreSQL → Backend/Scheduler/TelegramBot → Nginx). No repeated "received START control" events for any service — a single clean start, no crash-loop during boot. `install-all-native-services.ps1`'s existing wiring is validated as working correctly on a real boot, not re-implemented.
+
+## SUP-03 — All services auto-start after reboot, gated on real responsiveness
+
+**Status: PASS**
+
+Following the same reboot above: all `SERVICE_AUTO_START` services reached `Running` with zero manual intervention (uptime ~150s+ at verification time). `check-health.ps1`, run only once uptime exceeded the required 60s, confirmed real responsiveness (not just process existence): `status=ok db=connected` (SUP-04's DB-backed check), nginx serving the SPA, print agent reachable. This is the same script and the same PASS/FAIL shape used in every other check-health.ps1 capture throughout this plan and Plan 04-04 — a consistent, repeatable "is the POS actually up" signal.
+
+`BilliardBarTelegramBot` correctly did **not** attempt to start at boot (`StartMode: Disabled`, confirmed via `Get-CimInstance Win32_Service`) — this is the deliberate, durable outcome of Plan 04-04's decision to leave it disabled rather than a bug; if it had still been merely `Stopped` (not `Disabled`), Windows would have auto-started it at this reboot and re-triggered the exact production-token contention that decision was meant to avoid.
+
+**Deviation note (DHCP IP change, expected per CLAUDE.md):** staging's IP changed after this reboot (`192.168.1.18` → `.19`), exactly as `CLAUDE.md`'s "Staging machine access" section warns can happen. This did not affect the boot-order evidence above (reconstructed from on-box timestamps, independent of the SSH session) — it only affected when reconnection could be confirmed. The orchestrator/user identified and confirmed the new IP; verification then proceeded normally on `.19`.
+
 ## Summary
 
 | Requirement | Status | Key evidence |
 |---|---|---|
 | NET-02 | PASS | False-positive WARN found live (eventlet `localhost` DNS bug), fixed (commit `cd86b4d9`), re-verified: `INFO app Print agent reachable at http://127.0.0.1:9191` |
-| SUP-04 | PASS | Real `SELECT 1` health check: 200/`ok`/`connected` with Postgres up, 503/`error` with it down, back to 200 after restart; `check-health.ps1` confirms |
+| SUP-04 | PASS | Real `SELECT 1` health check: 200/`ok`/`connected` with Postgres up, 503/`error` with it down, back to 200 after restart; `check-health.ps1` confirms; re-confirmed again post-reboot (SUP-03) |
 | DATA-02 | PASS | 2 deferred constraint triggers confirmed installed; smoke test found-and-fixed a real live-only bug (commit `a3fe34e4`), re-verified open→201, close→200, twice |
-| DATA-03 | PASS | `eventlet.monkey_patch()` + `psycopg2_patcher.make_psycopg_green()` confirmed live and stable; the DATA-02 smoke-test bug is exactly the class of live-only regression this requirement exists to catch, and it's now fixed |
-| SUP-01 (partial) | PARTIAL | Postgres failure-recovery policy applied and confirmed (`sc.exe qfailure`); print agent installed and Running for the first time; TelegramBot accurately diagnosed (shared-token `Conflict` with production) and documented, left `Stopped` per explicit user decision — full 6-service kill-isolation matrix continues in Plan 04-05 |
+| DATA-03 | PASS | `eventlet.monkey_patch()` + `psycopg2_patcher.make_psycopg_green()` confirmed live and stable across two separate plans' worth of restarts, kills, and a full reboot; the DATA-02 smoke-test bug is exactly the class of live-only regression this requirement exists to catch, and it's now fixed |
+| SUP-01 | PASS | All 6 services individually force-killed live. 4 NSSM services: `AppExit Default Restart` confirmed, 6.6s recovery each, other services' PIDs unchanged. Postgres: real gap found (pg_ctl.exe self-reports exit 0, `sc.exe` config alone insufficient), fixed with a Task Scheduler watchdog (commits `bd603f22`, `d4a394e1`, `df694ce2`), re-verified live — 52.8s watchdog-driven recovery, zero manual intervention, other services' PIDs unchanged. TelegramBot deliberately excluded per prior user decision (production-token conflict). |
+| SUP-02 | PASS | Real `Restart-Computer -Force`; NSSM event-log timestamps confirm Postgres → Backend/Scheduler → Nginx ordering exactly matches the configured `DependOnService` chain, no crash-loop during boot |
+| SUP-03 | PASS | All `SERVICE_AUTO_START` services reached `Running` with zero manual intervention after a real reboot; `check-health.ps1` (run after 60s+ uptime) confirms real DB/HTTP responsiveness, not just process existence; TelegramBot correctly stayed `Disabled` (not re-triggered) |
 
-**Scope confirmation:** All execution above happened on the staging machine
-(`192.168.1.18`, WIDOWSVAIL) only. No script was run against, and no service was touched on,
-the live bar machine. D-06 was respected throughout — no automated cleanup ran against any
-database anywhere in this phase; the only ticket-state changes made were 4 test tickets this
-task itself opened and then closed again via the normal `/close` API (not direct DB writes),
-all during smoke-test verification, none left open.
+**Scope confirmation:** All execution across this entire phase (Plans 04-01 through 04-05) happened
+on the staging machine (WIDOWSVAIL, `192.168.1.18` → `.19` after the Plan 04-05 reboot's DHCP
+reassignment) only. No script was run against, and no service was touched on, the live bar
+machine. **D-06 was respected throughout Phase 4** — no automated write or cleanup action ran
+against the live bar machine's production database at any point, in this plan or any prior
+Phase 4 plan; the only ticket-state changes made anywhere in this phase were the 4 test tickets
+Plan 04-04 opened and closed via the normal `/close` API during smoke-test verification (staging
+only, not direct DB writes), none left open.
 
-**Deferred to Plan 04-05:** SUP-01 (full 6-service kill-isolation matrix), SUP-02, SUP-03 —
-not evaluated in this plan; results here cover only the Postgres failure-recovery policy,
-the print-agent install, and the TelegramBot diagnosis, as scoped.
-
-**Follow-up (not blocking, noted for awareness):** staging's Postgres SCM-registered PID does
-not match its actual listening postmaster PID, and `Stop-Service postgresql-x64-15` is blocked
-by SCM's dependent-service check (Backend/Nginx/Scheduler are all declared dependents) — worth
-investigating before Plan 04-05's live crash/reboot tests rely on `Stop-Service`/
-`Restart-Service` against Postgres specifically.
+**Follow-up (documented, not blocking):** staging's Postgres SCM-registered PID still does not
+match its actual listening postmaster PID (a staging service-registration characteristic, not a
+code defect) — the watchdog script correctly works around this by checking `Get-Service` status
+rather than depending on a specific PID. The watchdog's ~1-minute detection window (vs. NSSM's
+sub-10s `AppExit` path) is an accepted, documented tradeoff — closing it further (e.g.
+re-wrapping Postgres under NSSM for true sub-10s parity) is a larger architectural change,
+deliberately out of scope for this phase's fix.
