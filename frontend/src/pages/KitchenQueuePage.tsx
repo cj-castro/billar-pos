@@ -7,6 +7,7 @@ import toast from 'react-hot-toast'
 import { formatDistanceToNow } from 'date-fns'
 import { useKDSAlert } from '../hooks/useKDSAlert'
 import { IconClock, IconPrinter, IconWarning, IconCheck, IconRefresh } from '../components/Icon'
+import { getPrintErrorMessage } from '../utils/printErrorText'
 
 const STATUS_ORDER = ['SENT', 'IN_PROGRESS', 'READY']
 const NEXT_STATUS: Record<string, string> = { SENT: 'IN_PROGRESS', IN_PROGRESS: 'READY', READY: 'SERVED' }
@@ -170,8 +171,8 @@ export default function KitchenQueuePage() {
     try {
       await client.post(`/queue/${itemId}/print`)
       toast.success('Comanda enviada a imprimir')
-    } catch {
-      toast.error('Error al imprimir')
+    } catch (err: any) {
+      toast.error(getPrintErrorMessage(err.response?.data?.error_code))
     }
   }
 

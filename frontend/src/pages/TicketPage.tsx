@@ -18,6 +18,7 @@ import {
   getPendingJob, storePendingJob, removePendingJob,
   hasPrinted, markPrinted,
 } from '../utils/printJobStorage'
+import { getPrintErrorMessage } from '../utils/printErrorText'
 import { IconPencil, IconCheck, IconX, IconUser } from '../components/Icon'
 
 
@@ -241,12 +242,11 @@ export default function TicketPage() {
       toast.success('Enviado a impresora')
     } catch (err: any) {
       const jobId: string | undefined = err.response?.data?.job_id
-      const msg = err.response?.data?.error || 'No se pudo imprimir'
       if (jobId) {
         storePendingJob({ job_id: jobId, ticketId, type: 'RECEIPT', timestamp: Date.now() })
         setReprintBannerKey((k) => k + 1)
       }
-      toast.error(msg)
+      toast.error(getPrintErrorMessage(err.response?.data?.error_code))
     } finally { setPrintingThermal(false) }
   }
 
@@ -261,7 +261,7 @@ export default function TicketPage() {
         storePendingJob({ job_id: jobId, ticketId, type: 'REPRINT', timestamp: Date.now() })
         setReprintBannerKey((k) => k + 1)
       }
-      toast.error(err.response?.data?.error || 'Error al reimprimir')
+      toast.error(getPrintErrorMessage(err.response?.data?.error_code))
     } finally {
       setShowPinForReprint(null)
     }

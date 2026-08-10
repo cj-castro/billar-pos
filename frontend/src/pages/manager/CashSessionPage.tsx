@@ -8,6 +8,7 @@ import { printCashReconciliation, printTipDistribution, type ReconSummary } from
 import EditPaymentModal from '../../components/EditPaymentModal'
 import { formatMXN } from '../../utils/money'
 import { IconWarning, IconChair, IconGhost, IconRefresh, IconTrash, IconPencil, IconPrinter, IconSearch, IconX, IconCash, IconCard, IconReceipt, IconLock } from '../../components/Icon'
+import { getPrintErrorMessage } from '../../utils/printErrorText'
 
 const cents = formatMXN
 function diff(n: number) {
@@ -223,7 +224,7 @@ export default function CashSessionPage() {
       await client.post(`/tickets/${ticketId}/print`)
       toast.success('Enviado a impresora térmica')
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'No se pudo imprimir')
+      toast.error(getPrintErrorMessage(err.response?.data?.error_code))
     } finally { setPrintingTicket(null) }
   }
 
