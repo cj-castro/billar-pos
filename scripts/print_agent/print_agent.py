@@ -35,6 +35,16 @@ KITCHEN_PRINTER_NAME = os.environ.get('KITCHEN_PRINTER_NAME', '')  # e.g. "Cocin
 PORT = int(os.environ.get('PRINT_PORT', 9191))
 CHARS = 32          # POS-58 characters per line (normal font)
 
+PRINT_AGENT_TOKEN = os.environ.get('PRINT_AGENT_TOKEN', '')  # empty = auth disabled (dev only)
+
+
+def _check_auth() -> bool:
+    """True if the request carries the correct token, or auth is disabled
+    (PRINT_AGENT_TOKEN unset — dev mode only, never leave unset in production)."""
+    if not PRINT_AGENT_TOKEN:
+        return True
+    return request.headers.get('X-Print-Token') == PRINT_AGENT_TOKEN
+
 # ---------------------------------------------------------------------------
 # ESC/POS helpers
 # ---------------------------------------------------------------------------
@@ -927,6 +937,8 @@ def health():
 
 @app.route('/print', methods=['POST'])
 def print_receipt():
+    if not _check_auth():
+        return jsonify({'error': 'UNAUTHORIZED'}), 401
     data    = request.get_json(force=True)
     job_id  = data.get('job_id')
     unpaid  = data.pop('unpaid', False)
@@ -1016,6 +1028,8 @@ def print_chit():
     KITCHEN → KITCHEN_PRINTER_NAME  (cocina)
     BAR     → PRINTER_NAME          (la barra)
     """
+    if not _check_auth():
+        return jsonify({'error': 'UNAUTHORIZED'}), 401
     data      = request.get_json(force=True)
     job_id    = data.get('job_id')
     chit_kind = 'kitchen' if data.get('type', '').upper() == 'KITCHEN' else 'receipt'
@@ -1032,6 +1046,8 @@ def print_chit():
 
 @app.route('/printers')
 def list_printers():
+    if not _check_auth():
+        return jsonify({'error': 'UNAUTHORIZED'}), 401
     try:
         import win32print
         printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
