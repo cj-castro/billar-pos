@@ -15,6 +15,7 @@ from collections import Counter
 from datetime import datetime
 from typing import Optional
 from flask import Flask, request, jsonify
+import dedup_store
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger(__name__)
@@ -33,28 +34,6 @@ PRINTER_NAME         = os.environ.get('PRINTER_NAME', '')          # e.g. "La Ba
 KITCHEN_PRINTER_NAME = os.environ.get('KITCHEN_PRINTER_NAME', '')  # e.g. "Cocina Comandas"
 PORT = int(os.environ.get('PRINT_PORT', 9191))
 CHARS = 32          # POS-58 characters per line (normal font)
-
-# ---------------------------------------------------------------------------
-# Idempotency: track recently-printed job_ids to avoid duplicate prints.
-# TTL of 60 s covers accidental double-taps and mobile retry storms.
-# ---------------------------------------------------------------------------
-_DEDUP_TTL = 60.0   # seconds
-_printed_jobs: dict[str, float] = {}   # job_id → unix timestamp
-
-def _dedup_check(job_id: Optional[str]) -> bool:
-    """Return True if job_id was already printed within the TTL window."""
-    if not job_id:
-        return False
-    now = time.time()
-    # Evict stale entries to keep the dict small
-    stale = [k for k, ts in _printed_jobs.items() if now - ts > _DEDUP_TTL]
-    for k in stale:
-        del _printed_jobs[k]
-    return job_id in _printed_jobs
-
-def _dedup_record(job_id: Optional[str]):
-    if job_id:
-        _printed_jobs[job_id] = time.time()
 
 # ---------------------------------------------------------------------------
 # ESC/POS helpers
@@ -953,13 +932,13 @@ def print_receipt():
     unpaid  = data.pop('unpaid', False)
     reprint = data.pop('reprint', False)
 
-    if _dedup_check(job_id):
+    if dedup_store.was_printed(job_id):
         log.info(f'Dedup hit for job_id={job_id} — skipping duplicate print')
         return jsonify({'ok': True, 'duplicate': True})
 
     ok = print_receipt_html(data, unpaid=unpaid, reprint=reprint)
     if ok:
-        _dedup_record(job_id)
+        dedup_store.record_printed(job_id)
     return jsonify({'ok': ok}), (200 if ok else 500)
 
 
@@ -1041,14 +1020,14 @@ def print_chit():
     job_id    = data.get('job_id')
     chit_kind = 'kitchen' if data.get('type', '').upper() == 'KITCHEN' else 'receipt'
 
-    if _dedup_check(job_id):
+    if dedup_store.was_printed(job_id):
         log.info(f'Dedup hit for chit job_id={job_id} — skipping duplicate print')
         return jsonify({'ok': True, 'duplicate': True})
 
     raw = format_chit(data)
     ok  = print_raw(raw, kind=chit_kind)
     if ok:
-        _dedup_record(job_id)
+        dedup_store.record_printed(job_id)
     return jsonify({'ok': ok}), (200 if ok else 500)
 
 @app.route('/printers')
