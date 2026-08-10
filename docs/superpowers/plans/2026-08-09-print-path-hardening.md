@@ -1438,6 +1438,15 @@ git commit -m "test(print-agent): add auth-enforcement and health-status checks 
 
 ---
 
+## Post-Merge Corrections
+
+Found while preparing Task D1, after all three lanes were merged and full-suite-verified:
+
+1. **`test_modifier_promotions.py` dynamic-load regression.** `backend/tests/test_modifier_promotions.py` loads `print_agent.py` via `importlib.util.spec_from_file_location`, which doesn't add the module's own directory to `sys.path`. Harmless while `print_agent.py` was self-contained; broken once Task A1/A3 gave it sibling imports (`dedup_store`, `circuit_breaker`). Fixed by inserting the agent's directory into `sys.path` before `exec_module` in the test loader. Commit `40e04cb6`.
+2. **Task A4's default bind was wrong.** The task as written defaulted `PRINT_AGENT_BIND` to `127.0.0.1`, reasoning only from the backend-to-agent path (same host under native Windows Services). It missed that `scripts/install-nssm-print-agent.ps1` deliberately opens the Windows Firewall on port 9191 for LAN/mobile access — a real, intentional capability, not an oversight — and `test-print-agent.ps1`'s existing T4 already checks it. Narrowing the default would have silently broken that. Reverted the default to `0.0.0.0`; `PRINT_AGENT_TOKEN` (Task A2) is the actual access control, `PRINT_AGENT_BIND` remains an opt-in override. Commit `9161d8e3`.
+
+Both were caught by integration verification *before* touching the staging machine — exactly the value of not skipping that step.
+
 ## Self-Review Notes
 
 - **Spec coverage:** All 8 design-doc items map to tasks — #1 auth → A2; #2 production server/timeout/breaker → A3+A4; #3 durable state → A1; #4 printer health → A5; #5 auto-retry → B5; #6 human-readable errors → B1+B3+B4+C2; #7 dead code → A6+C1; #8 testing/rollout → D1.
