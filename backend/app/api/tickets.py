@@ -1,7 +1,4 @@
 import os
-import json
-from urllib.request import urlopen, Request
-from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
@@ -18,14 +15,8 @@ from app.models.inventory import InventoryItem, SaleItemCost
 from app.models.promotion import Promotion, TicketPromoDecision
 from app.models.waiting_list import WaitingListEntry
 from app.services import audit_svc, billing, inventory_svc, promotion_svc
+from app.services.print_client import send_print_job
 from app.config import Config
-
-# Default is 127.0.0.1, not localhost (Phase 4 04-04 staging validation):
-# eventlet.monkey_patch() (DATA-03) replaces Python's DNS resolution with
-# eventlet's greendns, which fails to resolve the literal hostname "localhost"
-# on this Windows environment (socket.gaierror: No address found), while
-# 127.0.0.1 (an IP literal, no DNS lookup needed) connects fine.
-PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://127.0.0.1:9191')
 
 tickets_bp = Blueprint('tickets', __name__)
 
@@ -44,7 +35,6 @@ def _spawn_auto_print_chit(app, item_id: str, chit_payload: dict) -> None:
             from app.models.ticket import TicketLineItem
             from app.models.print_job import PrintJob
             from app.extensions import db as _db, socketio as _sio
-            import requests as _req
 
             item = TicketLineItem.query.get(item_id)
             if not item:
@@ -54,22 +44,17 @@ def _spawn_auto_print_chit(app, item_id: str, chit_payload: dict) -> None:
             _db.session.add(job)
             _db.session.commit()
 
-            try:
-                r = _req.post(
-                    f'{PRINT_AGENT_URL}/chit',
-                    json={**chit_payload, 'job_id': job.id},
-                    timeout=8,
-                )
-                if r.ok:
-                    job.status = 'PRINTED'
-                    job.printed_at = datetime.now(timezone.utc)
-                    _db.session.commit()
-                else:
-                    raise RuntimeError(f'agent {r.status_code}: {r.text[:120]}')
-            except Exception as exc:
+            from app.services.print_client import send_print_job as _send_print_job
+            ok, error_code, error_message = _send_print_job('/chit', {**chit_payload, 'job_id': job.id})
+            if ok:
+                job.status = 'PRINTED'
+                job.printed_at = datetime.now(timezone.utc)
+                _db.session.commit()
+            else:
                 try:
                     job.status = 'FAILED'
-                    job.error_msg = str(exc)
+                    job.error_msg = error_message
+                    job.error_code = error_code
                     item.needs_reprint = True
                     _db.session.commit()
                     routing = item.routing_dest.lower()
@@ -80,7 +65,8 @@ def _spawn_auto_print_chit(app, item_id: str, chit_payload: dict) -> None:
                         'job_id':        job.id,
                         'queue_item_id': item_id,
                         'type':          'CHIT',
-                        'error':         str(exc),
+                        'error':         error_message,
+                        'error_code':    error_code,
                     }, room='manager')
                 except Exception:
                     pass  # never raise from background greenlet
@@ -1464,43 +1450,29 @@ def print_ticket(ticket_id):
     payload['unpaid'] = unpaid
     payload['job_id'] = job.id
 
-    try:
-        body = json.dumps(payload).encode('utf-8')
-        req  = Request(f'{PRINT_AGENT_URL}/print', data=body,
-                       headers={'Content-Type': 'application/json'}, method='POST')
-        with urlopen(req, timeout=8) as resp:
-            if resp.status == 200:
-                job.status = 'PRINTED'
-                job.printed_at = datetime.now(timezone.utc)
-                db.session.commit()
-                return jsonify({'ok': True, 'job_id': job.id})
-            err = resp.read().decode()
-            raise RuntimeError(err)
-    except HTTPError as http_err:
-        # Print agent responded but with an error (e.g., formatting crash)
-        try:
-            body = http_err.read().decode()
-        except Exception:
-            body = str(http_err)
-        err_msg = f'Print agent error ({http_err.code}): {body}'
-    except URLError:
-        err_msg = 'Print agent not running. Start it on the Windows host.'
-    except Exception as exc:
-        err_msg = str(exc)
+    ok, error_code, error_message = send_print_job('/print', payload)
+    if ok:
+        job.status = 'PRINTED'
+        job.printed_at = datetime.now(timezone.utc)
+        db.session.commit()
+        return jsonify({'ok': True, 'job_id': job.id})
+    err_msg = error_message
 
     job.status = 'FAILED'
     job.error_msg = err_msg
+    job.error_code = error_code
     db.session.commit()
 
     socketio.emit('print:failed', {
-        'job_id':    job.id,
-        'ticket_id': ticket_id,
-        'type':      job.type,
-        'error':     err_msg,
+        'job_id':     job.id,
+        'ticket_id':  ticket_id,
+        'type':       job.type,
+        'error':      err_msg,
+        'error_code': error_code,
     }, room='manager')
 
     code = 503 if 'not running' in err_msg else 500
-    return jsonify({'ok': False, 'job_id': job.id, 'error': err_msg}), code
+    return jsonify({'ok': False, 'job_id': job.id, 'error': err_msg, 'error_code': error_code}), code
 
 
 @tickets_bp.route('/<ticket_id>/reprint', methods=['POST'])
@@ -1528,37 +1500,25 @@ def reprint_ticket(ticket_id):
     payload['reprint'] = True
     payload['job_id']  = job.id
 
-    try:
-        body = json.dumps(payload).encode('utf-8')
-        req  = Request(f'{PRINT_AGENT_URL}/print', data=body,
-                       headers={'Content-Type': 'application/json'}, method='POST')
-        with urlopen(req, timeout=8) as resp:
-            if resp.status == 200:
-                job.status = 'PRINTED'
-                job.printed_at = datetime.now(timezone.utc)
-                db.session.commit()
-                return jsonify({'ok': True, 'job_id': job.id})
-            raise RuntimeError(resp.read().decode())
-    except HTTPError as http_err:
-        try:
-            body = http_err.read().decode()
-        except Exception:
-            body = str(http_err)
-        err_msg = f'Print agent error ({http_err.code}): {body}'
-    except URLError:
-        err_msg = 'Print agent not running.'
-    except Exception as exc:
-        err_msg = str(exc)
+    ok, error_code, error_message = send_print_job('/print', payload)
+    if ok:
+        job.status = 'PRINTED'
+        job.printed_at = datetime.now(timezone.utc)
+        db.session.commit()
+        return jsonify({'ok': True, 'job_id': job.id})
+    err_msg = error_message
 
     job.status = 'FAILED'
     job.error_msg = err_msg
+    job.error_code = error_code
     db.session.commit()
 
     socketio.emit('print:failed', {
-        'job_id':    job.id,
-        'ticket_id': ticket_id,
-        'type':      'REPRINT',
-        'error':     err_msg,
+        'job_id':     job.id,
+        'ticket_id':  ticket_id,
+        'type':       'REPRINT',
+        'error':      err_msg,
+        'error_code': error_code,
     }, room='manager')
 
-    return jsonify({'ok': False, 'job_id': job.id, 'error': err_msg}), 500
+    return jsonify({'ok': False, 'job_id': job.id, 'error': err_msg, 'error_code': error_code}), 500
