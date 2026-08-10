@@ -755,6 +755,17 @@ def create_app(config_class=Config):
             run(stmt, 'step27')
         print("STEP 27: ghost-ticket structural invariant trigger installed")
 
+        # ── STEP 28: print_jobs.error_code (print-path hardening) ─────────────
+        # Structured failure classification (PRINTER_OFFLINE / PRINTER_ERROR /
+        # AGENT_UNREACHABLE / PRINT_UNKNOWN) alongside the existing free-text
+        # error_msg, so the frontend can show actionable copy instead of the
+        # raw agent error string.
+        run(
+            "ALTER TABLE print_jobs ADD COLUMN IF NOT EXISTS error_code VARCHAR(30)",
+            'step28',
+        )
+        print("STEP 28: print_jobs.error_code added")
+
 
     @app.cli.command('restate-costs')
     @click.option('--dry-run', is_flag=True, help='Report what would change without writing.')
