@@ -12,9 +12,12 @@ Concurrency strategy:
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timezone
 
+from sqlalchemy import text
+
 from app.extensions import db
 from app.models.inventory import (
     InventoryItem,
+    InventoryConversion,
     InventoryMovement,
     InsumoBase,
     ModifierInventoryRule,
@@ -115,42 +118,124 @@ def _lock_sorted(*item_ids: str) -> dict:
     return locked
 
 
+def _automatic_parents(item_ids) -> dict[str, str]:
+    """{child_item_id: parent_item_id} for active automatic conversions.
+
+    Only conversions that need no human: a cigarette pack becoming loose
+    cigarettes, a bottle becoming shots. Production recipes (a sauce bottle
+    becoming ramekins) are excluded by construction — they live in
+    production_recipes because someone has to actually portion them, and
+    counting them as available would let a waiter sell 84 ramekins that do not
+    physically exist.
+    """
+    ids = [i for i in set(item_ids) if i]
+    if not ids:
+        return {}
+    rows = InventoryConversion.query.filter(
+        InventoryConversion.to_item_id.in_(ids),
+        InventoryConversion.is_active.is_(True),
+        InventoryConversion.is_automatic.is_(True),
+    ).all()
+    return {r.to_item_id: r.from_item_id for r in rows}
+
+
+def _ensure_available(needed: dict, performed_by: str | None,
+                      reference_id: str | None = None) -> dict:
+    """Lock every row this transaction may touch, converting from parents if short.
+
+    This is what makes auto-conversion actually fire. Before it existed, a sale
+    of a loose cigarette checked only the loose item's stock: full packs on the
+    shelf were invisible, so the sale was refused with cartons sitting in the
+    drawer. fn_effective_available() reports the same combined figure but is
+    explicitly advisory — it takes no locks and reserves nothing — so it cannot
+    be used to gate a sale. fn_ensure_available() is the transactional
+    counterpart: it locks, converts, and writes the CONVERSION_OUT/IN movement
+    pair so the ledger stays balanced.
+
+    Locking rule: the union of children AND their parents is locked in one
+    ascending-id pass. Locking children first and letting the conversion take
+    the parent lock later would give two concurrent sales the opposite lock
+    order on a (child, parent) pair — a textbook deadlock, and one that would
+    only show up under exactly the Friday-night concurrency where it hurts.
+
+    Returns {item_id: InventoryItem} for the children, refreshed after any
+    conversion. Parents are locked but not returned; callers do not deduct them.
+    """
+    parents = _automatic_parents(needed.keys())
+    locked = _lock_sorted(*(set(needed) | set(parents.values())))
+
+    if not parents:
+        return {iid: locked[iid] for iid in needed}
+
+    # performed_by is required: fn_convert_stock writes movements, and a
+    # movement with a NULL actor is exactly the untraceable adjustment this
+    # whole project exists to eliminate.
+    if performed_by:
+        for iid in sorted(needed):
+            if iid not in parents:
+                continue
+            item = locked.get(iid)
+            if item is None or _d(item.stock_quantity) >= needed[iid]:
+                continue
+
+            # Returns 0 when the family's gate is closed, when no automatic
+            # conversion exists, or when the parent is itself short. All three
+            # leave the shortage for the caller to report.
+            db.session.execute(
+                text('SELECT fn_ensure_available(:item, :needed, :user, :ref)'),
+                {'item': iid, 'needed': needed[iid],
+                 'user': performed_by, 'ref': reference_id},
+            )
+            # fn_convert_stock updated both rows in SQL, behind the ORM's back.
+            # Expire so the next read reflects the conversion instead of the
+            # pre-conversion snapshot still sitting in the identity map.
+            db.session.expire(item)
+            parent = locked.get(parents[iid])
+            if parent is not None:
+                db.session.expire(parent)
+
+    return {iid: locked[iid] for iid in needed}
+
+
+# def _track_cig_sale(item: InventoryItem, qty_sold: Decimal):
+#     """Update OpenCigaretteBox tracking when CIG_SINGLE inventory is consumed."""
+#     if item.item_type != 'CIG_SINGLE':
+#         return
+#     from app.extensions import socketio
+
+#     open_box = (
+#         OpenCigaretteBox.query
+#         .filter_by(is_finished=False)
+#         .join(InventoryItem, OpenCigaretteBox.box_item_id == InventoryItem.id)
+#         .filter(InventoryItem.yields_item_id == item.id)
+#         .order_by(OpenCigaretteBox.opened_at.desc())
+#         .first()
+#     )
+#     if not open_box:
+#         return
+
+#     open_box.cigs_sold += int(qty_sold)
+
+#     if open_box.cigs_sold >= open_box.cigs_per_box:
+#         open_box.is_finished = True
+#         open_box.finished_at = _now()
+#         db.session.flush()
+#         socketio.emit('inventory:box_finished', {
+#             'brand':        open_box.brand,
+#             'open_box_id':  open_box.id,
+#             'cigs_per_box': open_box.cigs_per_box,
+#         })
+#     elif open_box.cigs_per_box - open_box.cigs_sold <= 3:
+#         db.session.flush()
+#         socketio.emit('inventory:box_low', {
+#             'brand':           open_box.brand,
+#             'open_box_id':     open_box.id,
+#             'cigs_remaining':  open_box.cigs_per_box - open_box.cigs_sold,
+#         })
+
 def _track_cig_sale(item: InventoryItem, qty_sold: Decimal):
-    """Update OpenCigaretteBox tracking when CIG_SINGLE inventory is consumed."""
-    if item.item_type != 'CIG_SINGLE':
-        return
-    from app.extensions import socketio
-
-    open_box = (
-        OpenCigaretteBox.query
-        .filter_by(is_finished=False)
-        .join(InventoryItem, OpenCigaretteBox.box_item_id == InventoryItem.id)
-        .filter(InventoryItem.yields_item_id == item.id)
-        .order_by(OpenCigaretteBox.opened_at.desc())
-        .first()
-    )
-    if not open_box:
-        return
-
-    open_box.cigs_sold += int(qty_sold)
-
-    if open_box.cigs_sold >= open_box.cigs_per_box:
-        open_box.is_finished = True
-        open_box.finished_at = _now()
-        db.session.flush()
-        socketio.emit('inventory:box_finished', {
-            'brand':        open_box.brand,
-            'open_box_id':  open_box.id,
-            'cigs_per_box': open_box.cigs_per_box,
-        })
-    elif open_box.cigs_per_box - open_box.cigs_sold <= 3:
-        db.session.flush()
-        socketio.emit('inventory:box_low', {
-            'brand':           open_box.brand,
-            'open_box_id':     open_box.id,
-            'cigs_remaining':  open_box.cigs_per_box - open_box.cigs_sold,
-        })
-
+    """Cigarette tracking is now lot‑based (inventory_pack_lots). Stub only."""
+    return
 
 # ── Unit Catalog ──────────────────────────────────────────────────────────────
 
@@ -365,25 +450,15 @@ def restock_food_portions(
 
 # ── Sale Deduction + COGS ─────────────────────────────────────────────────────
 
-def check_stock_for_item(menu_item, modifiers_data: list, quantity: int = 1) -> list:
-    """Check stock availability before allowing a sale. Acquires row locks.
+def _needed_for(menu_item_id: str, modifiers_data: list, quantity: int = 1) -> dict:
+    """Aggregate {inventory_item_id: quantity} for a prospective sale.
 
-    Queries InsumoBase (always-deducted recipe) and ModifierInventoryRule
-    (modifier-triggered deductions). Locks all required inventory rows in
-    ascending id order — must be called within the same transaction as
-    consume_for_line_item so the locks are held through the deduction.
-
-    Args:
-        menu_item: MenuItem ORM instance.
-        modifiers_data: List of {'modifier_id': str} dicts from the request.
-        quantity: Line item quantity (multiplies each ingredient deduction).
-
-    Returns:
-        List of shortage dicts {name, available, needed}. Empty = all in stock.
+    Recipe (InsumoBase) plus modifier rules, with split_modifier_qty applied.
+    Extracted so the pre-check and the deduction cannot drift apart.
     """
     needed: dict[str, Decimal] = {}
 
-    for ing in InsumoBase.query.filter_by(menu_item_id=menu_item.id).all():
+    for ing in InsumoBase.query.filter_by(menu_item_id=menu_item_id).all():
         qty = _d(ing.quantity) * quantity
         needed[ing.inventory_item_id] = needed.get(ing.inventory_item_id, Decimal(0)) + qty
 
@@ -421,9 +496,45 @@ def check_stock_for_item(menu_item, modifiers_data: list, quantity: int = 1) -> 
                 needed.get(rule.inventory_item_id, Decimal(0)) + qty
             )
 
+    return needed
+
+
+def check_stock_for_item(menu_item, modifiers_data: list, quantity: int = 1,
+                         performed_by: str | None = None) -> list:
+    """Check stock availability before allowing a sale. Acquires row locks.
+
+    Locks every row the sale may touch — ingredients, modifier items, and any
+    auto-convertible parent — in ascending id order, then converts from parents
+    where the child is short and the family's gate is open. Must be called in
+    the same transaction as consume_for_line_item so the locks are held through
+    the deduction.
+
+    Passing performed_by enables auto-conversion; omitting it makes this a pure
+    read-only check, because a conversion writes movements and a movement needs
+    a named actor.
+
+    Args:
+        menu_item: MenuItem ORM instance.
+        modifiers_data: List of {'modifier_id': str} dicts from the request.
+        quantity: Line item quantity (multiplies each ingredient deduction).
+        performed_by: User ID placing the order. Required for auto-conversion.
+
+    Returns:
+        List of shortage dicts {name, available, needed}. Empty = all in stock.
+    """
+    needed = _needed_for(menu_item.id, modifiers_data, quantity)
+    if not needed:
+        return []
+
+    try:
+        locked = _ensure_available(needed, performed_by)
+    except ValueError as exc:
+        # A recipe references an inventory item that no longer exists.
+        return [{'name': str(exc), 'available': 0, 'needed': 0}]
+
     shortages = []
     for inv_id in sorted(needed.keys()):
-        item = InventoryItem.query.with_for_update().get(inv_id)
+        item = locked.get(inv_id)
         if item is None:
             shortages.append({'name': f'[missing: {inv_id}]',
                               'available': 0, 'needed': float(needed[inv_id])})
@@ -489,20 +600,19 @@ def consume_for_line_item(line_item, performed_by: str):
     if not deductions:
         return
 
-    # Lock all required rows in sorted order
-    all_ids = sorted({d['inventory_item_id'] for d in deductions})
-    locked: dict[str, InventoryItem] = {}
-    for iid in all_ids:
-        row = InventoryItem.query.with_for_update().get(iid)
-        if row is None:
-            raise ValueError(f'Ingredient item not found: {iid}')
-        locked[iid] = row
-
     # Aggregate totals per item for the sufficiency check
     total_needed: dict[str, Decimal] = {}
     for d in deductions:
         iid = d['inventory_item_id']
         total_needed[iid] = total_needed.get(iid, Decimal(0)) + d['needed']
+
+    # Lock everything (ingredients + auto-convertible parents) in ascending id
+    # order and convert where short. This must happen HERE and not only in
+    # check_stock_for_item: of the three call sites, only add_item pre-checks —
+    # the two send_order paths call this function directly. Doing the conversion
+    # solely in the pre-check would mean a loose cigarette sells fine when added
+    # to a ticket but fails when the order is sent.
+    locked = _ensure_available(total_needed, performed_by, reference_id=line_item.id)
 
     for iid, total in total_needed.items():
         item = locked[iid]
@@ -757,68 +867,53 @@ def open_bottle(item_id: str, performed_by: str):
 
     return bottle, shots
 
-
 def open_cigarette_box(item_id: str, performed_by: str):
-    """Open a sealed cigarette box: deduct 1 box, add cigs_per_box singles.
+    """Open a sealed cigarette box via the FIFO pack-lot function."""
+    from sqlalchemy import text
 
-    Creates an OpenCigaretteBox tracking record and emits a socket event.
-
-    Args:
-        item_id: UUID of the CIG_BOX InventoryItem.
-        performed_by: User ID.
-
-    Returns:
-        Tuple (box_item, single_item, open_box_record).
-
-    Raises:
-        ValueError: Item not found, not a cig box, misconfigured, or no stock.
-    """
+    # Quick validation of the item type
     box = InventoryItem.query.get(item_id)
     if not box:
         raise ValueError('InventoryItem not found')
     if box.item_type != 'CIG_BOX':
-        raise ValueError('NOT_A_CIG_BOX: item is not a cigarette box')
-    if not box.shots_per_bottle or not box.yields_item_id:
-        raise ValueError('NOT_CONFIGURED: box missing cigs_per_box or yields_item_id')
+        raise ValueError('NOT_A_CIG_BOX')
+    if not box.yields_item_id:
+        raise ValueError('Box missing yields_item_id')
 
-    locked = _lock_sorted(box.id, box.yields_item_id)
-    box    = locked[box.id]
-    single = locked[box.yields_item_id]
+    # The stored procedure does everything: lock, deduct, add, movements.
+    result = db.session.execute(
+        text("SELECT * FROM fn_open_pack_fifo(:box_id, :user_id, :ref)"),
+        {
+            "box_id": box.id,
+            "user_id": performed_by,
+            "ref": f"Manual open-box for {box.name}"
+        }
+    ).fetchone()
 
-    if _d(box.stock_quantity) < 1:
-        raise ValueError('NO_STOCK: no sealed boxes available')
+    if result is None:
+        raise Exception("fn_open_pack_fifo returned no row – conversion failed")
 
-    cigs = box.shots_per_bottle
+    lot_id, units_per_pack, packs_remaining, loose_total = result
 
-    box.stock_quantity = _d(box.stock_quantity) - 1
-    box.updated_at     = _now()
-    _write_movement(
-        box, 'BOX_OPENING', Decimal(-1), performed_by,
-        reason=f'Caja abierta → {cigs} cigarros a {single.name}',
-    )
+    # Re-fetch the updated items to return current state
+    box_updated = InventoryItem.query.get(box.id)
+    single = InventoryItem.query.get(box.yields_item_id)
 
-    single.stock_quantity = _d(single.stock_quantity) + cigs
-    single.updated_at     = _now()
-    _write_movement(
-        single, 'BOX_OPENING', Decimal(cigs), performed_by,
-        reason=f'Apertura de caja: {box.name}',
-    )
+    # Build a dict for the open_info (third return value) instead of an ORM object
+    open_info = {
+        "lot_id": lot_id,
+        "brand": box_updated.name,
+        "units_per_pack": int(units_per_pack),
+        "packs_remaining": int(packs_remaining),
+        "loose_total": int(loose_total),
+    }
 
-    open_box = OpenCigaretteBox(
-        box_item_id  = box.id,
-        brand        = box.name,
-        cigs_per_box = cigs,
-        cigs_sold    = 0,
-        opened_by    = performed_by,
-    )
-    db.session.add(open_box)
-    db.session.flush()
-
+    # Emit socket event (if needed)
     from app.extensions import socketio
     socketio.emit('inventory:box_opened', {
-        'brand':        box.name,
-        'cigs_per_box': cigs,
-        'open_box_id':  open_box.id,
+        'brand':        box_updated.name,
+        'cigs_per_box': int(units_per_pack),
+        'open_box_id':  lot_id or '',
     })
 
-    return box, single, open_box
+    return box_updated, single, open_info

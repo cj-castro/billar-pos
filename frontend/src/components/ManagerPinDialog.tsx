@@ -6,7 +6,11 @@ import { useEscKey } from '../hooks/useEscKey'
 
 interface Props {
   action: string
-  onConfirm: (managerId: string, managerName: string) => void
+  /** managerId/managerName come from /auth/verify-pin and are informational only.
+   *  `pin` is the third argument: endpoints that reduce value must receive the PIN
+   *  itself so the server can verify it and decide who authorised the action.
+   *  Passing a managerId is not proof of authorization. */
+  onConfirm: (managerId: string, managerName: string, pin: string) => void
   onCancel: () => void
 }
 
@@ -49,7 +53,7 @@ export default function ManagerPinDialog({ action, onConfirm, onCancel }: Props)
     setLoading(true)
     try {
       const res = await client.post('/auth/verify-pin', { pin })
-      onConfirm(res.data.manager_id, res.data.manager_name)
+      onConfirm(res.data.manager_id, res.data.manager_name, pin)
     } catch {
       toast.error(t('pin.incorrect'))
       setPin('')

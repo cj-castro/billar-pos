@@ -28,7 +28,7 @@ Endpoints:
     POST   /inventory/insumos-base
     DELETE /inventory/insumos-base/<ingredient_id>
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from sqlalchemy.exc import IntegrityError
 
@@ -211,6 +211,9 @@ def create_inventory_item():
         supplier            = (data.get('supplier') or '').strip() or None,
         category            = category,
         item_type           = item_type,
+        # 'unit' is NOT NULL. Accept it if the client sends one, otherwise fall
+        # back to the catalog key so the column is always populated.
+        unit                = (data.get('unit') or '').strip() or base_unit_key,
         base_unit_key       = base_unit_key,
         stock_quantity      = initial_qty,
         low_stock_threshold = data.get('low_stock_threshold', 0),
@@ -241,10 +244,18 @@ def create_inventory_item():
 
     try:
         db.session.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.session.rollback()
-        return jsonify({'error': 'DUPLICATE_NAME',
-                        'message': f"An item named '{name}' already exists"}), 409
+        # Do NOT report every integrity error as a duplicate name. A NOT NULL
+        # violation was previously surfaced as "already exists", sending the
+        # operator hunting for a duplicate that did not exist.
+        pgcode = getattr(getattr(exc, 'orig', None), 'pgcode', None)
+        if pgcode == '23505':                      # unique_violation
+            return jsonify({'error': 'DUPLICATE_NAME',
+                            'message': f"An item named '{name}' already exists"}), 409
+        current_app.logger.error('create_inventory_item integrity error: %s', exc)
+        return jsonify({'error': 'INTEGRITY_ERROR',
+                        'message': str(getattr(exc, 'orig', exc))}), 422
 
     return jsonify(item.to_dict()), 201
 
@@ -324,7 +335,6 @@ def update_inventory_item(item_id):
 
     return jsonify(item.to_dict())
 
-
 @inventory_bp.route('/<item_id>', methods=['DELETE'])
 @jwt_required()
 def delete_inventory_item(item_id):
@@ -337,7 +347,7 @@ def delete_inventory_item(item_id):
     item = InventoryItem.query.get_or_404(item_id)
     snapshot = item.to_dict()
 
-    from app.models.inventory import ModifierInventoryRule, OpenCigaretteBox
+    from app.models.inventory import ModifierInventoryRule, OpenCigaretteBox, InventoryConversion
 
     movement_count = InventoryMovement.query.filter_by(inventory_item_id=item_id).count()
 
@@ -351,6 +361,12 @@ def delete_inventory_item(item_id):
     MenuItemIngredient.query.filter_by(inventory_item_id=item_id).delete()
     InventoryItem.query.filter_by(yields_item_id=item_id).update({'yields_item_id': None})
 
+    # 🆕 Delete any conversion rules that reference this item
+    InventoryConversion.query.filter(
+        (InventoryConversion.from_item_id == item_id) |
+        (InventoryConversion.to_item_id == item_id)
+    ).delete()
+
     db.session.delete(item)
 
     user_id = get_jwt_identity()
@@ -361,6 +377,42 @@ def delete_inventory_item(item_id):
     )
     db.session.commit()
     return jsonify({'ok': True, 'movements_deleted': movement_count})
+# @inventory_bp.route('/<item_id>', methods=['DELETE'])
+# @jwt_required()
+# def delete_inventory_item(item_id):
+#     """Hard-delete an inventory item and all its dependent records. ADMIN only."""
+#     claims = get_jwt()
+#     err = _require_admin(claims)
+#     if err:
+#         return err
+
+#     item = InventoryItem.query.get_or_404(item_id)
+#     snapshot = item.to_dict()
+
+#     from app.models.inventory import ModifierInventoryRule, OpenCigaretteBox
+
+#     movement_count = InventoryMovement.query.filter_by(inventory_item_id=item_id).count()
+
+#     SaleItemCost.query.filter_by(inventory_item_id=item_id).delete()
+#     InventoryMovement.query.filter_by(inventory_item_id=item_id).delete()
+#     ModifierInventoryRule.query.filter_by(inventory_item_id=item_id).delete()
+#     OpenCigaretteBox.query.filter_by(box_item_id=item_id).delete()
+#     InsumoBase.query.filter_by(inventory_item_id=item_id).delete()
+#     # Legacy table
+#     from app.models.inventory import MenuItemIngredient
+#     MenuItemIngredient.query.filter_by(inventory_item_id=item_id).delete()
+#     InventoryItem.query.filter_by(yields_item_id=item_id).update({'yields_item_id': None})
+
+#     db.session.delete(item)
+
+#     user_id = get_jwt_identity()
+#     audit_svc.log(
+#         user_id, 'INVENTORY_ITEM_DELETED', 'inventory_item', item_id,
+#         before=snapshot,
+#         reason=f'Admin delete. {movement_count} movement records deleted.',
+#     )
+#     db.session.commit()
+#     return jsonify({'ok': True, 'movements_deleted': movement_count})
 
 
 # ── Stock Operations ──────────────────────────────────────────────────────────
@@ -660,15 +712,18 @@ def open_cigarette_box(item_id):
 
     user_id = get_jwt_identity()
     try:
-        box, single, open_box = inventory_svc.open_cigarette_box(item_id, user_id)
+        # Call the service – this is where the real work happens
+        box, single, open_info = inventory_svc.open_cigarette_box(item_id, user_id)
+
         audit_svc.log(user_id, 'BOX_OPENED', 'inventory', item_id,
-                      after={'cigs_added': box.shots_per_bottle,
+                      after={'cigs_added': open_info['units_per_pack'],
                              'single_item': single.name})
         db.session.commit()
+
         return jsonify({
             'box':      box.to_dict(),
             'singles':  single.to_dict(),
-            'open_box': open_box.to_dict(),
+            'open_box': open_info,          # dictionary, not an ORM object
         })
     except ValueError as e:
         db.session.rollback()
@@ -679,16 +734,106 @@ def open_cigarette_box(item_id):
             return jsonify({'error': 'NO_STOCK', 'message': msg}), 422
         return jsonify({'error': 'VALIDATION', 'message': msg}), 422
 
+# def open_cigarette_box(item_id: str, performed_by: str):
+#     """Open a sealed cigarette box using the FIFO pack-lot function.
 
-@inventory_bp.route('/open-boxes', methods=['GET'])
-@jwt_required()
-def list_open_boxes():
-    """Return all currently open (not finished) cigarette boxes."""
-    boxes = (OpenCigaretteBox.query
-             .filter_by(is_finished=False)
-             .order_by(OpenCigaretteBox.opened_at.desc())
-             .all())
-    return jsonify([b.to_dict() for b in boxes])
+#     The database function fn_open_pack_fifo handles:
+#       - Selecting the oldest lot (or falling back to the default ratio)
+#       - Deducting 1 pack from the source inventory item (CIG_BOX)
+#       - Adding the correct number of singles to the target item
+#       - Writing CONVERSION_OUT / CONVERSION_IN inventory movements
+#       - Updating lot pack counts
+
+#     Returns:
+#         Tuple (box_item, single_item, open_info_dict)
+#         open_info_dict contains:
+#             lot_id          – UUID of the lot used (or None)
+#             brand           – Name of the cigarette box
+#             units_per_pack  – Actual number of singles opened from this pack
+#             packs_remaining – Remaining sealed packs after opening
+#             loose_total     – New total of singles after conversion
+#     """
+#     from sqlalchemy import text
+
+#     # Basic validation of the item
+#     box = InventoryItem.query.get(item_id)
+#     if not box:
+#         raise ValueError('InventoryItem not found')
+#     if box.item_type != 'CIG_BOX':
+#         raise ValueError('NOT_A_CIG_BOX: item is not a cigarette box')
+#     if not box.yields_item_id:
+#         raise ValueError('NOT_CONFIGURED: box missing yields_item_id')
+
+#     # Call the stored procedure. It acquires its own locks internally.
+#     result = db.session.execute(
+#         text("SELECT * FROM fn_open_pack_fifo(:box_id, :user_id, :ref)"),
+#         {
+#             "box_id": box.id,
+#             "user_id": performed_by,
+#             "ref": f"Manual open-box for {box.name}"
+#         }
+#     ).fetchone()
+
+#     if result is None:
+#         raise Exception("fn_open_pack_fifo returned no row – conversion failed")
+
+#     lot_id, units_per_pack, packs_remaining, loose_total = result
+
+#     # Re-fetch the inventory items to reflect the changes made by the procedure.
+#     # The items were modified inside the same transaction, so this query will
+#     # see the updated quantities.
+#     box_updated = InventoryItem.query.get(box.id)
+#     single = InventoryItem.query.get(box.yields_item_id)
+
+#     # Construct a dictionary for the third return value (previously OpenCigaretteBox)
+#     open_info = {
+#         "lot_id": lot_id,
+#         "brand": box_updated.name,
+#         "units_per_pack": int(units_per_pack),
+#         "packs_remaining": int(packs_remaining),
+#         "loose_total": int(loose_total),
+#     }
+
+#     # Emit a socket event (optional). The frontend may rely on this.
+#     from app.extensions import socketio
+#     socketio.emit('inventory:box_opened', {
+#         'brand':        box_updated.name,
+#         'cigs_per_box': int(units_per_pack),
+#         'open_box_id':  lot_id or '',   # can be NULL if no lot; fallback to empty string
+#     })
+
+#     return box_updated, single, open_info
+
+
+
+
+# def open_cigarette_box(item_id):
+#     """Open a sealed cigarette box. MANAGER/ADMIN only."""
+#     claims = get_jwt()
+#     err = _require_manager(claims)
+#     if err:
+#         return err
+
+#     user_id = get_jwt_identity()
+#     try:
+#         box, single, open_box = inventory_svc.open_cigarette_box(item_id, user_id)
+#         audit_svc.log(user_id, 'BOX_OPENED', 'inventory', item_id,
+#                       after={'cigs_added': box.shots_per_bottle,
+#                              'single_item': single.name})
+#         db.session.commit()
+#         return jsonify({
+#             'box':      box.to_dict(),
+#             'singles':  single.to_dict(),
+#             'open_box': open_box.to_dict(),
+#         })
+#     except ValueError as e:
+#         db.session.rollback()
+#         msg = str(e)
+#         if 'NOT_FOUND' in msg:
+#             return jsonify({'error': 'NOT_FOUND', 'message': msg}), 404
+#         if 'NO_STOCK' in msg:
+#             return jsonify({'error': 'NO_STOCK', 'message': msg}), 422
+#         return jsonify({'error': 'VALIDATION', 'message': msg}), 422
 
 
 # ── Insumos Base ──────────────────────────────────────────────────────────────

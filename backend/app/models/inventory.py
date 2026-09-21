@@ -64,6 +64,12 @@ class InventoryItem(db.Model):
     category            = db.Column(db.String(50), nullable=False, default='other')
     item_type           = db.Column(db.String(20), nullable=False, default='STANDARD')
 
+    # Legacy free-text label ('bottle', 'can', 'ml'...). Superseded by
+    # base_unit_key but still NOT NULL in the database and read by init-db
+    # STEP 13's backfill map. It was missing from this model entirely, so any
+    # ORM insert violated the NOT NULL constraint -- which made creating an
+    # inventory item through the API impossible.
+    unit                = db.Column(db.String(50), nullable=False)
     base_unit_key       = db.Column(db.String(50),
                                     db.ForeignKey('unit_catalog.key', ondelete='RESTRICT'),
                                     nullable=False)
@@ -271,6 +277,42 @@ class ModifierInventoryRule(db.Model):
     quantity          = db.Column(db.Numeric(12, 4), nullable=False, default=1)
 
     inventory_item = db.relationship('InventoryItem')
+
+
+# ── Stock Conversions (pack → loose, bottle → shot) ───────────────────────────
+
+class InventoryConversion(db.Model):
+    """One parent unit becomes `ratio` child units. Table created by migration 029.
+
+    The model was missing entirely even though app/api/inventory.py imported it,
+    so DELETE /inventory/items/<id> raised ImportError before it could run.
+
+    is_automatic means the conversion needs no human: opening a cigarette pack
+    or a bottle is bookkeeping, not preparation. fn_ensure_available() fires
+    these mid-sale when the child runs out. Production (sauce bottle → ramekins)
+    is deliberately NOT modelled here -- it needs someone to actually portion it,
+    so it lives in production_recipes and must never gate a sale.
+    """
+    __tablename__ = 'inventory_conversions'
+
+    id                     = db.Column(db.String(36), primary_key=True,
+                                       default=lambda: str(uuid.uuid4()))
+    from_item_id           = db.Column(db.String(36),
+                                       db.ForeignKey('inventory_items.id'), nullable=False)
+    to_item_id             = db.Column(db.String(36),
+                                       db.ForeignKey('inventory_items.id'), nullable=False)
+    ratio                  = db.Column(db.Numeric(12, 4), nullable=False)
+    conversion_type        = db.Column(db.String(30), nullable=False)
+    is_automatic           = db.Column(db.Boolean, nullable=False, default=True)
+    requires_authorization = db.Column(db.Boolean, nullable=False, default=False)
+    loss_factor            = db.Column(db.Numeric(6, 4), nullable=False, default=0)
+    notes                  = db.Column(db.Text)
+    is_active              = db.Column(db.Boolean, nullable=False, default=True)
+    created_at             = db.Column(db.DateTime(timezone=True),
+                                       default=lambda: datetime.now(timezone.utc))
+
+    from_item = db.relationship('InventoryItem', foreign_keys=[from_item_id])
+    to_item   = db.relationship('InventoryItem', foreign_keys=[to_item_id])
 
 
 # ── Sale Item Cost (COGS Capture) ─────────────────────────────────────────────

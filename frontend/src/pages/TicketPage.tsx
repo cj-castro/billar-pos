@@ -108,7 +108,10 @@ export default function TicketPage() {
   const [showPinForVoid, setShowPinForVoid] = useState<string[] | null>(null)
   const [voidQtyPicker, setVoidQtyPicker] = useState<{ ids: string[]; name: string; qty: number } | null>(null)
   const [voidReason, setVoidReason] = useState('')
-  const [showVoidReason, setShowVoidReason] = useState<{ ids: string[]; managerId: string } | null>(null)
+  // Carries the manager PIN (not a managerId) from the PIN dialog through the
+  // reason modal to the void request, so the server verifies it. Held in memory
+  // only; replaced by a short-lived server-issued grant token in 028.
+  const [showVoidReason, setShowVoidReason] = useState<{ ids: string[]; pin: string } | null>(null)
   const [showPinForDiscount, setShowPinForDiscount] = useState(false)
   const [pendingDiscountPct, setPendingDiscountPct] = useState<number | null>(null)
   const [showPayment, setShowPayment] = useState(false)
@@ -168,11 +171,13 @@ export default function TicketPage() {
 
   if (!ticket) return <div className="p-8 text-center text-slate-400">{t('common.loading')}</div>
 
-  const changeQty = async (itemId: string, newQty: number, managerId?: string) => {
+  // Reducing a quantity sends the manager PIN itself; the server verifies it and
+  // derives who authorised the change. Sending a manager_id is not proof.
+  const changeQty = async (itemId: string, newQty: number, pin?: string) => {
     try {
       await client.patch(`/tickets/${id}/items/${itemId}`, {
         quantity: newQty,
-        ...(managerId ? { manager_id: managerId } : {}),
+        ...(pin ? { pin } : {}),
       })
       refetch()
     } catch (err: any) {
@@ -197,10 +202,10 @@ export default function TicketPage() {
     }
   }
 
-  const handleVoid = async (itemIds: string | string[], managerId: string) => {
+  const handleVoid = async (itemIds: string | string[], pin: string) => {
     const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
     // Open the reason modal instead of using prompt()
-    setShowVoidReason({ ids, managerId })
+    setShowVoidReason({ ids, pin })
     setVoidReason('')
     setShowPinForVoid(null)
     setVoidQtyPicker(null)
@@ -208,11 +213,11 @@ export default function TicketPage() {
 
   const confirmVoid = async () => {
     if (!showVoidReason) return
-    const { ids, managerId } = showVoidReason
+    const { ids, pin } = showVoidReason
     const reason = voidReason.trim() || 'Void'
     try {
       for (const itemId of ids) {
-        await client.delete(`/tickets/${id}/items/${itemId}`, { data: { manager_id: managerId, reason } })
+        await client.delete(`/tickets/${id}/items/${itemId}`, { data: { pin, reason } })
       }
       toast.success(ids.length > 1 ? `${ids.length} artículos anulados` : 'Artículo anulado')
       refetch()
@@ -947,7 +952,7 @@ export default function TicketPage() {
       {showPinForVoid && (
         <ManagerPinDialog
           action={`Anular ${showPinForVoid.length > 1 ? `${showPinForVoid.length} artículos` : 'Artículo'}`}
-          onConfirm={(managerId) => handleVoid(showPinForVoid, managerId)}
+          onConfirm={(_managerId, _managerName, pin) => handleVoid(showPinForVoid, pin)}
           onCancel={() => setShowPinForVoid(null)}
         />
       )}
@@ -955,8 +960,8 @@ export default function TicketPage() {
       {showPinForQty && (
         <ManagerPinDialog
           action="Reducir cantidad"
-          onConfirm={(managerId) => {
-            changeQty(showPinForQty.itemId, showPinForQty.quantity, managerId)
+          onConfirm={(_managerId, _managerName, pin) => {
+            changeQty(showPinForQty.itemId, showPinForQty.quantity, pin)
             setShowPinForQty(null)
           }}
           onCancel={() => setShowPinForQty(null)}

@@ -374,7 +374,13 @@ def add_item(ticket_id):
 
     # Validate inventory availability
     quantity = data.get('quantity', 1)
-    shortages = inventory_svc.check_stock_for_item(menu_item, data.get('modifiers', []), quantity)
+    # performed_by is what enables auto-conversion: when the loose item is short
+    # but a full pack or bottle is on the shelf, fn_ensure_available opens one
+    # and writes the CONVERSION_OUT/IN pair against this user. Without it the
+    # sale is refused with stock physically present.
+    shortages = inventory_svc.check_stock_for_item(
+        menu_item, data.get('modifiers', []), quantity, performed_by=user_id
+    )
     if shortages:
         items_str = ', '.join(f"{s['name']} (disponible: {s['available']}, necesario: {s['needed']})" for s in shortages)
         return jsonify({
@@ -427,43 +433,95 @@ def add_item(ticket_id):
         socketio.emit('kitchen:update', {}, room='kitchen')
     socketio.emit('ticket:updated', {'ticket_id': ticket_id, 'version': ticket.version}, room=f'ticket:{ticket_id}')
 
-    # Auto-print chit to kitchen/bar printer (non-blocking — runs in background)
-    # Modifier rows are stored once per line item, so scale them by the line
-    # quantity: 2x a bucket carrying 10 beer modifiers must be prepared as 20.
-    mod_map: dict[str, int] = {}
-    _mod_mult = max(1, int(line_item.quantity or 1))
-    for lim in line_item.modifiers:
-        n = lim.name_snapshot or '?'
-        mod_map[n] = mod_map.get(n, 0) + _mod_mult
-    _spawn_auto_print_chit(
-        current_app._get_current_object(),
-        line_item.id,
-        {
-            'type':          line_item.routing_dest,
-            'resource_code': ticket.resource.code if ticket.resource else '?',
-            'items': [{
-                'quantity':  line_item.quantity,
-                'name':      menu_item.name,
-                'modifiers': [{'name': k, 'count': v} for k, v in mod_map.items()],
-                'notes':     line_item.notes or '',
-            }],
-            'sent_at': datetime.now(timezone.utc).isoformat(),
-        }
-    )
+# Auto-print chit to kitchen/bar printer (non-blocking — runs in background)
+# BAR items are now excluded from physical printing; only kitchen items print.
+    if line_item.routing_dest != 'BAR':
+        mod_map: dict[str, int] = {}
+        _mod_mult = max(1, int(line_item.quantity or 1))
+        for lim in line_item.modifiers:
+            n = lim.name_snapshot or '?'
+            mod_map[n] = mod_map.get(n, 0) + _mod_mult
+        _spawn_auto_print_chit(
+            current_app._get_current_object(),
+            line_item.id,
+            {
+                'type':          line_item.routing_dest,
+                'resource_code': ticket.resource.code if ticket.resource else '?',
+                'items': [{
+                    'quantity':  line_item.quantity,
+                    'name':      menu_item.name,
+                    'modifiers': [{'name': k, 'count': v} for k, v in mod_map.items()],
+                    'notes':     line_item.notes or '',
+                }],
+                'sent_at': datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    else:
+        # Validation log – confirms the bar print skip is working
+        current_app.logger.info(
+            f'BAR CHIT SKIPPED (no print): item={line_item.id} name={menu_item.name} ticket={ticket_id}'
+        )
     return jsonify(line_item.to_dict()), 201
+
+    # # Auto-print chit to kitchen/bar printer (non-blocking — runs in background)
+    # # Modifier rows are stored once per line item, so scale them by the line
+    # # quantity: 2x a bucket carrying 10 beer modifiers must be prepared as 20.
+    # mod_map: dict[str, int] = {}
+    # _mod_mult = max(1, int(line_item.quantity or 1))
+    # for lim in line_item.modifiers:
+    #     n = lim.name_snapshot or '?'
+    #     mod_map[n] = mod_map.get(n, 0) + _mod_mult
+    # _spawn_auto_print_chit(
+    #     current_app._get_current_object(),
+    #     line_item.id,
+    #     {
+    #         'type':          line_item.routing_dest,
+    #         'resource_code': ticket.resource.code if ticket.resource else '?',
+    #         'items': [{
+    #             'quantity':  line_item.quantity,
+    #             'name':      menu_item.name,
+    #             'modifiers': [{'name': k, 'count': v} for k, v in mod_map.items()],
+    #             'notes':     line_item.notes or '',
+    #         }],
+    #         'sent_at': datetime.now(timezone.utc).isoformat(),
+    #     }
+    # )
+    # return jsonify(line_item.to_dict()), 201
 
 
 @tickets_bp.route('/<ticket_id>/items/<item_id>', methods=['DELETE'])
 @jwt_required()
 def void_item(ticket_id, item_id):
-    """Void a line item. Requires manager_id in body (from PIN verification)."""
+    """Void a line item. Requires a manager PIN, verified server-side.
+
+    HOTFIX: this previously trusted a 'manager_id' string from the request body
+    with no PIN check, no existence check and no role check, then wrote it to
+    item.voided_by and used it as performed_by for the inventory reversal. Any
+    caller could void a line item and attribute it to a colleague.
+    """
     user_id = get_jwt_identity()
     data = request.get_json() or {}
-    manager_id = data.get('manager_id')
     reason = data.get('reason', '')
 
-    if not manager_id:
-        return jsonify({'error': 'MANAGER_REQUIRED', 'message': 'Manager PIN required to void items'}), 403
+    if 'manager_id' in data:
+        return jsonify({
+            'error': 'DEPRECATED_PARAMETER',
+            'message': "manager_id is no longer accepted; send 'pin' instead.",
+        }), 422
+
+    pin = (data.get('pin') or '').strip()
+    if not pin:
+        return jsonify({'error': 'MANAGER_REQUIRED',
+                        'message': 'Manager PIN required to void items'}), 403
+
+    from app.api.auth import verify_manager_pin
+    manager = verify_manager_pin(pin)
+    if manager is None:
+        audit_svc.log(user_id, 'MANAGER_PIN_FAILED', 'line_item', item_id,
+                      ip_address=request.remote_addr)
+        db.session.commit()
+        return jsonify({'error': 'INVALID_PIN', 'message': 'Invalid manager PIN'}), 401
+    manager_id = manager.id
 
     ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
     if ticket.status != 'OPEN':
@@ -489,8 +547,10 @@ def void_item(ticket_id, item_id):
     ticket.recalculate_totals()
     ticket.version += 1
 
-    audit_svc.log(manager_id, 'ITEM_VOID', 'line_item', item_id,
-                  before=before, after={'status': 'VOIDED', 'reason': reason})
+    audit_svc.log(user_id, 'ITEM_VOID', 'line_item', item_id,
+                  before=before,
+                  after={'status': 'VOIDED', 'reason': reason, 'approved_by': manager_id},
+                  ip_address=request.remote_addr)
     db.session.commit()
 
     socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
@@ -537,13 +597,40 @@ def update_item_quantity(ticket_id, item_id):
     if new_qty == old_qty:
         return jsonify(item.to_dict())
 
-    manager_id = data.get('manager_id')
-    if new_qty < old_qty and not manager_id:
-        return jsonify({'error': 'MANAGER_REQUIRED',
-                        'message': 'Manager PIN required to reduce quantities'}), 403
+    # ── Manager authorization for value-reducing changes ──────────────────────
+    # HOTFIX: this previously accepted any 'manager_id' string from the request
+    # body without verifying a PIN, that the id belonged to a real user, or that
+    # the user held MANAGER/ADMIN role -- and then wrote it to performed_by. A
+    # caller could reduce a quantity with no PIN and have the action attributed
+    # to a colleague. The PIN is now verified server-side and performed_by comes
+    # only from the verified manager. Superseded by the grant framework in 028.
+    if 'manager_id' in data:
+        return jsonify({
+            'error': 'DEPRECATED_PARAMETER',
+            'message': "manager_id is no longer accepted; send 'pin' instead.",
+        }), 422
+
+    performed_by = user_id
+    approved_by = None          # set whenever a PIN was actually verified, even
+                                # if the approver is the requester (self-approval)
+    if new_qty < old_qty:
+        pin = (data.get('pin') or '').strip()
+        if not pin:
+            return jsonify({'error': 'MANAGER_REQUIRED',
+                            'message': 'Manager PIN required to reduce quantities'}), 403
+
+        from app.api.auth import verify_manager_pin
+        manager = verify_manager_pin(pin)
+        if manager is None:
+            audit_svc.log(user_id, 'MANAGER_PIN_FAILED', 'line_item', item_id,
+                          ip_address=request.remote_addr)
+            db.session.commit()
+            return jsonify({'error': 'INVALID_PIN',
+                            'message': 'Invalid manager PIN'}), 401
+        performed_by = manager.id
+        approved_by = manager.id
 
     before = item.to_dict()
-    performed_by = manager_id or user_id
 
     try:
         # Re-sync inventory: undo the original deduction, drop its COGS rows so
@@ -572,8 +659,13 @@ def update_item_quantity(ticket_id, item_id):
     ticket.recalculate_totals()
     ticket.version += 1
 
-    audit_svc.log(performed_by, 'ITEM_QTY_CHANGE', 'line_item', item_id,
-                  before=before, after={'quantity': new_qty})
+    # actor = who made the request; approved_by = the verified manager (None when
+    # raising quantity, which needs no authorization). Keeping them distinct is
+    # what makes the trail non-repudiable -- see 028's requested_by/authorized_by.
+    audit_svc.log(user_id, 'ITEM_QTY_CHANGE', 'line_item', item_id,
+                  before=before,
+                  after={'quantity': new_qty, 'approved_by': approved_by},
+                  ip_address=request.remote_addr)
     db.session.commit()
 
     socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
@@ -612,6 +704,7 @@ def send_order(ticket_id):
 
     # Emit to kitchen/bar queues
     socketio.emit('kitchen:update', {}, room='kitchen')
+    # here is where the ticket to thebar is send
     socketio.emit('bar:update', {}, room='bar')
     socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
 

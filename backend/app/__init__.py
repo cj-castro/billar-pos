@@ -1,14 +1,27 @@
 """billar-pos Flask application factory — inventory v2.
 
-Migration strategy: all DDL runs inside flask init-db on startup using idempotent
-SQL (IF NOT EXISTS, DO $$ blocks with information_schema checks). No separate
-Alembic runner is needed; the entrypoint calls flask init-db before gunicorn starts.
+Migration strategy, in two halves:
+
+  STEP 1..26   Legacy DDL embedded below, run by `flask init-db`. Idempotent SQL
+               (IF NOT EXISTS, DO $$ blocks). Errors are SWALLOWED by run() so a
+               bad step can never stop the POS booting. Frozen -- add nothing.
+
+  027 onward   Versioned .sql files in migrations/sql, applied by
+               `flask apply-migrations` (app/migrations_runner.py) in the order
+               given by migrations/sql/manifest.txt. Each file is one
+               transaction with its own assertions, so it either fully applies
+               or fully rolls back.
+
+The entrypoint runs init-db, then seed.py, then apply-migrations, in that order.
+init-db must go first because STEP 16 feeds insumos_base from the legacy recipe
+table that migration 029b later retires.
 """
 import logging
 import click
 from flask import Flask
 from .config import Config
 from .extensions import db, migrate, jwt, socketio, cors, limiter
+from .migrations_runner import register_migration_commands
 
 
 def create_app(config_class=Config):
@@ -409,34 +422,103 @@ def create_app(config_class=Config):
 
         # ── STEP 13: Backfill base_unit_key from legacy unit column ───────────
         # Mapping: old free-text unit → unit_catalog.key
+        #
+        # Matching is lower(btrim(unit)), not '=', because the legacy 'unit'
+        # column is hand-typed and carries the same trailing-space and casing
+        # damage that migration 027b had to clean out of the name columns.
+        #
+        # The mass/volume rows are NOT optional. Migration 034 introduced items
+        # stocked in grams (Ranch, salchicha) and ml. Without a mapping they hit
+        # the fallback and become 'pieza' -- and then 300 grams of sauce reads as
+        # 300 pieces of sauce, silently, forever. Every unit_catalog key seeded in
+        # STEP 12 needs at least one route into it.
         unit_map = {
-            'bottle':  'botella',
-            'shot':    'caballito',
-            'can':     'lata',
-            'serving': 'porcion',
-            'ramekin': 'porcion',
-            'ml':      'ml',
-            'oz':      'onza',
-            'cup':     'taza',
-            'lb':      'kilogramo',
-            'unit':    'pieza',
+            # English
+            'bottle':   'botella',
+            'shot':     'caballito',
+            'can':      'lata',
+            'serving':  'porcion',
+            'servings': 'porcion',
+            'portion':  'porcion',
+            'ramekin':  'porcion',
+            'ml':       'ml',
+            'milliliter': 'ml',
+            'l':        'litro',
+            'liter':    'litro',
+            'litre':    'litro',
+            'g':        'gramo',
+            'gr':       'gramo',
+            'gram':     'gramo',
+            'grams':    'gramo',
+            'kg':       'kilogramo',
+            'kilo':     'kilogramo',
+            'kilogram': 'kilogramo',
+            'lb':       'kilogramo',
+            'oz':       'onza',
+            'ounce':    'onza',
+            'cup':      'taza',
+            'jar':      'frasco',
+            'tray':     'charola',
+            'case':     'caja',
+            'box':      'caja',
+            'keg':      'barril',
+            'six pack': 'six_pack',
+            'six_pack': 'six_pack',
+            'sixpack':  'six_pack',
+            'piece':    'pieza',
+            'pieces':   'pieza',
+            'unit':     'pieza',
+            'pz':       'pieza',
+            'pcs':      'pieza',
             # Spanish variants (entered by managers manually)
-            'botella':   'botella',
-            'caballito': 'caballito',
-            'lata':      'lata',
-            'porcion':   'porcion',
-            'pieza':     'pieza',
+            'botella':    'botella',
+            'caballito':  'caballito',
+            'lata':       'lata',
+            'porcion':    'porcion',
+            'porción':    'porcion',
+            'racion':     'porcion',
+            'ración':     'porcion',
+            'pieza':      'pieza',
+            'gramo':      'gramo',
+            'gramos':     'gramo',
+            'kilogramo':  'kilogramo',
+            'kilogramos': 'kilogramo',
+            'litro':      'litro',
+            'litros':     'litro',
+            'mililitro':  'ml',
+            'onza':       'onza',
+            'taza':       'taza',
+            'frasco':     'frasco',
+            'charola':    'charola',
+            'caja':       'caja',
+            'barril':     'barril',
         }
         for old_val, new_key in unit_map.items():
             run(
                 f"UPDATE inventory_items "
                 f"SET base_unit_key = '{new_key}' "
                 f"WHERE base_unit_key IS NULL "
-                f"AND unit = '{old_val}'",
+                f"AND lower(btrim(unit)) = '{old_val}'",
                 f'backfill unit {old_val}→{new_key}'
             )
 
-        # Fallback: any unmapped unit value → 'pieza'
+        # Fallback: any unmapped unit value → 'pieza'.
+        # Announce it. A silent default here is how a gram-tracked item turns
+        # into a piece-tracked item without anyone noticing, so print exactly
+        # which unit strings were unrecognised and add them to unit_map above.
+        try:
+            _unmapped = db.session.execute(text("""
+                SELECT DISTINCT COALESCE(NULLIF(btrim(unit), ''), '(empty)')
+                  FROM inventory_items WHERE base_unit_key IS NULL
+            """)).scalars().all()
+            if _unmapped:
+                print(f"⚠️  STEP 13: unmapped unit values defaulting to 'pieza': "
+                      f"{', '.join(sorted(_unmapped))}")
+                print("           Add them to unit_map if any is a mass/volume unit.")
+        except Exception as exc:  # noqa: BLE001
+            db.session.rollback()
+            print(f'  STEP 13: could not list unmapped units: {exc}')
+
         run("""
             UPDATE inventory_items
             SET base_unit_key = 'pieza'
@@ -477,22 +559,44 @@ def create_app(config_class=Config):
         """, 'base_unit_key SET NOT NULL')
 
         # ── STEP 16: Populate insumos_base from menu_item_ingredients ─────────
-        # Only migrates rows where unit_catalog entry exists for the item's base_unit_key.
-        # Uses ON CONFLICT DO NOTHING so this is safe to re-run.
+        # One-time lift of the legacy recipe table into insumos_base.
+        #
+        # DANGER, and the reason for the guard below. Migration 032 DELETES three
+        # insumos_base rows to kill the Rusa/Fresca and Combo Dogo double
+        # deductions. Those same rows still exist in menu_item_ingredients. This
+        # INSERT would put them straight back on the next container start, and
+        # the container restarts at every Windows login. The fix would silently
+        # undo itself overnight and nobody would see it until the Fresca count
+        # drifted again.
+        #
+        # Migration 029b archives and empties menu_item_ingredients and blocks
+        # writes to it, so after 029b this SELECT reads an empty table and is
+        # already a no-op. The guard makes that safety explicit rather than
+        # incidental: once 029b is registered, STEP 16 never runs again, no
+        # matter what ends up back in the legacy table.
         run("""
-            INSERT INTO insumos_base
-              (id, menu_item_id, inventory_item_id, quantity, deduction_unit_key, created_at)
-            SELECT
-              mii.id,
-              mii.menu_item_id,
-              mii.inventory_item_id,
-              mii.quantity,
-              COALESCE(ii.base_unit_key, 'pieza'),
-              NOW()
-            FROM menu_item_ingredients mii
-            JOIN inventory_items ii ON ii.id = mii.inventory_item_id
-            WHERE ii.base_unit_key IS NOT NULL
-            ON CONFLICT (menu_item_id, inventory_item_id) DO NOTHING
+            DO $$
+            BEGIN
+              IF to_regclass('public.schema_migrations') IS NOT NULL
+                 AND EXISTS (SELECT 1 FROM schema_migrations WHERE version = '029b') THEN
+                RAISE NOTICE 'STEP 16 skipped: 029b retired menu_item_ingredients';
+                RETURN;
+              END IF;
+
+              INSERT INTO insumos_base
+                (id, menu_item_id, inventory_item_id, quantity, deduction_unit_key, created_at)
+              SELECT
+                mii.id,
+                mii.menu_item_id,
+                mii.inventory_item_id,
+                mii.quantity,
+                COALESCE(ii.base_unit_key, 'pieza'),
+                NOW()
+              FROM menu_item_ingredients mii
+              JOIN inventory_items ii ON ii.id = mii.inventory_item_id
+              WHERE ii.base_unit_key IS NOT NULL
+              ON CONFLICT (menu_item_id, inventory_item_id) DO NOTHING;
+            END $$;
         """, 'populate insumos_base from menu_item_ingredients')
 
         # ── STEP 17: Indexes ──────────────────────────────────────────────────
@@ -564,8 +668,23 @@ def create_app(config_class=Config):
             "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS ticket_type VARCHAR(20) NOT NULL DEFAULT 'TABLE'",
             # Rappi order reference (required for DELIVERY tickets)
             "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS rappi_order_id VARCHAR(100)",
-            # Widen payment_type to hold 'EXTERNAL' (was VARCHAR(10))
-            "ALTER TABLE tickets ALTER COLUMN payment_type TYPE VARCHAR(20)",
+            # Widen payment_type to hold 'EXTERNAL' (was VARCHAR(10)).
+            # Guarded: once the analytics views exist (STEP 26) they depend on this
+            # column, so an unconditional ALTER fails with "cannot alter type of a
+            # column used by a view" on EVERY startup -- even though the widening
+            # was already applied. A permanently-failing step trains operators to
+            # ignore warnings, so skip it when the column is already wide enough.
+            """
+            DO $$
+            BEGIN
+              IF COALESCE((SELECT character_maximum_length
+                             FROM information_schema.columns
+                            WHERE table_schema='public' AND table_name='tickets'
+                              AND column_name='payment_type'), 0) < 20 THEN
+                ALTER TABLE tickets ALTER COLUMN payment_type TYPE VARCHAR(20);
+              END IF;
+            END $$;
+            """,
             # Pool timer status for explicit cancellation (ACTIVE | CANCELLED | COMPLETED)
             "ALTER TABLE pool_timer_sessions ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'",
             "ALTER TABLE pool_timer_sessions ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE",
@@ -696,6 +815,15 @@ def create_app(config_class=Config):
             print(f"STEP 26: analytics layer FAILED — {exc}")
             print("         init-db continues; dashboards will 503 until fixed.")
 
+        # ── STEP 27+ lives in migrations/sql, not here ────────────────────────
+        # Everything from 027 onward ships as versioned .sql files applied by
+        # `flask apply-migrations` (see app/migrations_runner.py). Do NOT add new
+        # STEPs below — a change expressed here and in a .sql file will drift,
+        # and init-db's run() helper swallows errors, which is exactly the wrong
+        # behaviour for a trigger or an assertion.
+        print("STEP 27+: see `flask apply-migrations` (migrations/sql/manifest.txt)")
+
+    register_migration_commands(app)
 
     @app.cli.command('restate-costs')
     @click.option('--dry-run', is_flag=True, help='Report what would change without writing.')
@@ -807,7 +935,10 @@ def create_app(config_class=Config):
                 }
                 base_unit = unit_map.get(unit, 'pieza')
                 item = InventoryItem(
-                    name=name, base_unit_key=base_unit,
+                    # 'unit' is NOT NULL and was omitted here, so this command has
+                    # been failing since base_unit_key was introduced. Both are set:
+                    # unit is the legacy free-text label, base_unit_key the FK.
+                    name=name, unit=unit, base_unit_key=base_unit,
                     stock_quantity=qty, low_stock_threshold=threshold,
                     category=category, shots_per_bottle=shots,
                 )
@@ -832,18 +963,13 @@ def create_app(config_class=Config):
             return item, True
 
         def link_ingredient(menu_item_id, inv_item, quantity=1):
-            """Write to both MenuItemIngredient (legacy) and InsumoBase (new)."""
+            """Attach an ingredient to a menu item. InsumoBase only.
+
+            The legacy MenuItemIngredient write was removed when migration 029b
+            emptied and write-blocked that table -- keeping it would make this
+            helper raise and abort the whole seed transaction.
+            """
             from .models.inventory import InsumoBase
-            # Legacy
-            if not MenuItemIngredient.query.filter_by(
-                menu_item_id=menu_item_id, inventory_item_id=inv_item.id
-            ).first():
-                db.session.add(MenuItemIngredient(
-                    menu_item_id=menu_item_id,
-                    inventory_item_id=inv_item.id,
-                    quantity=quantity,
-                ))
-            # New
             if not InsumoBase.query.filter_by(
                 menu_item_id=menu_item_id, inventory_item_id=inv_item.id
             ).first():
@@ -922,7 +1048,11 @@ def create_app(config_class=Config):
 
         margarita = MenuItem.query.filter_by(name='Margarita').first()
         if margarita:
-            if not MenuItemIngredient.query.filter_by(menu_item_id=margarita.id).first():
+            # Probe InsumoBase, not the retired MenuItemIngredient: after 029b that
+            # table is always empty, so the old guard was always true and this block
+            # re-ran on every invocation.
+            from .models.inventory import InsumoBase as _IB
+            if not _IB.query.filter_by(menu_item_id=margarita.id).first():
                 link_ingredient(margarita.id, tb_shot,    quantity=1)
                 link_ingredient(margarita.id, triple_sec, quantity=30)
                 print('  + Margarita recipe: 1 tequila shot + 30ml triple sec')
