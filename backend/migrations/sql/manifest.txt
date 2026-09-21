@@ -1,0 +1,46 @@
+# ============================================================================
+# manifest.txt — the ONE ordered list of migrations.
+#
+# Read by all three runners, so the order can never drift between them:
+#   * run_all.sh              (bash / dev Mac)
+#   * Invoke-Migrations.ps1   (PowerShell / Windows POS)
+#   * flask apply-migrations  (container startup, fresh installs)
+#
+# One filename stem per line, no .sql extension. Blank lines and lines
+# starting with '#' are ignored. Order is dependency order, NOT alphabetical
+# order that happens to match -- each file guards on its predecessor via
+# _applied(), so a wrong order fails loudly rather than half-working.
+#
+# The version key is the text before the first underscore ('031b' from
+# '031b_modifier_coverage'). That key is what lands in schema_migrations and
+# what the runners use to decide "already applied, skip".
+# ============================================================================
+
+027_ledger_integrity                  # seq ordering, chain guard, stock/ledger guard
+027b_normalize_names                  # MUST precede 031d/034b -- silent no-op otherwise
+028_authorization_framework
+029_unified_inventory_model           # event-type FK, conversions, curated map
+029b_retire_legacy_recipes            # MUST precede 032 -- else init-db STEP 16 reverts deletions
+030_kds_event_outbox
+031_modifier_inventory
+031b_modifier_coverage
+031c_bottle_service_options
+031d_refresco_category
+032_variant_availability              # removes all 3 double-deductions
+032b_modifier_group_consolidation
+032c_soda_groups
+032d_combo_dogo_parity
+033_cigarette_conversion
+033b_pack_open_and_baseline
+033c_pack_lots
+034_recipes_part_a
+034b_recipes_part_b
+034c_recipes_final
+034d_retire_shot_azulito
+034e_untracked_consumables
+035_production_batches
+035b_sauce_production
+036_availability_engine
+037_ui_settings
+038_unified_audit
+039_auto_convert_gating               # splits the auto-convert gate: cigarettes vs spirits
