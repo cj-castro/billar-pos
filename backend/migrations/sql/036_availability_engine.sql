@@ -136,19 +136,61 @@ VALUES ('036','availability_engine','Effective availability across all 4 mechani
 ON CONFLICT (version) DO NOTHING;
 
 DO $$
-DECLARE v_now numeric; v_prep numeric; n int;
+DECLARE v_now numeric; v_prep numeric; v_own numeric; v_conv numeric;
+        v_item varchar(36); n int;
 BEGIN
-    -- loose cigarettes must include pack-equivalents
-    SELECT a.available_now INTO v_now
-      FROM fn_effective_available('211e924e-53d5-4204-a33c-bdf665561d3f') a;
-    IF v_now <= 250 THEN
-        RAISE EXCEPTION '036: loose Blanco shows % -- pack equivalents not counted', v_now;
+    -- Loose cigarettes must include pack-equivalents.
+    --
+    -- Previously this asserted "> 250", a magnitude taken from one snapshot's
+    -- stock. That tests inventory levels, not the recursion: a bar that is
+    -- simply low on cigarettes fails it, while a genuinely broken CTE passes it
+    -- whenever loose stock alone clears the bar. Anchor to what the data says
+    -- the answer should be instead, so the test means the same thing at any
+    -- stock level. Resolved by name -- a hardcoded UUID does not survive a
+    -- rebuilt database.
+    SELECT id, stock_quantity INTO v_item, v_own
+      FROM inventory_items WHERE btrim(name) = 'Marlboro Blanco Suelto' AND is_active;
+    IF v_item IS NULL THEN RAISE EXCEPTION '036: Marlboro Blanco Suelto not found'; END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM inventory_conversions c
+                    WHERE c.to_item_id = v_item AND c.is_active AND c.is_automatic) THEN
+        RAISE EXCEPTION '036: no active automatic pack->loose conversion into Blanco';
     END IF;
 
-    -- a sauce portion must EXCLUDE bottle capacity from available_now
+    SELECT COALESCE(sum(f.stock_quantity * c.ratio * (1 - c.loss_factor)), 0) INTO v_conv
+      FROM inventory_conversions c
+      JOIN inventory_items f ON f.id = c.from_item_id AND f.is_active
+     WHERE c.to_item_id = v_item AND c.is_active AND c.is_automatic;
+
+    SELECT a.available_now INTO v_now FROM fn_effective_available(v_item) a;
+    IF v_now <> v_own + v_conv THEN
+        RAISE EXCEPTION '036: loose Blanco shows %, expected own % + pack equivalents % = %',
+            v_now, v_own, v_conv, v_own + v_conv;
+    END IF;
+
+    -- A sauce portion must EXCLUDE bottle capacity from available_now.
+    -- Compared against the item's own stock plus any automatic conversions
+    -- (none, for a sauce) rather than a fixed 85: if production capacity ever
+    -- leaks into available_now, this fires regardless of how much sauce is on
+    -- hand.
+    SELECT id, stock_quantity INTO v_item, v_own
+      FROM inventory_items WHERE btrim(name) = 'BBQ' AND is_active;
+    IF v_item IS NULL THEN RAISE EXCEPTION '036: BBQ not found'; END IF;
+
+    SELECT COALESCE(sum(f.stock_quantity * c.ratio * (1 - c.loss_factor)), 0) INTO v_conv
+      FROM inventory_conversions c
+      JOIN inventory_items f ON f.id = c.from_item_id AND f.is_active
+     WHERE c.to_item_id = v_item AND c.is_active AND c.is_automatic;
+
     SELECT a.available_now, a.available_with_prep INTO v_now, v_prep
-      FROM fn_effective_available((SELECT id FROM inventory_items WHERE btrim(name)='BBQ')) a;
-    IF v_now <> 85 THEN RAISE EXCEPTION '036: BBQ available_now is %, expected 85', v_now; END IF;
+      FROM fn_effective_available(v_item) a;
+    IF v_now <> v_own + v_conv THEN
+        RAISE EXCEPTION '036: BBQ available_now is %, expected % -- production capacity leaked into available_now',
+            v_now, v_own + v_conv;
+    END IF;
+    IF v_prep < v_now THEN
+        RAISE EXCEPTION '036: BBQ available_with_prep % is below available_now %', v_prep, v_now;
+    END IF;
 
     SELECT count(*) INTO n FROM v_menu_availability;
     IF n = 0 THEN RAISE EXCEPTION '036: availability board is empty'; END IF;
