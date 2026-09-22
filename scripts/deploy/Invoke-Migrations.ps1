@@ -52,6 +52,19 @@ $ErrorActionPreference = 'Stop'
 function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 function Step($msg) { Write-Host "[$(Get-Date -f 'HH:mm:ss')] $msg" -ForegroundColor Cyan }
 
+# Windows PowerShell 5.1 converts a native command's stderr into ErrorRecords,
+# and $ErrorActionPreference='Stop' escalates those to TERMINATING errors. psql
+# prints NOTICE to stderr, so a harmless "trigger does not exist, skipping" from
+# a DROP ... IF EXISTS aborts the deploy with a stack trace mid-migration.
+# pwsh 7 does not behave this way, which is why this only appears on the POS
+# machine. Run native commands through here: stderr comes back as plain text and
+# $LASTEXITCODE (global) still reflects the real exit status.
+function Invoke-Native([scriptblock]$Cmd) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Cmd 2>&1 } finally { $ErrorActionPreference = $prev }
+}
+
 if (-not (Test-Path (Join-Path $ProjectDir 'docker-compose.yml'))) {
     Fail "no docker-compose.yml in $ProjectDir. Pass -ProjectDir."
 }
@@ -104,12 +117,10 @@ $dbName = if ($env:POSTGRES_DB)   { $env:POSTGRES_DB }   else { 'billiardbar' }
 # schema_migrations probe just fails, returns nothing, and the script concludes
 # "0 applied" -- then offers to re-apply all 28 migrations to a database that
 # already has them. Ask Postgres directly instead of trusting the container.
-#
-# Assigned, not piped to Out-Null: under $ErrorActionPreference='Stop' a native
-# command's stderr redirected with 2>&1 INTO A PIPELINE raises
-# NativeCommandError, which would bypass Fail and print a stack trace instead of
-# the sentence the operator needs. Assignment keeps the records in the variable.
-$ready = docker exec $container pg_isready -U $dbUser -d $dbName 2>&1
+# Routed through Invoke-Native: pg_isready writes its status line to stderr, and
+# under Windows PowerShell 5.1 that becomes a terminating error, bypassing Fail
+# and printing a stack trace instead of the sentence the operator needs.
+$ready = Invoke-Native { docker exec $container pg_isready -U $dbUser -d $dbName }
 if ($LASTEXITCODE -ne 0) {
     Fail "postgres is not accepting connections yet (container $($container.Substring(0,12))).`n$ready`nWait for Docker Desktop to finish starting, then re-run."
 }
@@ -117,12 +128,9 @@ if ($LASTEXITCODE -ne 0) {
 Step "container $($container.Substring(0,12))  db $dbName"
 
 function Invoke-Psql([string]$sql) {
-    # Same NativeCommandError trap as above: capture into a variable under a
-    # relaxed preference so psql's stderr comes back as TEXT the caller can
-    # inspect and report, instead of a terminating error.
-    $ErrorActionPreference = 'Continue'
-    $out = docker exec $container psql -U $dbUser -d $dbName -tA -c $sql 2>&1
-    return $out
+    # Same NativeCommandError trap as above: psql's stderr must come back as
+    # TEXT the caller can inspect and report, not a terminating error.
+    return Invoke-Native { docker exec $container psql -U $dbUser -d $dbName -tA -c $sql }
 }
 
 # ── Invariants ───────────────────────────────────────────────────────────────
@@ -262,8 +270,10 @@ foreach ($stem in $pending) {
     $label = $stem.PadRight(38)
     Write-Host -NoNewline "  $label"
 
-    $output = docker exec -e PGCLIENTENCODING=UTF8 $container `
-        psql -U $dbUser -d $dbName -v ON_ERROR_STOP=1 -f "/tmp/mig/$stem.sql" 2>&1
+    $output = Invoke-Native {
+        docker exec -e PGCLIENTENCODING=UTF8 $container `
+            psql -U $dbUser -d $dbName -v ON_ERROR_STOP=1 -f "/tmp/mig/$stem.sql"
+    }
     $code = $LASTEXITCODE
 
     if ($code -ne 0) {

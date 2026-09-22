@@ -15,6 +15,30 @@ DO $$ BEGIN
     IF NOT _applied('034b') THEN RAISE EXCEPTION '034b must be applied before 034c.'; END IF;
 END $$;
 
+-- PART 0 — Repair unit labels edited on the POS after 2026-08-07.
+--
+-- These four items were relabelled in the admin UI to describe how they are
+-- PURCHASED (a case of beer, a serving of wings) rather than how they are
+-- STOCKED and SOLD. Nothing else moved: the recipes still deduct botella/pieza,
+-- the restock history is still recorded in botella/pieza, and stock_quantity is
+-- still a bottle/piece count. Only the label drifted.
+--
+-- unit_catalog carries no conversion factors, so this never mis-scaled the
+-- arithmetic -- 1 is subtracted either way. It is corrected because the label
+-- feeds reporting, purchase units, and 035b (which keys sauce production off
+-- base_unit_key = 'porcion'), and because leaving it would trip the guard
+-- installed in PART 3 on the next legitimate recipe edit.
+--
+-- Scoped by name AND by the exact wrong value, so this cannot touch an item
+-- that is genuinely stocked by the case.
+UPDATE inventory_items SET base_unit_key = 'botella'
+ WHERE btrim(name) IN ('Corona','Indio','Tecate')
+   AND base_unit_key = 'caja' AND is_active;
+
+UPDATE inventory_items SET base_unit_key = 'pieza'
+ WHERE btrim(name) = 'Alitas 700gr'
+   AND base_unit_key = 'porcion' AND is_active;
+
 -- PART 1 — Retire the orphan (used by nothing; deactivate, keep history)
 UPDATE inventory_items SET is_active = false
  WHERE btrim(name) = 'Salchichas' AND is_active;
@@ -90,7 +114,7 @@ VALUES ('034c','recipes_final','Salchichas retired; Gold Caja sellable; unit gua
 ON CONFLICT (version) DO NOTHING;
 
 DO $$
-DECLARE n int;
+DECLARE n int; detail text;
 BEGIN
     IF EXISTS (SELECT 1 FROM inventory_items WHERE btrim(name)='Salchichas' AND is_active) THEN
         RAISE EXCEPTION '034c: Salchichas orphan still active';
@@ -115,7 +139,18 @@ BEGIN
     SELECT count(*) INTO n FROM insumos_base b
       JOIN inventory_items ii ON ii.id = b.inventory_item_id
      WHERE b.deduction_unit_key IS DISTINCT FROM ii.base_unit_key;
-    IF n <> 0 THEN RAISE EXCEPTION '034c: % recipe rows have a unit mismatch', n; END IF;
+    IF n <> 0 THEN
+        -- Name the offenders. A bare count sends the operator digging at 1am.
+        SELECT string_agg(format('%s/%s: recipe %s vs stock %s',
+                                 btrim(mi.name), btrim(ii.name),
+                                 b.deduction_unit_key, ii.base_unit_key), '; ')
+          INTO detail
+          FROM insumos_base b
+          JOIN inventory_items ii ON ii.id = b.inventory_item_id
+          JOIN menu_items mi      ON mi.id = b.menu_item_id
+         WHERE b.deduction_unit_key IS DISTINCT FROM ii.base_unit_key;
+        RAISE EXCEPTION '034c: % recipe rows have a unit mismatch -- %', n, detail;
+    END IF;
 
     RAISE NOTICE '034c OK -- Gold Caja sellable, unit guard active, 0 unit mismatches';
 END $$;

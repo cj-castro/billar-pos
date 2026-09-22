@@ -58,6 +58,14 @@ param(
 $ErrorActionPreference = 'Stop'
 
 function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
+
+# See Invoke-Migrations.ps1: Windows PowerShell 5.1 escalates a native command's
+# stderr to a terminating error under $ErrorActionPreference='Stop'.
+function Invoke-Native([scriptblock]$Cmd) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Cmd 2>&1 } finally { $ErrorActionPreference = $prev }
+}
 function Step($msg) { Write-Host "[$(Get-Date -f 'HH:mm:ss')] $msg" -ForegroundColor Cyan }
 
 if (-not (Test-Path (Join-Path $ProjectDir 'docker-compose.yml'))) {
@@ -113,7 +121,7 @@ if ($size -lt 10000) { Fail "backup is only $size bytes -- refusing to trust it"
 # of contents; if that works, the file is structurally intact.
 Step "verifying archive is readable..."
 docker cp $outside "${container}:/tmp/verify.dump" | Out-Null
-$toc = docker exec $container pg_restore --list /tmp/verify.dump 2>&1
+$toc = Invoke-Native { docker exec $container pg_restore --list /tmp/verify.dump }
 docker exec $container rm -f /tmp/verify.dump | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail "pg_restore --list could not read the dump:`n$toc" }
 $objects = ($toc | Select-String -NotMatch '^;').Count

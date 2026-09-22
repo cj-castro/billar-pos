@@ -35,6 +35,14 @@ param(
 $ErrorActionPreference = 'Stop'
 
 function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
+
+# See Invoke-Migrations.ps1: Windows PowerShell 5.1 escalates a native command's
+# stderr to a terminating error under $ErrorActionPreference='Stop'.
+function Invoke-Native([scriptblock]$Cmd) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Cmd 2>&1 } finally { $ErrorActionPreference = $prev }
+}
 function Step($msg) { Write-Host "[$(Get-Date -f 'HH:mm:ss')] $msg" -ForegroundColor Cyan }
 
 if (-not (Test-Path $DumpFile)) { Fail "dump not found: $DumpFile" }
@@ -68,7 +76,7 @@ if (-not $Force) {
 
 # ── Stop everything that holds a connection ──────────────────────────────────
 Step "stopping backend, scheduler, telegram-bot..."
-docker compose stop backend scheduler telegram-bot 2>&1 | Out-Null
+Invoke-Native { docker compose stop backend scheduler telegram-bot } | Out-Null
 
 # ── Copy the archive in ──────────────────────────────────────────────────────
 Step "copying dump into container..."
