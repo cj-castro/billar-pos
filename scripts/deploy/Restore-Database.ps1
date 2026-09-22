@@ -43,11 +43,14 @@ if (-not (Test-Path (Join-Path $ProjectDir 'docker-compose.yml'))) {
 }
 Set-Location $ProjectDir
 
-$container = (docker compose ps -q postgres 2>$null | Select-Object -First 1)
-if ([string]::IsNullOrWhiteSpace($container)) {
+# Captured into an array rather than piped through `Select-Object -First 1`,
+# which stops the upstream pipeline and can kill docker mid-write. Same idiom
+# as Backup-Database.ps1 and Invoke-Migrations.ps1.
+$ids = @(docker compose ps -q postgres 2>$null)
+if ($ids.Count -eq 0 -or [string]::IsNullOrWhiteSpace($ids[0])) {
     Fail "postgres container not running. Start it: docker compose up -d postgres"
 }
-$container = $container.Trim()
+$container = $ids[0].Trim()
 
 $dbUser = if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { 'billiard' }
 $dbName = if ($env:POSTGRES_DB)   { $env:POSTGRES_DB }   else { 'billiardbar' }

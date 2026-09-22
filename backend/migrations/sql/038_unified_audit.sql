@@ -114,18 +114,30 @@ VALUES ('038','unified_audit','Location dimension, unified timeline, manager + s
 ON CONFLICT (version) DO NOTHING;
 
 DO $$
-DECLARE n int;
+DECLARE n int; v_latest timestamptz;
 BEGIN
+    -- Smoke test: the UNION ALL view must be queryable AND must honour a bounded
+    -- occurred_at filter (the only way it is ever allowed to be read).
+    --
+    -- Anchored to the newest event in the view, NOT to clock_timestamp(). A
+    -- wall-clock '7 days' window asserts that the BUSINESS was active, not that
+    -- the VIEW works, so it fails on any restored dump or rehearsal database
+    -- that is more than a week old -- exactly the environments this migration
+    -- is rehearsed in. On the live POS the newest event is minutes old, so the
+    -- window is the same one either way.
+    SELECT max(occurred_at) INTO v_latest FROM v_audit_timeline;
+    IF v_latest IS NULL THEN RAISE EXCEPTION '038: timeline is empty'; END IF;
+
     SELECT count(*) INTO n FROM v_audit_timeline
-     WHERE occurred_at > clock_timestamp() - interval '7 days';
-    IF n = 0 THEN RAISE EXCEPTION '038: timeline returned nothing for the last 7 days'; END IF;
+     WHERE occurred_at > v_latest - interval '7 days';
+    IF n = 0 THEN RAISE EXCEPTION '038: timeline returned nothing for the 7 days to %', v_latest; END IF;
 
     SELECT count(DISTINCT source) INTO n FROM v_audit_timeline
-     WHERE occurred_at > clock_timestamp() - interval '90 days';
+     WHERE occurred_at > v_latest - interval '90 days';
     IF n < 2 THEN RAISE EXCEPTION '038: timeline only surfaces % source(s)', n; END IF;
 
-    RAISE NOTICE '038 OK -- timeline live across % sources, % events in last 7 days',
+    RAISE NOTICE '038 OK -- timeline live across % sources, % events in the 7 days to %',
         n, (SELECT count(*) FROM v_audit_timeline
-             WHERE occurred_at > clock_timestamp() - interval '7 days');
+             WHERE occurred_at > v_latest - interval '7 days'), v_latest::date;
 END $$;
 COMMIT;

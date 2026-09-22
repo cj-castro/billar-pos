@@ -73,11 +73,15 @@ New-Item -Force -ItemType Directory $BackupDir | Out-Null
 # 'billiards'. Compose derives the project name from the folder, so a renamed
 # folder silently changes every container name AND the volume name. Asking
 # compose keeps this correct no matter what the folder is called.
-$container = (docker compose ps -q postgres 2>$null | Select-Object -First 1)
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($container)) {
+# Captured into an array rather than piped through `Select-Object -First 1`:
+# -First stops the upstream pipeline, which kills docker before PowerShell
+# records its exit code, leaving $LASTEXITCODE UNSET. The guard below then sees
+# $null -ne 0 and refuses to back up a perfectly healthy database.
+$ids = @(docker compose ps -q postgres 2>$null)
+if ($LASTEXITCODE -ne 0 -or $ids.Count -eq 0 -or [string]::IsNullOrWhiteSpace($ids[0])) {
     Fail "postgres container not running. Start it: docker compose up -d postgres"
 }
-$container = $container.Trim()
+$container = $ids[0].Trim()
 
 $dbUser = if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { 'billiard' }
 $dbName = if ($env:POSTGRES_DB)   { $env:POSTGRES_DB }   else { 'billiardbar' }

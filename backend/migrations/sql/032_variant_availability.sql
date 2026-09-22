@@ -48,12 +48,33 @@ END $$;
 -- Deleting the recipe row is safe in all three cases because the soda group is
 -- attached, so the customer's selection always supplies exactly one soda.
 -- ---------------------------------------------------------------------------
+-- Two further families surfaced when this ran against live POS data. They are
+-- the same bug, not new ones, and are listed explicitly rather than deleted by
+-- a generic "recipe overlaps modifier" rule -- an optional 'Extra X' modifier
+-- SHOULD stack on top of a recipe row, so a blanket delete would be wrong.
+--
+--   Rusa         -> Agua Mineral  the Fresca row above has a twin; 'Rusa
+--                                 Refresco' is min=max=1, so whichever soda is
+--                                 picked is already deducted by the modifier.
+--   Cubeta Premium -> Corona      'Cubeta Premium'/'Cubeta Regular' are
+--   Cubeta Regular -> Indio,      min=max=10 with allow_multiple, so the ten
+--                     Tecate,     selections already account for every beer in
+--                     Tecate      the bucket. The recipe rows deduct one MORE
+--                     Light,      of each listed beer on top: a Cubeta Regular
+--                     XX Ambar,   was taking 15 beers out of stock per sale
+--                     XX Lager    instead of 10.
 DELETE FROM insumos_base b
  USING menu_items mi, inventory_items ii
  WHERE b.menu_item_id = mi.id AND ii.id = b.inventory_item_id
    AND ( (btrim(mi.name) = 'Rusa'         AND btrim(ii.name) = 'Fresca')
       OR (btrim(mi.name) = 'Combo Dogo 1' AND btrim(ii.name) = 'Fresca')
-      OR (btrim(mi.name) = 'Combo Dogo 2' AND btrim(ii.name) = 'Manzanita') );
+      OR (btrim(mi.name) = 'Combo Dogo 2' AND btrim(ii.name) = 'Manzanita')
+      OR (btrim(mi.name) = 'Rusa'         AND btrim(ii.name) = 'Agua Mineral')
+      OR (btrim(mi.name) = 'Cubeta Cerveza Premium (10 beers)'
+          AND btrim(ii.name) = 'Corona')
+      OR (btrim(mi.name) = 'Cubeta Cerveza Regular (10 beers)'
+          AND btrim(ii.name) IN ('Indio','Tecate','Tecate Light',
+                                 'XX Ambar','XX Lager')) );
 
 -- ---------------------------------------------------------------------------
 -- PART 2 — Prevent the pattern from returning.
@@ -195,12 +216,22 @@ BEGIN
     SELECT count(*) INTO n FROM v_recipe_modifier_overlap;
     IF n <> 0 THEN RAISE EXCEPTION '032: % recipe/modifier overlaps remain', n; END IF;
 
-    -- Rusa must no longer have ANY recipe row for Fresca
+    -- Rusa must no longer have ANY recipe row for a soda: both its sodas are
+    -- supplied by the mandatory 'Rusa Refresco' group.
     IF EXISTS (SELECT 1 FROM insumos_base b
                 JOIN menu_items mi ON mi.id = b.menu_item_id
                 JOIN inventory_items ii ON ii.id = b.inventory_item_id
-               WHERE btrim(mi.name) = 'Rusa' AND btrim(ii.name) = 'Fresca') THEN
-        RAISE EXCEPTION '032: Rusa still deducts Fresca via its recipe';
+               WHERE btrim(mi.name) = 'Rusa'
+                 AND btrim(ii.name) IN ('Fresca','Agua Mineral')) THEN
+        RAISE EXCEPTION '032: Rusa still deducts a soda via its recipe';
+    END IF;
+
+    -- A Cubeta must take exactly its 10 selected beers, never a recipe row too.
+    IF EXISTS (SELECT 1 FROM insumos_base b
+                JOIN menu_items mi ON mi.id = b.menu_item_id
+               WHERE btrim(mi.name) IN ('Cubeta Cerveza Premium (10 beers)',
+                                        'Cubeta Cerveza Regular (10 beers)')) THEN
+        RAISE EXCEPTION '032: a Cubeta still deducts beer via its recipe';
     END IF;
 
     -- the availability engine must answer for Rusa without erroring

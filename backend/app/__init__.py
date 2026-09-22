@@ -561,8 +561,8 @@ def create_app(config_class=Config):
         # ── STEP 16: Populate insumos_base from menu_item_ingredients ─────────
         # One-time lift of the legacy recipe table into insumos_base.
         #
-        # DANGER, and the reason for the guard below. Migration 032 DELETES three
-        # insumos_base rows to kill the Rusa/Fresca and Combo Dogo double
+        # DANGER, and the reason for the guard below. Migration 032 DELETES ten
+        # insumos_base rows to kill the Rusa, Combo Dogo and Cubeta double
         # deductions. Those same rows still exist in menu_item_ingredients. This
         # INSERT would put them straight back on the next container start, and
         # the container restarts at every Windows login. The fix would silently

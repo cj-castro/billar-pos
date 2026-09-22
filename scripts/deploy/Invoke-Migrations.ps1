@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Apply the 027-038 SQL migrations to the POS database on Windows.
+    Apply the SQL migrations in backend\migrations\sql\manifest.txt to the POS
+    database on Windows. Currently 027-039.
 
 .DESCRIPTION
     Reads backend\migrations\sql\manifest.txt for the order -- the same file
@@ -82,25 +83,123 @@ if ($missing.Count -gt 0) {
 }
 
 # ── Resolve container via compose, never by hardcoded name ───────────────────
-$container = (docker compose ps -q postgres 2>$null | Select-Object -First 1)
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($container)) {
+# Captured into an array rather than piped through `Select-Object -First 1`:
+# -First stops the upstream pipeline, which kills docker before PowerShell
+# records its exit code, leaving $LASTEXITCODE UNSET. The guard below then sees
+# $null -ne 0, decides the container is not running, and aborts the migration
+# even though compose resolved it perfectly. Assignment sets $LASTEXITCODE.
+$ids = @(docker compose ps -q postgres 2>$null)
+if ($LASTEXITCODE -ne 0 -or $ids.Count -eq 0 -or [string]::IsNullOrWhiteSpace($ids[0])) {
     Fail "postgres container not running. Start it: docker compose up -d postgres"
 }
-$container = $container.Trim()
+$container = $ids[0].Trim()
 
 $dbUser = if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { 'billiard' }
 $dbName = if ($env:POSTGRES_DB)   { $env:POSTGRES_DB }   else { 'billiardbar' }
 
+# A container can be up while Postgres inside it is still replaying WAL and
+# refusing connections -- the normal state for the first few seconds after
+# Docker Desktop starts at open, which is exactly when this script gets run.
+# `docker compose ps -q` reports it as running, so without this check the
+# schema_migrations probe just fails, returns nothing, and the script concludes
+# "0 applied" -- then offers to re-apply all 28 migrations to a database that
+# already has them. Ask Postgres directly instead of trusting the container.
+#
+# Assigned, not piped to Out-Null: under $ErrorActionPreference='Stop' a native
+# command's stderr redirected with 2>&1 INTO A PIPELINE raises
+# NativeCommandError, which would bypass Fail and print a stack trace instead of
+# the sentence the operator needs. Assignment keeps the records in the variable.
+$ready = docker exec $container pg_isready -U $dbUser -d $dbName 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Fail "postgres is not accepting connections yet (container $($container.Substring(0,12))).`n$ready`nWait for Docker Desktop to finish starting, then re-run."
+}
+
 Step "container $($container.Substring(0,12))  db $dbName"
 
 function Invoke-Psql([string]$sql) {
-    docker exec $container psql -U $dbUser -d $dbName -tA -c $sql 2>&1
+    # Same NativeCommandError trap as above: capture into a variable under a
+    # relaxed preference so psql's stderr comes back as TEXT the caller can
+    # inspect and report, instead of a terminating error.
+    $ErrorActionPreference = 'Continue'
+    $out = docker exec $container psql -U $dbUser -d $dbName -tA -c $sql 2>&1
+    return $out
+}
+
+# ── Invariants ───────────────────────────────────────────────────────────────
+# These are not decoration. Every one of them must be 0, and the script must
+# FAIL if any is not -- printing a red "3" and exiting 0 is how a real problem
+# gets scrolled past at 1am. Delimited output so the numbers can be checked
+# rather than eyeballed.
+#
+# A function because BOTH exit paths need it. The second run of this script --
+# the one after the rebuild, which reports "Nothing to do" -- IS the
+# restart-survival check the runbook calls required. init-db STEP 16 can undo
+# migration 032 on a restart, so a run that applies nothing still has to prove
+# the database is clean. Checking only after applying would mean the one run
+# that exists to catch that regression never looked for it.
+function Test-Invariants {
+    Write-Host ""
+    Write-Host "=== invariants (every number must be 0) ===" -ForegroundColor Cyan
+
+    $invariants = Invoke-Psql @"
+SELECT 'drift|'||count(*) FROM v_ledger_reconciliation WHERE is_drifted;
+SELECT 'chain breaks|'||count(*) FROM fn_ledger_scan_chain();
+SELECT 'unresolved warnings|'||count(*) FROM ledger_violations WHERE resolved_at IS NULL;
+SELECT 'double deductions|'||count(*) FROM v_recipe_modifier_overlap;
+SELECT 'modifier gaps|'||count(*) FROM v_modifier_coverage_gaps;
+SELECT 'legacy recipe rows|'||count(*) FROM menu_item_ingredients;
+"@
+
+    $breached = @()
+    $parsed   = 0
+    foreach ($line in $invariants) {
+        $text = "$line".Trim()
+        if ($text -eq '') { continue }
+        $parts = $text -split '\|'
+        if ($parts.Count -ne 2) { continue }
+        $name  = $parts[0]
+        $count = 0
+        # Counted only once the value is confirmed numeric: psql error text can
+        # contain pipes (it echoes the offending SQL), and a line that merely
+        # LOOKS like a pair must not be mistaken for an invariant that passed.
+        if (-not [int]::TryParse($parts[1], [ref]$count)) { continue }
+        $parsed++
+        $colour = if ($count -eq 0) { 'Green' } else { 'Red' }
+        Write-Host ("  {0,-20}: {1}" -f $name, $count) -ForegroundColor $colour
+        if ($count -ne 0) { $breached += "$name = $count" }
+    }
+
+    # A failed statement aborts the whole -c batch, so too few rows means the
+    # check never really ran. Treat that as a failure, not as a pass.
+    if ($parsed -lt 6) {
+        Write-Host ""
+        Write-Host "  Could not read the invariants -- they did NOT pass:" -ForegroundColor Red
+        $invariants | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        exit 2
+    }
+
+    if ($breached.Count -gt 0) {
+        Write-Host ""
+        Write-Host "  INVARIANT BREACH -- the database is not clean:" -ForegroundColor Red
+        $breached | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        Write-Host ""
+        if ($breached -match 'double deductions') {
+            Write-Host "  A non-zero 'double deductions' right after a rebuild means init-db" -ForegroundColor Red
+            Write-Host "  STEP 16 put the recipe rows back and migration 032 was undone." -ForegroundColor Red
+        }
+        Write-Host "  Do not open the bar on this. Send the list above to CJ." -ForegroundColor Red
+        exit 2
+    }
 }
 
 # ── What is already applied ──────────────────────────────────────────────────
 $hasTable = (Invoke-Psql "SELECT to_regclass('public.schema_migrations') IS NOT NULL") -join ''
+$hasTable = $hasTable.Trim()
+if ($hasTable -ne 't' -and $hasTable -ne 'f') {
+    Fail "could not query the database:`n$hasTable"
+}
 $applied = @()
-if ($hasTable.Trim() -eq 't') {
+if ($hasTable -eq 't') {
     $applied = @(Invoke-Psql "SELECT version FROM schema_migrations" |
                  ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
 }
@@ -111,6 +210,9 @@ $pending = @($stems | Where-Object { $applied -notcontains ($_ -split '_')[0] })
 if ($pending.Count -eq 0) {
     Write-Host ""
     Write-Host "  Nothing to do -- all $($stems.Count) migrations already applied." -ForegroundColor Green
+    Test-Invariants
+    Write-Host ""
+    Write-Host "  Database is clean and the migrations survived the restart." -ForegroundColor Green
     exit 0
 }
 
@@ -175,6 +277,7 @@ foreach ($stem in $pending) {
         Write-Host "  $okCount migration(s) applied before this one." -ForegroundColor Yellow
         Write-Host ""
         Write-Host "  Send the error above to CJ before retrying." -ForegroundColor Yellow
+        docker exec -u root $container rm -rf /tmp/mig | Out-Null
         exit 1
     }
 
@@ -190,19 +293,10 @@ foreach ($stem in $pending) {
 docker exec -u root $container rm -rf /tmp/mig | Out-Null
 
 # ── Invariants ───────────────────────────────────────────────────────────────
-Write-Host ""
-Write-Host "=== invariants (every number must be 0) ===" -ForegroundColor Cyan
-Invoke-Psql @"
-SELECT 'drift               : '||count(*) FROM v_ledger_reconciliation WHERE is_drifted;
-SELECT 'chain breaks        : '||count(*) FROM fn_ledger_scan_chain();
-SELECT 'unresolved warnings : '||count(*) FROM ledger_violations WHERE resolved_at IS NULL;
-SELECT 'double deductions   : '||count(*) FROM v_recipe_modifier_overlap;
-SELECT 'modifier gaps       : '||count(*) FROM v_modifier_coverage_gaps;
-SELECT 'legacy recipe rows  : '||count(*) FROM menu_item_ingredients;
-"@
+Test-Invariants
 
 Write-Host ""
-Write-Host "  $okCount migration(s) applied." -ForegroundColor Green
+Write-Host "  $okCount migration(s) applied. All invariants clean." -ForegroundColor Green
 Write-Host ""
 Write-Host "  NEXT: rebuild and restart, then run this script again." -ForegroundColor Yellow
 Write-Host "  It must report 'Nothing to do' and the same zeros. init-db STEP 16" -ForegroundColor Yellow
