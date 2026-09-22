@@ -8,7 +8,11 @@ export PYTHONUNBUFFERED=1
 #                   recipe table into insumos_base, and migration 029b (below)
 #                   is what retires that legacy table afterwards.
 #   2. seed.py      no-op unless the database has zero users.
-#   3. migrations   versioned .sql files, 027 onward, in manifest order.
+#   3. finalize     no-op unless this database came from a factory template, in
+#                   which case it fills in credentials from the environment.
+#                   Must follow seed.py: it credentials accounts, never creates
+#                   them.
+#   4. migrations   versioned .sql files, 027 onward, in manifest order.
 #
 # apply-migrations deliberately exits 0 even when a migration fails. Each file
 # is a single transaction, so a failure leaves the schema consistent at the last
@@ -20,6 +24,9 @@ flask init-db
 
 echo "Seeding initial data..."
 python seed.py
+
+echo "Finalizing provisioning..."
+flask factory-finalize
 
 echo "Applying SQL migrations..."
 flask apply-migrations

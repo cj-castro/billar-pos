@@ -107,23 +107,29 @@ def seed():
         db.session.flush()
 
         # ── Inventory Items ────────────────────────────────
+        # base_unit_key is NOT NULL with an FK to unit_catalog, and the free-text
+        # `unit` column is a legacy label that is NOT a catalog key -- 'serving'
+        # and 'portion' both resolve to the catalog's 'porcion'. Passing only
+        # `unit` (or the long-gone `quantity` kwarg) makes seeding abort, which
+        # takes the whole entrypoint down with it because of `set -e`.
         inv_map = {}
         inventory_items_data = [
-            ('Buffalo Sauce', 'serving', 100),
-            ('BBQ Sauce', 'serving', 100),
-            ('Garlic Sauce', 'serving', 100),
-            ('Parmesan', 'serving', 100),
-            ('Honey Mustard Sauce', 'serving', 100),
-            ('Lemon Pepper Seasoning', 'serving', 100),
-            ('Mango Habanero Sauce', 'serving', 100),
-            ('Ranch Dressing', 'serving', 100),
-            ('Blue Cheese Dressing', 'serving', 100),
-            ('Chicken Wings (raw)', 'portion', 50),
-            ('Boneless Chicken', 'portion', 50),
-            ('Chicken Tenders (raw)', 'portion', 50),
+            ('Buffalo Sauce',          'serving', 'porcion', 100),
+            ('BBQ Sauce',              'serving', 'porcion', 100),
+            ('Garlic Sauce',           'serving', 'porcion', 100),
+            ('Parmesan',               'serving', 'porcion', 100),
+            ('Honey Mustard Sauce',    'serving', 'porcion', 100),
+            ('Lemon Pepper Seasoning', 'serving', 'porcion', 100),
+            ('Mango Habanero Sauce',   'serving', 'porcion', 100),
+            ('Ranch Dressing',         'serving', 'porcion', 100),
+            ('Blue Cheese Dressing',   'serving', 'porcion', 100),
+            ('Chicken Wings (raw)',    'portion', 'porcion', 50),
+            ('Boneless Chicken',       'portion', 'porcion', 50),
+            ('Chicken Tenders (raw)',  'portion', 'porcion', 50),
         ]
-        for name, unit, qty in inventory_items_data:
-            inv = InventoryItem(name=name, unit=unit, quantity=qty)
+        for name, unit, base_key, qty in inventory_items_data:
+            inv = InventoryItem(name=name, unit=unit,
+                                base_unit_key=base_key, stock_quantity=qty)
             db.session.add(inv)
             inv_map[name] = inv
         db.session.flush()

@@ -825,6 +825,86 @@ def create_app(config_class=Config):
 
     register_migration_commands(app)
 
+    @app.cli.command('factory-finalize')
+    def factory_finalize():
+        """Re-derive credentials from env on a machine built from a factory template.
+
+        WHY THIS EXISTS
+            scripts/deploy/factory_template.sql ships the real menu but no
+            secrets: every account is left with a sentinel password_hash that
+            cannot match any bcrypt verification. It cannot ship real hashes,
+            because a template is copied to machines this bar does not control.
+
+            It also cannot simply delete the accounts and let seed.py rebuild
+            them, because seed.py returns early only when a user already exists
+            -- with none, it would proceed to lay its demo wings menu on top of
+            the real one.
+
+            So the accounts ship credential-less and this command fills them in
+            from the environment, using the same env vars and the same hashing
+            seed.py uses. Runs on every boot; does nothing unless the template
+            marker is present, so it is safe in the entrypoint.
+        """
+        import os
+        from sqlalchemy import text
+        from .models.user import User
+
+        SENTINEL = 'FACTORY_TEMPLATE_AWAITING_RESET'
+        FLAG = 'factory_template.pending_credential_reset'
+
+        pending = None
+        try:
+            pending = db.session.execute(
+                text('SELECT value FROM settings WHERE key = :k'), {'k': FLAG}
+            ).scalar()
+        except Exception as exc:
+            # This runs on every boot, including the bar's existing POS, under
+            # `set -e`. A missing settings table on some older database must not
+            # be the reason the POS fails to start.
+            db.session.rollback()
+            print(f"factory-finalize: skipped ({exc.__class__.__name__})")
+            return
+
+        if pending != 'true':
+            return
+
+        # username -> (password env var, default, pin env var, default)
+        creds = {
+            'admin':    ('ADMIN_PASSWORD',    'admin123',   'ADMIN_PIN',   '1234'),
+            'manager':  ('MANAGER_PASSWORD',  'manager123', 'MANAGER_PIN', '5678'),
+            'waiter1':  ('WAITER1_PASSWORD',  'waiter123',  None,          None),
+            'waiter2':  ('WAITER2_PASSWORD',  'waiter123',  None,          None),
+            'kitchen':  ('KITCHEN_PASSWORD',  'kitchen123', None,          None),
+            'barstaff': ('BARSTAFF_PASSWORD', 'bar123',     None,          None),
+        }
+
+        done = []
+        for username, (pw_var, pw_def, pin_var, pin_def) in creds.items():
+            user = User.query.filter_by(username=username).first()
+            if user is None:
+                continue
+            user.set_password(os.environ.get(pw_var, pw_def))
+            if pin_var:
+                user.set_pin(os.environ.get(pin_var, pin_def))
+            done.append(username)
+
+        # Refuse to clear the marker while anyone is still unusable. Leaving the
+        # flag set means the next boot retries; clearing it would strand the
+        # account permanently with a password nobody can enter.
+        stranded = User.query.filter_by(password_hash=SENTINEL).all()
+        stranded = [u.username for u in stranded if u.username not in done]
+        if stranded:
+            db.session.rollback()
+            print(f"factory-finalize: FAILED -- no credentials defined for {', '.join(stranded)}")
+            print("                  those accounts cannot be logged into; "
+                  "delete them or add their env vars, then restart.")
+            return
+
+        db.session.execute(text('DELETE FROM settings WHERE key = :k'), {'k': FLAG})
+        db.session.commit()
+        print(f"factory-finalize: credentials set from environment for {len(done)} account(s): "
+              f"{', '.join(sorted(done))}")
+
     @app.cli.command('restate-costs')
     @click.option('--dry-run', is_flag=True, help='Report what would change without writing.')
     def restate_costs(dry_run):
