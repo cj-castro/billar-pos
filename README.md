@@ -83,3 +83,45 @@ cd frontend
 npm install
 npm run dev
 ```
+
+## FRESH INSTALL
+
+Phase 1 — build the template (on the bar's POS, where the real menu lives)
+
+Set-ExecutionPolicy -Scope Process Bypass
+
+cd C:\Users\bola8lacalma\Desktop\POS\billiards
+.\scripts\deploy\New-FactoryTemplate.ps1
+
+Read-only on the live DB — all work happens in a throwaway  factory_build  database that's dropped even on failure. Output lands in  backups\factory-template_<timestamp>.dump  (~0.3 MB). Re-run this whenever the menu changes.
+
+Phase 2 — provision a new machine
+
+# 1. clone/copy the repo, then create .env (passwords, POSTGRES_*, JWT secret)
+cd C:\Users\bola8lacalma\Desktop\POS\billiards
+copy .env.example .env
+notepad .env
+
+# 2. start ONLY the database
+docker compose up -d postgres
+
+# 3. load the template
+.\scripts\deploy\Restore-Database.ps1 -DumpFile "D:\path\factory-template_20260923_101500.dump"
+
+# 4. bring the app up
+docker compose up -d
+
+On that first boot the entrypoint does:  init-db  →  seed.py  (skips, users exist) →  factory-finalize  (writes credentials from  .env ) →  apply-migrations  (28 already present, 0 failed).
+
+Phase 3 — verify before trading
+
+.\scripts\deploy\Invoke-Migrations.ps1 -VerifyOnly
+
+Expect 28 applied and all six invariants  0 . Then log in as  admin  with the  ADMIN_PASSWORD  from that machine's  .env .
+
+Two things to know:
+
+• Stock ships at zero — deliberate, since stock is machine-specific. Count it in via Inventory → restock before selling, otherwise everything shows agotado.
+• Order matters. The template must be restored before the backend first starts. If the backend boots against an empty DB first,  seed.py  writes its demo wings menu and you'd have to  docker compose down -v  and start over.
+
+Copy the  .dump  on a USB stick — it doesn't contain passwords or sales history, just menu, recipes, modifiers, and the migration ledger.
