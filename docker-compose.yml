@@ -123,6 +123,7 @@ services:
   # only THIS container fails (logs FATAL, restarts every ~60s).
   backup:
     build: ./backup
+    image: billiards-backup:15.17-1
     restart: unless-stopped
     depends_on:
       postgres:

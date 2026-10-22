@@ -138,11 +138,20 @@ AWS_REGION=us-east-1         (required, the bucket's region)
 S3_BUCKET=my-bucket          (required)
 S3_PREFIX=billiardbar        (optional, default billiardbar)
 
-Build and start only this service:
+The image is built on another machine and shipped, not built on the POS PC. The compose service sets `image: billiards-backup:15.17-1`, so `docker compose up -d` (and start-pos.ps1, which has no `--build`) uses the preloaded image.
 
-docker compose up -d --no-deps --build backup
+On the build machine:
 
-`--no-deps` stops compose from touching postgres, backend and the rest; only `backup` is built and (re)created.
+docker build --platform linux/amd64 -t billiards-backup:15.17-1 ./backup
+docker save billiards-backup:15.17-1 | gzip > billiards-backup_15.17-1.tar.gz
+
+Copy the tarball to the POS PC, then there:
+
+gunzip billiards-backup_15.17-1.tar.gz
+docker load -i billiards-backup_15.17-1.tar
+docker compose up -d --no-deps backup
+
+`--no-deps` stops compose from touching postgres, backend and the rest; only `backup` is (re)created. When the Dockerfile or scripts change, bump the tag in `docker-compose.yml` and repeat.
 
 Status and logs:
 
