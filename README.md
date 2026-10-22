@@ -125,3 +125,40 @@ Two things to know:
 • Order matters. The template must be restored before the backend first starts. If the backend boots against an empty DB first,  seed.py  writes its demo wings menu and you'd have to  docker compose down -v  and start over.
 
 Copy the  .dump  on a USB stick — it doesn't contain passwords or sales history, just menu, recipes, modifiers, and the migration ledger.
+
+## Offsite backup (S3)
+
+The `backup` service runs `pg_dump -Fc` every night at 04:30 (America/Mexico_City) and uploads it to S3 as `<S3_PREFIX>/billiardbar_<YYYY-MM-DD_HHMM>.dump`. If the last successful backup is older than 24h when the container starts (e.g. the PC was off at 04:30), it runs one immediately. The Windows 04:00 plain-SQL dump is separate and untouched.
+
+Add to `.env` BEFORE pulling this change. Every `docker compose` command fails if the four required ones are missing, not just this service:
+
+AWS_ACCESS_KEY_ID=...        (required, PutObject-only key)
+AWS_SECRET_ACCESS_KEY=...    (required)
+AWS_REGION=us-east-1         (required, the bucket's region)
+S3_BUCKET=my-bucket          (required)
+S3_PREFIX=billiardbar        (optional, default billiardbar)
+
+Build and start only this service:
+
+docker compose up -d --no-deps --build backup
+
+`--no-deps` stops compose from touching postgres, backend and the rest; only `backup` is built and (re)created.
+
+Status and logs:
+
+docker compose ps backup              # "healthy" = a backup succeeded in the last 26h
+docker logs billiards-backup-1        # timestamped "OK: ..." or "BACKUP FAILED: ..." lines
+
+Run one by hand (output shows in your terminal, not in `docker logs`):
+
+docker compose exec backup backup.sh
+
+Restore from S3 (the key is write-only, so download with an admin AWS login):
+
+aws s3 cp s3://my-bucket/billiardbar/billiardbar_2026-10-22_0430.dump .
+pg_restore --list billiardbar_2026-10-22_0430.dump > $null    # must print no error
+.\scripts\deploy\Restore-Database.ps1 -DumpFile .\billiardbar_2026-10-22_0430.dump
+
+Restore-Database.ps1 stops `backup` along with backend/scheduler/telegram-bot while it works. It only reads `-Fc` dumps: the legacy `.sql` files from the 04:00 Windows task cannot be restored with it (use `psql -f` for those).
+
+The last-success marker lives inside the container, so recreating it forgets the marker and triggers one catch-up backup.

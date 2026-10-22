@@ -117,6 +117,44 @@ services:
     networks:
       - billiardbar_net
 
+  # Nightly pg_dump -Fc -> S3 at 04:30 (see README "Offsite backup").
+  # NOTE: the ${VAR:?} checks apply to EVERY `docker compose` command, not just
+  # this service, so the AWS_* / S3_BUCKET vars must be in .env first.
+  backup:
+    build: ./backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-billiardbar}
+      POSTGRES_USER: ${POSTGRES_USER:-billiard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in .env}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required in .env}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required in .env}
+      AWS_REGION: ${AWS_REGION:?AWS_REGION is required in .env}
+      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required in .env}
+      S3_PREFIX: ${S3_PREFIX:-billiardbar}
+      TZ: America/Mexico_City
+    # The postgres base image declares a data VOLUME; mount tmpfs over it so
+    # docker does not create an unused anonymous volume on every recreate.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      # healthy = a successful backup within the last 26h (1560 min)
+      test: ["CMD-SHELL", "test -n \"$$(find /var/lib/backup/last_success -mmin -1560 2>/dev/null)\""]
+      interval: 5m
+      timeout: 10s
+      retries: 1
+      start_period: 10m
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    networks:
+      - billiardbar_net
+
 volumes:
   pg_data:
     driver: local

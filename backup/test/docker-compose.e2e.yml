@@ -1,0 +1,31 @@
+# Throwaway stack for run-e2e.sh: postgres + adobe/s3mock (fake S3) + the sidecar.
+# (MinIO's public images are no longer pullable, hence s3mock.)
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment: { POSTGRES_DB: billiardbar, POSTGRES_USER: billiard, POSTGRES_PASSWORD: testpw }
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U billiard -d billiardbar"]
+      interval: 2s
+      retries: 30
+  s3:
+    image: adobe/s3mock
+    environment: { COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: testbucket }
+  backup:
+    build: ..
+    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      POSTGRES_DB: billiardbar
+      POSTGRES_USER: billiard
+      POSTGRES_PASSWORD: testpw
+      AWS_ACCESS_KEY_ID: testkey
+      AWS_SECRET_ACCESS_KEY: testsecret123
+      AWS_REGION: us-east-1
+      S3_BUCKET: testbucket
+      AWS_ENDPOINT_URL: http://s3:9090
+      TZ: America/Mexico_City
+    healthcheck:
+      test: ["CMD-SHELL", "test -n \"$$(find /var/lib/backup/last_success -mmin -1560 2>/dev/null)\""]
+      interval: 5s
+      start_period: 1s
+      retries: 1
