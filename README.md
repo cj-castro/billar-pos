@@ -128,7 +128,7 @@ Copy the  .dump  on a USB stick — it doesn't contain passwords or sales hist
 
 ## Offsite backup (S3)
 
-The `backup` service runs `pg_dump -Fc` every night at 04:30 (America/Mexico_City) and uploads it to S3 as `<S3_PREFIX>/billiardbar_<YYYY-MM-DD_HHMM>.dump`. If the last successful backup is older than 24h when the container starts (e.g. the PC was off at 04:30), it runs one immediately. The Windows 04:00 plain-SQL dump is separate and untouched.
+The `backup` service runs `pg_dump -Fc` every night at 02:00 (America/Mexico_City) and uploads it to S3 as `<S3_PREFIX>/billiardbar_<YYYY-MM-DD_HHMM>.dump`. If the last successful backup is older than 24h when the container starts (e.g. the PC was off at 02:00), it runs one immediately. The Windows 04:00 plain-SQL dump is separate and untouched.
 
 Add to `.env`. If a required one is missing the rest of the POS is unaffected: only the `backup` container fails, logging `FATAL: missing required environment: ...` and restarting about once a minute until fixed (check `docker compose ps backup`):
 
@@ -164,9 +164,9 @@ docker compose exec backup backup.sh
 
 Restore from S3 (the key is write-only, so download with an admin AWS login):
 
-aws s3 cp s3://my-bucket/billiardbar/billiardbar_2026-10-22_0430.dump .
-pg_restore --list billiardbar_2026-10-22_0430.dump > $null    # must print no error
-.\scripts\deploy\Restore-Database.ps1 -DumpFile .\billiardbar_2026-10-22_0430.dump
+aws s3 cp s3://my-bucket/billiardbar/billiardbar_2026-10-22_0200.dump .
+pg_restore --list billiardbar_2026-10-22_0200.dump > $null    # must print no error
+.\scripts\deploy\Restore-Database.ps1 -DumpFile .\billiardbar_2026-10-22_0200.dump
 
 Restore-Database.ps1 stops `backup` along with backend/scheduler/telegram-bot while it works. It only reads `-Fc` dumps: the legacy `.sql` files from the 04:00 Windows task cannot be restored with it (use `psql -f` for those).
 

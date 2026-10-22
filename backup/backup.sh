@@ -1,6 +1,6 @@
 #!/bin/sh
 # backup.sh -- one pg_dump -Fc of the POS database, uploaded to S3.
-# Run by crond (04:30), by entrypoint.sh (catch-up) and by hand:
+# Run by crond (02:00), by entrypoint.sh (catch-up) and by hand:
 #   docker compose exec backup backup.sh
 # Success touches $MARKER; failure leaves it alone and exits non-zero.
 set -eu

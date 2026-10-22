@@ -20,13 +20,13 @@ if [ -n "$missing" ]; then
 fi
 
 # No auto-logon on the bar PC: after a power cut the stack starts late, so
-# the 04:30 run may have been missed. No success in 24h -> run now.
+# the 02:00 run may have been missed. No success in 24h -> run now.
 if [ -z "$(find "$MARKER" -mmin -1440 2>/dev/null)" ]; then
     log "no successful backup in the last 24h, running catch-up"
-    backup.sh || log "catch-up failed, will retry at 04:30"
+    backup.sh || log "catch-up failed, will retry at 02:00"
 fi
 
 # Job output goes to PID 1's stdout/stderr so `docker logs` shows it.
-echo '30 4 * * * /usr/local/bin/backup.sh >/proc/1/fd/1 2>/proc/1/fd/2' > /etc/crontabs/root
-log "scheduled daily at 04:30 ${TZ:-UTC}"
+echo '0 2 * * * /usr/local/bin/backup.sh >/proc/1/fd/1 2>/proc/1/fd/2' > /etc/crontabs/root
+log "scheduled daily at 02:00 ${TZ:-UTC}"
 exec crond -f -l 8

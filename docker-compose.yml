@@ -117,7 +117,7 @@ services:
     networks:
       - billiardbar_net
 
-  # Nightly pg_dump -Fc -> S3 at 04:30 (see README "Offsite backup").
+  # Nightly pg_dump -Fc -> S3 at 02:00 (see README "Offsite backup").
   # The vars below are ${VAR:-} on purpose: compose must always parse so a backup
   # misconfiguration can never stop the POS. entrypoint.sh validates them and
   # only THIS container fails (logs FATAL, restarts every ~60s).
