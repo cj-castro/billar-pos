@@ -118,8 +118,9 @@ services:
       - billiardbar_net
 
   # Nightly pg_dump -Fc -> S3 at 04:30 (see README "Offsite backup").
-  # NOTE: the ${VAR:?} checks apply to EVERY `docker compose` command, not just
-  # this service, so the AWS_* / S3_BUCKET vars must be in .env first.
+  # The vars below are ${VAR:-} on purpose: compose must always parse so a backup
+  # misconfiguration can never stop the POS. entrypoint.sh validates them and
+  # only THIS container fails (logs FATAL, restarts every ~60s).
   backup:
     build: ./backup
     restart: unless-stopped
@@ -129,11 +130,11 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-billiardbar}
       POSTGRES_USER: ${POSTGRES_USER:-billiard}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in .env}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required in .env}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required in .env}
-      AWS_REGION: ${AWS_REGION:?AWS_REGION is required in .env}
-      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
       S3_PREFIX: ${S3_PREFIX:-billiardbar}
       TZ: America/Mexico_City
     # The postgres base image declares a data VOLUME; mount tmpfs over it so

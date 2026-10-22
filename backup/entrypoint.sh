@@ -14,6 +14,8 @@ for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION S3_BUCKET \
 done
 if [ -n "$missing" ]; then
     log "FATAL: missing required environment:$missing -- add to .env and recreate the container"
+    # Only this container fails; the delay keeps restart: unless-stopped from hot-looping.
+    sleep 60
     exit 1
 fi
 

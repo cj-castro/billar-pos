@@ -1,2 +1,2 @@
-backup/*.sh text eol=lf
+backup/**/*.sh text eol=lf
 backup/Dockerfile text eol=lf

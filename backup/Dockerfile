@@ -1,6 +1,7 @@
-# Nightly offsite backup sidecar. Based on the SAME image as the database so
+# Nightly offsite backup sidecar. Same postgres major as the database so
 # pg_dump is 15.x and its -Fc archives restore with Restore-Database.ps1.
-FROM postgres:15-alpine
+# Pinned (15.17 / Alpine 3.23, which ships the aws-cli package); bump on purpose.
+FROM postgres:15.17-alpine3.23
 
 # aws-cli: upload to S3. tzdata: crond must fire at 04:30 America/Mexico_City.
 RUN apk add --no-cache aws-cli tzdata \

@@ -130,7 +130,7 @@ Copy the  .dump  on a USB stick — it doesn't contain passwords or sales hist
 
 The `backup` service runs `pg_dump -Fc` every night at 04:30 (America/Mexico_City) and uploads it to S3 as `<S3_PREFIX>/billiardbar_<YYYY-MM-DD_HHMM>.dump`. If the last successful backup is older than 24h when the container starts (e.g. the PC was off at 04:30), it runs one immediately. The Windows 04:00 plain-SQL dump is separate and untouched.
 
-Add to `.env` BEFORE pulling this change. Every `docker compose` command fails if the four required ones are missing, not just this service:
+Add to `.env`. If a required one is missing the rest of the POS is unaffected: only the `backup` container fails, logging `FATAL: missing required environment: ...` and restarting about once a minute until fixed (check `docker compose ps backup`):
 
 AWS_ACCESS_KEY_ID=...        (required, PutObject-only key)
 AWS_SECRET_ACCESS_KEY=...    (required)

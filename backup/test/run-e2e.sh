@@ -48,5 +48,5 @@ sleep 7; S=$(docker inspect -f '{{.State.Health.Status}}' ${P}-backup-1); echo "
 [ "$S" = unhealthy ] && pass "unhealthy when marker is 27h old" || die "expected unhealthy"
 
 # 6. missing AWS env -> container exits with a clear message
-docker run --rm --entrypoint "" -e POSTGRES_USER=u -e POSTGRES_PASSWORD=p -e POSTGRES_DB=d ${P}-backup /usr/local/bin/entrypoint.sh; rc=$?
+echo "(waits 60s: FATAL delay)"; docker run --rm --entrypoint "" -e POSTGRES_USER=u -e POSTGRES_PASSWORD=p -e POSTGRES_DB=d ${P}-backup /usr/local/bin/entrypoint.sh; rc=$?
 [ $rc -ne 0 ] && pass "missing env exits $rc" || die "missing env did not exit"
