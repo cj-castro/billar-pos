@@ -9,6 +9,8 @@ settings_bp = Blueprint('settings', __name__)
 # Server-side defaults — used when no DB row exists yet
 _DEFAULTS: dict[str, str] = {
     'kds_sound_enabled': 'true',
+    # Off by default: bar service is screen-only unless a manager opts in.
+    'print_bar_tickets': 'false',
 }
 
 
@@ -20,9 +22,11 @@ def get_setting(key: str):
     return jsonify({'key': key, 'value': value})
 
 
-@settings_bp.route('/<key>', methods=['PUT'])
+@settings_bp.route('/<key>', methods=['PUT', 'PATCH'])
 @jwt_required()
 def put_setting(key: str):
+    """Upsert one setting. PATCH is an alias of PUT: the row is a single
+    scalar, so a partial update and a replacement are the same operation."""
     uid  = get_jwt_identity()
     user = User.query.get(uid)
     if not user or user.role not in ('MANAGER', 'ADMIN'):

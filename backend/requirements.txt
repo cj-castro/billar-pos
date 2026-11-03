@@ -1,5 +1,11 @@
 Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
+# Pinned deliberately. Flask-SQLAlchemy only requires sqlalchemy>=2.0.16, and
+# SQLAlchemy 2.1 made psycopg (v3) the default DBAPI for `postgresql://` URLs.
+# Since this image ships psycopg2-binary, an unpinned rebuild resolved to 2.1.1
+# and the backend crash-looped on boot with ModuleNotFoundError: psycopg.
+# 2.0.54 is the version every working image has run.
+SQLAlchemy==2.0.54
 Flask-Migrate==4.0.7
 Flask-JWT-Extended==4.6.0
 Flask-SocketIO==5.3.6

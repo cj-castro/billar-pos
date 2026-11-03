@@ -28,6 +28,9 @@ Endpoints:
     POST   /inventory/insumos-base
     DELETE /inventory/insumos-base/<ingredient_id>
 """
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
+
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from sqlalchemy.exc import IntegrityError
@@ -48,6 +51,18 @@ VALID_ADJUST_TYPES = ('WASTE', 'COUNT_ADJUSTMENT', 'MANUAL_ADJUSTMENT')
 
 def _role(claims):
     return claims.get('role', '')
+
+
+def _d(value) -> Decimal:
+    """Coerce a stock value to Decimal, tolerating None and float columns."""
+    if value is None:
+        return Decimal(0)
+    if isinstance(value, Decimal):
+        return value
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal(0)
 
 
 def _require_manager(claims):
@@ -338,21 +353,79 @@ def update_inventory_item(item_id):
 @inventory_bp.route('/<item_id>', methods=['DELETE'])
 @jwt_required()
 def delete_inventory_item(item_id):
-    """Hard-delete an inventory item and all its dependent records. ADMIN only."""
+    """Retire an inventory item. ADMIN only.
+
+    Items that have never participated in a sale are hard-deleted along with
+    their configuration rows. Items with movement or COGS history are
+    SOFT-deleted (is_active=False) instead: sale_item_costs and
+    inventory_movements are the ledger behind already-closed, already-reported
+    tickets. Erasing them silently rewrites historical margin reports and
+    destroys the stock audit trail. Pass ?force=true to retire an item that
+    still holds stock.
+    """
     claims = get_jwt()
     err = _require_admin(claims)
     if err:
         return err
 
-    item = InventoryItem.query.get_or_404(item_id)
+    item = InventoryItem.query.with_for_update().get_or_404(item_id)
     snapshot = item.to_dict()
+    user_id = get_jwt_identity()
 
     from app.models.inventory import ModifierInventoryRule, OpenCigaretteBox, InventoryConversion
 
     movement_count = InventoryMovement.query.filter_by(inventory_item_id=item_id).count()
+    cost_count = SaleItemCost.query.filter_by(inventory_item_id=item_id).count()
 
-    SaleItemCost.query.filter_by(inventory_item_id=item_id).delete()
-    InventoryMovement.query.filter_by(inventory_item_id=item_id).delete()
+    # ── Historical item: soft-delete, preserve the ledger ─────────────────────
+    if movement_count or cost_count:
+        if not item.is_active:
+            return jsonify({
+                'error': 'ALREADY_INACTIVE',
+                'message': f'"{item.name}" ya está desactivado.',
+            }), 409
+
+        # Unhook it from anything that would keep selling it, but keep every
+        # historical row intact.
+        ModifierInventoryRule.query.filter_by(inventory_item_id=item_id).delete()
+        InsumoBase.query.filter_by(inventory_item_id=item_id).delete()
+        from app.models.inventory import MenuItemIngredient
+        MenuItemIngredient.query.filter_by(inventory_item_id=item_id).delete()
+        InventoryConversion.query.filter(
+            (InventoryConversion.from_item_id == item_id) |
+            (InventoryConversion.to_item_id == item_id)
+        ).delete()
+        InventoryItem.query.filter_by(yields_item_id=item_id).update({'yields_item_id': None})
+
+        item.is_active = False
+        item.updated_at = datetime.now(timezone.utc)
+
+        audit_svc.log(
+            user_id, 'INVENTORY_ITEM_DEACTIVATED', 'inventory_item', item_id,
+            before=snapshot,
+            after={'is_active': False},
+            reason=(f'Admin retire. Soft-deleted to preserve {movement_count} movement '
+                    f'and {cost_count} COGS records.'),
+        )
+        db.session.commit()
+        return jsonify({
+            'ok': True,
+            'soft_deleted': True,
+            'movements_preserved': movement_count,
+            'sale_costs_preserved': cost_count,
+            'message': (f'"{item.name}" se desactivó. Su historial de movimientos y '
+                        f'costos se conserva para los reportes.'),
+        })
+
+    # ── Never sold: safe to hard-delete ───────────────────────────────────────
+    if _d(item.stock_quantity) != 0 and request.args.get('force', '').lower() != 'true':
+        return jsonify({
+            'error': 'ITEM_HAS_STOCK',
+            'message': (f'"{item.name}" todavía tiene {float(item.stock_quantity)} en existencia. '
+                        f'Ajusta a cero o usa ?force=true.'),
+            'stock_quantity': float(item.stock_quantity),
+        }), 409
+
     ModifierInventoryRule.query.filter_by(inventory_item_id=item_id).delete()
     OpenCigaretteBox.query.filter_by(box_item_id=item_id).delete()
     InsumoBase.query.filter_by(inventory_item_id=item_id).delete()
@@ -361,7 +434,7 @@ def delete_inventory_item(item_id):
     MenuItemIngredient.query.filter_by(inventory_item_id=item_id).delete()
     InventoryItem.query.filter_by(yields_item_id=item_id).update({'yields_item_id': None})
 
-    # 🆕 Delete any conversion rules that reference this item
+    # Delete any conversion rules that reference this item
     InventoryConversion.query.filter(
         (InventoryConversion.from_item_id == item_id) |
         (InventoryConversion.to_item_id == item_id)
@@ -369,14 +442,13 @@ def delete_inventory_item(item_id):
 
     db.session.delete(item)
 
-    user_id = get_jwt_identity()
     audit_svc.log(
         user_id, 'INVENTORY_ITEM_DELETED', 'inventory_item', item_id,
         before=snapshot,
-        reason=f'Admin delete. {movement_count} movement records deleted.',
+        reason='Admin delete. Item had no movement or COGS history.',
     )
     db.session.commit()
-    return jsonify({'ok': True, 'movements_deleted': movement_count})
+    return jsonify({'ok': True, 'soft_deleted': False, 'movements_deleted': 0})
 # @inventory_bp.route('/<item_id>', methods=['DELETE'])
 # @jwt_required()
 # def delete_inventory_item(item_id):

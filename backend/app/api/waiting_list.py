@@ -1,27 +1,152 @@
 from datetime import datetime, timezone
-from flask import Blueprint, request, jsonify
+from contextlib import contextmanager
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
+from sqlalchemy.exc import SQLAlchemyError
 from app.extensions import db, socketio
 from app.models.waiting_list import WaitingListEntry
 from app.models.resource import Resource, PoolTableConfig
 from app.models.ticket import Ticket, TicketLineItem, PoolTimerSession
 from app.services import audit_svc
+# Shared with tickets.py so both transfer paths stop pool timers identically.
+# tickets.py does not import this module, so there is no import cycle.
+from app.api.tickets import _stop_active_timer
 from app.config import Config
 
 waiting_list_bp = Blueprint('waiting_list', __name__)
+
+
+class _Abort(Exception):
+    """Carries an HTTP response out of an atomic block without committing."""
+
+    def __init__(self, payload, status):
+        super().__init__(payload.get('error', 'ABORT'))
+        self.payload = payload
+        self.status = status
+
+
+@contextmanager
+def _atomic(action: str):
+    """Run a waiting-list mutation as one all-or-nothing PostgreSQL transaction.
+
+    Seating a party touches several rows at once -- the entry, the resource, a
+    new ticket and possibly a pool timer. Without an explicit rollback a failure
+    partway through could leave a resource marked IN_USE with no ticket, or an
+    entry pointing at a ticket that was never committed, which is exactly how
+    parties and tabs went missing.
+
+    Raise _Abort inside the block to return a client error without committing.
+    """
+    try:
+        yield
+        db.session.commit()
+    except _Abort:
+        db.session.rollback()
+        raise
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception('waiting-list %s failed; rolled back', action)
+        raise
 
 
 def _emit_waiting_update():
     socketio.emit('waiting:update', {}, room='floor')
 
 
-def _reorder_positions():
-    """Renumber positions 1..N for all active (WAITING/SEATED) entries."""
-    entries = WaitingListEntry.query.filter(
+# Sorts unpositioned entries last without relying on the backend's NULL
+# ordering, which differs between ASC (last) and DESC (first) in Postgres.
+_POS_SORT = db.func.coalesce(WaitingListEntry.position, 2147483647)
+
+
+def _active_entries():
+    """Active queue in display order: manual position first, arrival as tiebreak."""
+    return WaitingListEntry.query.filter(
         WaitingListEntry.status.in_(['WAITING', 'SEATED'])
-    ).order_by(WaitingListEntry.created_at).all()
-    for i, e in enumerate(entries, start=1):
+    ).order_by(_POS_SORT, WaitingListEntry.created_at).all()
+
+
+def _reorder_positions():
+    """Renumber positions 1..N for all active (WAITING/SEATED) entries.
+
+    Ordered by CURRENT position, not created_at. Ordering by created_at here
+    silently undid every manual `move`: the moment any other party was
+    assigned or cancelled the queue snapped back to arrival order, which is
+    why reordering never appeared to work.
+    """
+    for i, e in enumerate(_active_entries(), start=1):
         e.position = i
+
+
+def _start_pool_timer(ticket, resource_id):
+    cfg = PoolTableConfig.query.get(resource_id)
+    return PoolTimerSession(
+        ticket_id=ticket.id,
+        resource_id=resource_id,
+        billing_mode=cfg.billing_mode if cfg else Config.BILLING_MODE,
+        rate_cents=cfg.rate_cents if cfg else Config.POOL_RATE_CENTS,
+        promo_free_seconds=(cfg.promo_free_minutes * 60) if cfg else 0,
+    )
+
+
+def _seat_entry(entry, ticket, resource):
+    """Point the entry at the table the ticket now sits on."""
+    if resource.type == 'POOL_TABLE':
+        # Got what they were queuing for: leaves the active list.
+        entry.status = 'ASSIGNED'
+        entry.assigned_at = datetime.now(timezone.utc)
+        entry.assigned_resource_id = resource.id
+        entry.assigned_ticket_id = ticket.id
+    else:
+        # Seated on the floor but still queuing for a pool table.
+        entry.status = 'SEATED'
+        entry.floor_resource_id = resource.id
+        entry.floor_ticket_id = ticket.id
+
+
+def _relocate_ticket(entry, ticket, target, user_id):
+    """Move an existing OPEN ticket to `target`, freeing the table it was on.
+
+    Used whenever a party that already has a tab changes table, to a pool
+    table or to another floor table. Opening a SECOND ticket here was the bug
+    that left one party with two tabs -- the abandoned one still holding its
+    table IN_USE and its items unpaid.
+    """
+    old = (Resource.query.with_for_update().get(ticket.resource_id)
+           if ticket.resource_id else None)
+    old_code = old.code if old else '?'
+
+    # Stop any running pool timer BEFORE detaching the table, mirroring
+    # tickets.transfer_ticket. Without this the old session keeps end_time
+    # NULL: moving to another pool table leaves two ACTIVE timers on one
+    # ticket (only one of which _stop_active_timer's .first() will ever
+    # close), and moving to a floor table keeps billing pool time for a
+    # party that is no longer on a pool table.
+    _stop_active_timer(ticket, user_id)
+    db.session.flush()
+
+    if old is not None and old.id != target.id:
+        old.status = 'AVAILABLE'
+        if old.is_temp:
+            old.is_active = False
+
+    target.status = 'IN_USE'
+    ticket.resource_id = target.id
+    ticket.version += 1
+
+    if target.type == 'POOL_TABLE':
+        db.session.add(_start_pool_timer(ticket, target.id))
+        audit_svc.log(user_id, 'TIMER_START', 'pool_timer', ticket.id)
+        db.session.flush()
+
+    # Recalculate AFTER the timer transitions are flushed so the stopped
+    # session's charge_cents is included in pool_time_cents.
+    ticket.recalculate_totals()
+
+    _seat_entry(entry, ticket, target)
+    audit_svc.log(user_id, 'TRANSFER', 'ticket', ticket.id,
+                  before={'resource': old_code},
+                  after={'resource': target.code})
+    return ticket
 
 
 def _cancel_seated_ticket(entry, user_id):
@@ -101,17 +226,52 @@ def add_to_waiting():
     floor_ticket_id = data.get('floor_ticket_id')
     floor_resource_id = data.get('floor_resource_id')
 
-    # Next position
-    last = WaitingListEntry.query.filter(
+    # These are raw client-supplied FKs. Unvalidated they could point at any
+    # ticket -- including one already on a pool table, which made a later
+    # /transfer-to-pool start a second timer on a ticket that already had one.
+    if floor_ticket_id:
+        floor_ticket = Ticket.query.get(floor_ticket_id)
+        if floor_ticket is None:
+            return jsonify({'error': 'TICKET_NOT_FOUND',
+                            'message': 'El ticket indicado no existe.'}), 404
+        if floor_ticket.status != 'OPEN':
+            return jsonify({'error': 'TICKET_NOT_OPEN',
+                            'message': 'El ticket indicado no está abierto.'}), 409
+        linked = WaitingListEntry.query.filter(
+            WaitingListEntry.floor_ticket_id == floor_ticket_id,
+            WaitingListEntry.status.in_(['WAITING', 'SEATED']),
+        ).first()
+        if linked:
+            return jsonify({
+                'error': 'TICKET_ALREADY_QUEUED',
+                'message': f'Ese ticket ya está en la lista como "{linked.party_name}".',
+                'waiting_list_entry_id': linked.id,
+            }), 409
+        # Trust the ticket's own table over whatever the client sent.
+        floor_resource_id = floor_ticket.resource_id
+    elif floor_resource_id:
+        # A floor resource without a ticket cannot be seated.
+        return jsonify({'error': 'TICKET_REQUIRED',
+                        'message': 'floor_resource_id requiere floor_ticket_id.'}), 422
+
+    # max(), not ORDER BY position DESC LIMIT 1: in Postgres a DESC sort puts
+    # NULLs FIRST, so a single unpositioned row handed every new party
+    # position 1 and collided the whole queue.
+    max_pos = db.session.query(db.func.max(WaitingListEntry.position)).filter(
         WaitingListEntry.status.in_(['WAITING', 'SEATED'])
-    ).order_by(WaitingListEntry.position.desc()).first()
-    next_pos = (last.position or 0) + 1 if last else 1
+    ).scalar()
+    next_pos = (max_pos or 0) + 1
+
+    try:
+        party_size = max(1, int(data.get('party_size') or 1))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'party_size must be a number'}), 400
 
     initial_status = 'SEATED' if floor_ticket_id else 'WAITING'
 
     entry = WaitingListEntry(
         party_name=party_name,
-        party_size=int(data.get('party_size', 1)),
+        party_size=party_size,
         notes=data.get('notes', ''),
         position=next_pos,
         status=initial_status,
@@ -130,67 +290,81 @@ def add_to_waiting():
 @waiting_list_bp.route('/<entry_id>/assign', methods=['POST'])
 @jwt_required()
 def assign_entry(entry_id):
-    """Assign the waiting party to a resource and open a ticket.
-    - Floor table (REGULAR_TABLE / BAR_SEAT): status → SEATED, stays in list (still waiting for pool)
-    - Pool table: status → ASSIGNED, removed from active list
+    """Seat the waiting party at a resource.
+
+    - No tab yet      -> open a ticket on the target.
+    - Already has a tab (SEATED) -> MOVE that ticket to the target.
+    - Floor table     -> status SEATED, stays queued for a pool table.
+    - Pool table      -> status ASSIGNED, leaves the queue.
     """
     user_id = get_jwt_identity()
-    data = request.get_json()
+    data = request.get_json() or {}
     resource_id = data.get('resource_id')
+    if not resource_id:
+        return jsonify({'error': 'resource_id required'}), 400
 
-    entry = WaitingListEntry.query.get_or_404(entry_id)
+    # Lock the entry: without this, two waiters assigning the same party at
+    # the same time each opened a ticket, on two different tables.
+    entry = WaitingListEntry.query.with_for_update().get_or_404(entry_id)
     if entry.status not in ('WAITING', 'SEATED'):
         return jsonify({'error': 'Entry is not active'}), 409
 
     resource = Resource.query.with_for_update().get_or_404(resource_id)
-    if resource.status == 'IN_USE':
+    if not resource.is_active:
+        return jsonify({'error': 'RESOURCE_INACTIVE',
+                        'message': f'{resource.code} ya no está disponible'}), 409
+    # A party may be "reassigned" to the table it is already on; that is a
+    # no-op move, not an occupancy conflict.
+    if resource.status == 'IN_USE' and resource.id != entry.floor_resource_id:
         return jsonify({'error': 'RESOURCE_OCCUPIED',
                         'message': f'{resource.code} ya está en uso'}), 409
 
-    # Open ticket with party name
-    ticket = Ticket(
-        resource_id=resource_id,
-        opened_by=user_id,
-        customer_name=entry.party_name,
-    )
-    db.session.add(ticket)
-    db.session.flush()
+    existing = (Ticket.query.with_for_update().get(entry.floor_ticket_id)
+                if entry.floor_ticket_id else None)
 
-    resource.status = 'IN_USE'
+    try:
+        with _atomic('assign'):
+            if existing is not None and existing.status == 'OPEN':
+                ticket = _relocate_ticket(entry, existing, resource, user_id)
+            else:
+                # Same guard as tickets.open_ticket: a ticket created while the bar is
+                # closed falls outside _build_summary's session window and is invisible
+                # to cash reconciliation. Relocating an EXISTING tab is exempt -- that
+                # tab is already part of an open session.
+                from app.models.cash_session import CashSession
+                if not CashSession.query.filter_by(status='OPEN').first():
+                    raise _Abort({
+                        'error': 'BAR_CLOSED',
+                        'message': 'La caja no está abierta. El gerente debe abrir el turno primero.',
+                    }, 403)
 
-    if resource.type == 'POOL_TABLE':
-        # Pool table: start timer, fully remove from waiting list
-        cfg = PoolTableConfig.query.get(resource_id)
-        billing_mode = cfg.billing_mode if cfg else Config.BILLING_MODE
-        rate_cents = cfg.rate_cents if cfg else Config.POOL_RATE_CENTS
-        promo_free_seconds = (cfg.promo_free_minutes * 60) if cfg else 0
-        timer = PoolTimerSession(
-            ticket_id=ticket.id,
-            resource_id=resource_id,
-            billing_mode=billing_mode,
-            rate_cents=rate_cents,
-            promo_free_seconds=promo_free_seconds,
-        )
-        db.session.add(timer)
-        audit_svc.log(user_id, 'TIMER_START', 'pool_timer', ticket.id)
+                ticket = Ticket(
+                    resource_id=resource_id,
+                    ticket_type='TABLE',
+                    opened_by=user_id,
+                    customer_name=entry.party_name,
+                )
+                db.session.add(ticket)
+                db.session.flush()
+                resource.status = 'IN_USE'
+                if resource.type == 'POOL_TABLE':
+                    db.session.add(_start_pool_timer(ticket, resource_id))
+                    audit_svc.log(user_id, 'TIMER_START', 'pool_timer', ticket.id)
+                _seat_entry(entry, ticket, resource)
+                audit_svc.log(user_id, 'TICKET_OPEN', 'ticket', ticket.id,
+                              after={'resource_id': resource_id,
+                                     'customer_name': entry.party_name})
 
-        entry.status = 'ASSIGNED'
-        entry.assigned_at = datetime.now(timezone.utc)
-        entry.assigned_resource_id = resource_id
-        entry.assigned_ticket_id = ticket.id
-    else:
-        # Floor table: mark as SEATED — customer is seated but still waiting for a pool table
-        entry.status = 'SEATED'
-        entry.floor_resource_id = resource_id
-        entry.floor_ticket_id = ticket.id
+            _reorder_positions()
+            audit_svc.log(user_id, 'WAITLIST_ASSIGN', 'waiting_list', entry.id,
+                          after={'resource_id': resource_id, 'ticket_id': ticket.id,
+                                 'resource_type': resource.type})
+    except _Abort as abort:
+        return jsonify(abort.payload), abort.status
+    except SQLAlchemyError:
+        return jsonify({'error': 'ASSIGN_FAILED',
+                        'message': 'No se pudo sentar a la fila. Intenta de nuevo.'}), 500
 
-    _reorder_positions()
-    audit_svc.log(user_id, 'WAITLIST_ASSIGN', 'waiting_list', entry.id,
-                  after={'resource_id': resource_id, 'ticket_id': ticket.id,
-                         'resource_type': resource.type})
-    audit_svc.log(user_id, 'TICKET_OPEN', 'ticket', ticket.id,
-                  after={'resource_id': resource_id, 'customer_name': entry.party_name})
-    db.session.commit()
     _emit_waiting_update()
     socketio.emit('floor:update', {}, room='floor')
     return jsonify({'entry': entry.to_dict(), 'ticket': ticket.to_dict()}), 201
@@ -266,13 +440,18 @@ def move_position(entry_id):
     if claims.get('role') not in ('MANAGER', 'ADMIN'):
         return jsonify({'error': 'FORBIDDEN'}), 403
 
-    data = request.get_json()
-    direction = data.get('direction')  # 'up' | 'down'
+    data = request.get_json() or {}
+    direction = data.get('direction')
+    # Previously any value that wasn't 'up' fell through to 'down', so a typo
+    # or a missing field silently moved the party the wrong way.
+    if direction not in ('up', 'down'):
+        return jsonify({'error': "direction must be 'up' or 'down'"}), 400
 
-    entry = WaitingListEntry.query.get_or_404(entry_id)
-    entries = WaitingListEntry.query.filter(
-        WaitingListEntry.status.in_(['WAITING', 'SEATED'])
-    ).order_by(WaitingListEntry.position).all()
+    # Normalise to a contiguous 1..N first: a swap between duplicated or
+    # NULL positions is a no-op, which looked like the button doing nothing.
+    entries = _active_entries()
+    for i, e in enumerate(entries, start=1):
+        e.position = i
 
     idx = next((i for i, e in enumerate(entries) if e.id == entry_id), None)
     if idx is None:
@@ -292,19 +471,22 @@ def move_position(entry_id):
 @jwt_required()
 def transfer_to_pool(entry_id):
     """Transfer a SEATED party's floor ticket to a pool table, freeing the floor table."""
-    from app.models.ticket import Ticket, PoolTimerSession
-    from app.models.resource import PoolTableConfig
     user_id = get_jwt_identity()
-    data = request.get_json()
+    data = request.get_json() or {}
     pool_resource_id = data.get('pool_resource_id')
+    if not pool_resource_id:
+        return jsonify({'error': 'pool_resource_id required'}), 400
 
-    entry = WaitingListEntry.query.get_or_404(entry_id)
+    entry = WaitingListEntry.query.with_for_update().get_or_404(entry_id)
     if entry.status != 'SEATED' or not entry.floor_ticket_id:
         return jsonify({'error': 'Entry is not SEATED or has no floor ticket'}), 409
 
     pool_resource = Resource.query.with_for_update().get_or_404(pool_resource_id)
     if pool_resource.type != 'POOL_TABLE':
         return jsonify({'error': 'Target must be a POOL_TABLE'}), 400
+    if not pool_resource.is_active:
+        return jsonify({'error': 'RESOURCE_INACTIVE',
+                        'message': f'{pool_resource.code} ya no está disponible'}), 409
     if pool_resource.status == 'IN_USE':
         return jsonify({'error': 'POOL_TABLE_OCCUPIED',
                         'message': f'{pool_resource.code} ya está en uso'}), 409
@@ -313,48 +495,16 @@ def transfer_to_pool(entry_id):
     if ticket.status != 'OPEN':
         return jsonify({'error': 'Floor ticket is not open'}), 409
 
-    # Free floor resource (and auto-remove if temp). Lock the row so a
-    # concurrent transfer can't race us into a lost-update on status.
-    floor_resource = (Resource.query.with_for_update().get(ticket.resource_id)
-                      if ticket.resource_id else None)
-    if floor_resource:
-        floor_resource.status = 'AVAILABLE'
-        if floor_resource.is_temp:
-            floor_resource.is_active = False
+    try:
+        with _atomic('transfer-to-pool'):
+            _relocate_ticket(entry, ticket, pool_resource, user_id)
+            _reorder_positions()
+            audit_svc.log(user_id, 'WAITLIST_ASSIGN', 'waiting_list', entry.id,
+                          after={'pool_resource_id': pool_resource_id})
+    except SQLAlchemyError:
+        return jsonify({'error': 'TRANSFER_FAILED',
+                        'message': 'No se pudo mover la cuenta a la mesa. Intenta de nuevo.'}), 500
 
-    # Start pool timer
-    cfg = PoolTableConfig.query.get(pool_resource_id)
-    from app.config import Config
-    timer = PoolTimerSession(
-        ticket_id=ticket.id,
-        resource_id=pool_resource_id,
-        billing_mode=cfg.billing_mode if cfg else Config.BILLING_MODE,
-        rate_cents=cfg.rate_cents if cfg else Config.POOL_RATE_CENTS,
-        promo_free_seconds=(cfg.promo_free_minutes * 60) if cfg else 0,
-    )
-    db.session.add(timer)
-
-    # Move ticket to pool table
-    pool_resource.status = 'IN_USE'
-    old_code = floor_resource.code if floor_resource else '?'
-    ticket.resource_id = pool_resource_id
-    ticket.recalculate_totals()
-    ticket.version += 1
-
-    # Mark waiting list entry as fully assigned (removed from list)
-    entry.status = 'ASSIGNED'
-    entry.assigned_at = datetime.now(timezone.utc)
-    entry.assigned_resource_id = pool_resource_id
-    entry.assigned_ticket_id = ticket.id
-
-    _reorder_positions()
-    audit_svc.log(user_id, 'TIMER_START', 'pool_timer', ticket.id)
-    audit_svc.log(user_id, 'TRANSFER', 'ticket', ticket.id,
-                  before={'resource': old_code},
-                  after={'resource': pool_resource.code})
-    audit_svc.log(user_id, 'WAITLIST_ASSIGN', 'waiting_list', entry.id,
-                  after={'pool_resource_id': pool_resource_id, 'from_floor': old_code})
-    db.session.commit()
     _emit_waiting_update()
     socketio.emit('floor:update', {}, room='floor')
     return jsonify({'entry': entry.to_dict(), 'ticket': ticket.to_dict()}), 200

@@ -24,7 +24,10 @@ interface FloorStore {
 
 export const useFloorStore = create<FloorStore>((set) => ({
   resources: [],
-  setResources: (resources) => set({ resources }),
+  // Guard against a malformed or errored payload blanking the floor: only a
+  // real array replaces the current state.
+  setResources: (resources) =>
+    set((s) => (Array.isArray(resources) ? { resources } : s)),
   updateResource: (id, update) =>
     set((s) => ({
       resources: s.resources.map((r) => (r.id === id ? { ...r, ...update } : r)),

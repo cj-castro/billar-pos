@@ -433,7 +433,11 @@ def inventory_deletions_report():
     rows = (
         AuditLog.query
         .filter(
-            AuditLog.action == 'INVENTORY_ITEM_DELETED',
+            # Items with sales history are now retired via soft-delete
+            # (INVENTORY_ITEM_DEACTIVATED) so their movement/COGS ledger
+            # survives. Both actions belong in this report.
+            AuditLog.action.in_(('INVENTORY_ITEM_DELETED',
+                                 'INVENTORY_ITEM_DEACTIVATED')),
             AuditLog.created_at >= from_dt,
             AuditLog.created_at <= to_dt,
         )
@@ -453,6 +457,7 @@ def inventory_deletions_report():
             'last_quantity': snap.get('quantity', 0),
             'reason': r.reason or '—',
             'entity_id': r.entity_id,
+            'soft_deleted': r.action == 'INVENTORY_ITEM_DEACTIVATED',
         })
     return jsonify(result)
 

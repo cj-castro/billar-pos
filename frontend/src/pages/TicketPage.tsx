@@ -373,6 +373,7 @@ export default function TicketPage() {
         payment_type: paymentType,
         tendered_cents: tenderedCents,
         tip_cents: liveTip,
+        expected_total_cents: liveTotal,
         tip_source: effectiveTipSource,
         ...(splitTipCashCents !== undefined ? { tip_cash_cents: splitTipCashCents, tip_card_cents: splitTipCardCents } : {}),
         ...(splitPayment && paymentType2Val ? { payment_type_2: paymentType2Val, tendered_cents_2: tenderedCents2 } : {}),
@@ -382,7 +383,16 @@ export default function TicketPage() {
       qc.invalidateQueries({ queryKey: ['resources'] })
       qc.invalidateQueries({ queryKey: ['tickets-pending-payment'] })
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'No se pudo cerrar')
+      const data = err.response?.data
+      if (data?.error === 'INSUFFICIENT_PAYMENT') {
+        // The server rejected against its own authoritative total. Resubmitting
+        // the stale amount would fail identically, so refresh the ticket and
+        // re-prefill the tender with what is actually owed.
+        const owed = (data.total_cents ?? 0) + (data.tip_cents ?? 0)
+        setTendered((owed / 100).toFixed(2))
+        refetch()
+      }
+      toast.error(data?.message || 'No se pudo cerrar')
     } finally {
       setClosingLoading(false)
     }
@@ -416,7 +426,14 @@ export default function TicketPage() {
   const livePoolCents: number = (ticket.timer_sessions ?? []).reduce((sum: number, s: any) => {
     if (!s.end_time && s.status !== 'CANCELLED' && s.start_time) {
       const rawSecs = Math.max(0, (Date.now() - new Date(s.start_time).getTime()) / 1000)
-      const promoSecs = s.promo_free_seconds ?? 0
+      // promo_free_seconds_effective = table baseline + the derived
+      // POOL_TIME_FREE_MINUTES grant, already capped server-side by both
+      // free_pool_minutes and the in-window play overlap. Consuming it instead
+      // of re-deriving eligibility here keeps promo rules in one place; the
+      // value is at most refetchInterval (10s) stale while the grant is still
+      // accruing, and the close path clamps that residual via
+      // expected_total_cents. Falls back to the raw baseline on older payloads.
+      const promoSecs = s.promo_free_seconds_effective ?? s.promo_free_seconds ?? 0
       const billableSecs = Math.max(0, rawSecs - promoSecs)
       const ratePerMin = s.rate_cents / 60
 
@@ -442,7 +459,7 @@ export default function TicketPage() {
   const appliedPromos: Array<{ promotion_id: string; name: string; discount_cents: number }> =
     (ticket as any).applied_promotions ?? []
   // Promotions that qualify but wait for the waiter to confirm them
-  const availablePromos: Array<{ promotion_id: string; name: string; discount_cents: number }> =
+  const availablePromos: Array<{ promotion_id: string; name: string; discount_cents: number; free_pool_minutes?: number }> =
     (ticket as any).available_promotions ?? []
   const liveTotal: number = Math.max(0, liveSubtotal - liveDiscount + livePoolCents)
 
@@ -689,7 +706,9 @@ export default function TicketPage() {
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold text-amber-200">🏷️ {p.name}</div>
                   <div className="text-xs text-amber-300/80">
-                    Descuento disponible: {cents(p.discount_cents)}
+                    {p.free_pool_minutes
+                      ? `${p.free_pool_minutes} min de mesa gratis`
+                      : `Descuento disponible: ${cents(p.discount_cents)}`}
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">

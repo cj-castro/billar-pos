@@ -35,6 +35,10 @@ frontend/node_modules/
 *.swp
 *.swo
 
-# ── Backups (large zips, not for repo) ────────────────────────────────────────
-backups/*.zip
+# ── Backups & database dumps (may contain production data — never commit) ─────
+backups/
+*.sql.gz
+*.dump
+sql_restore.sql
+pre-migration-*.sql
 .aider*

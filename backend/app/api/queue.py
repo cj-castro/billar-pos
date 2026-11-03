@@ -4,6 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.extensions import db, socketio
 from app.models.ticket import TicketLineItem, Ticket
 from app.models.print_job import PrintJob
+from app.services import settings_svc
 import os
 
 PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://host.docker.internal:9191')
@@ -118,6 +119,14 @@ def print_queue_chit(item_id):
     user_id = get_jwt_identity()
     data    = request.get_json(silent=True) or {}
     job_id  = data.get('job_id')
+
+    # Defensive gate: never reach the thermal hardware for a destination whose
+    # printing is switched off. Returns ok so a manual reprint tap is a no-op
+    # rather than an error, and deliberately leaves needs_reprint untouched —
+    # nothing was printed, so nothing changed.
+    if not settings_svc.should_print(item.routing_dest):
+        return jsonify({'ok': True, 'skipped': 'PRINTING_DISABLED',
+                        'routing_dest': item.routing_dest}), 200
 
     # Idempotency: don't print again if this job already succeeded
     if job_id:
