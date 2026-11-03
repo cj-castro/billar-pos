@@ -100,9 +100,15 @@ check('4b. every file opens BEGIN; and closes COMMIT;', not missing_tx,
       f'offenders: {missing_tx}' if missing_tx else 'all atomic')
 
 # CREATE INDEX CONCURRENTLY cannot run inside a transaction block. A squashed
-# baseline generated from pg_dump can easily contain one.
+# baseline generated from pg_dump can easily contain one. Comments are stripped
+# first so that a file merely *documenting* the hazard is not flagged.
+def _strip_sql_comments(text: str) -> str:
+    return re.sub(r'--[^\n]*', '', text)
+
+
 concurrent = [f.name for f in sql_files
-              if re.search(r'CREATE\s+INDEX\s+CONCURRENTLY', f.read_text(encoding='utf-8'), re.I)]
+              if re.search(r'CREATE\s+(UNIQUE\s+)?INDEX\s+CONCURRENTLY',
+                           _strip_sql_comments(f.read_text(encoding='utf-8')), re.I)]
 check('4c. no file mixes CONCURRENTLY with its transaction block', not concurrent,
       f'offenders: {concurrent}' if concurrent else 'none')
 
