@@ -16,7 +16,14 @@ KEEP_DAYS=7
 
 DB="${POSTGRES_DB:-billiardbar}"
 USER="${POSTGRES_USER:-billiard}"
-CONTAINER="billiards-postgres-1"
+# Resolve the container from compose rather than hardcoding a name: the project
+# prefix follows the directory ("billar-pos-postgres-1"), so a literal name
+# silently breaks the moment the folder is renamed or cloned elsewhere.
+CONTAINER="$(cd "$PROJECT_DIR" && docker compose ps -q postgres)"
+if [ -z "$CONTAINER" ]; then
+    echo "ERROR: postgres container is not running; cannot back up." >&2
+    exit 1
+fi
 
 mkdir -p "$BACKUP_DIR"
 
