@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
@@ -7,6 +8,7 @@ from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from app.extensions import db, socketio, limiter
 from app.models.resource import Resource, PoolTableConfig
 from app.models.ticket import (
@@ -401,10 +403,24 @@ def add_item(ticket_id):
     user_id = get_jwt_identity()
     client_version = request.headers.get('X-Ticket-Version', type=int)
 
+    # Optional idempotency key (mobile retries). Same (ticket, key) => same line.
+    idem_key = request.headers.get('Idempotency-Key')
+    if idem_key is not None and not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', idem_key):
+        return jsonify({'error': 'INVALID_IDEMPOTENCY_KEY',
+                        'message': 'Idempotency-Key must be 1-64 chars of [A-Za-z0-9_-]'}), 422
+
     ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
 
     if ticket.status != 'OPEN':
         return jsonify({'error': 'TICKET_CLOSED', 'message': 'Cannot modify a closed ticket'}), 403
+
+    # Replay: checked BEFORE the version check, because the first attempt
+    # bumped the version. No side effects on this path.
+    if idem_key:
+        existing = TicketLineItem.query.filter_by(
+            ticket_id=ticket_id, client_request_id=idem_key).first()
+        if existing:
+            return jsonify({**existing.to_dict(), 'ticket_version': ticket.version}), 200
 
     if client_version is not None and ticket.version != client_version:
         return jsonify({'error': 'VERSION_CONFLICT'}), 409
@@ -467,9 +483,20 @@ def add_item(ticket_id):
         notes=data.get('notes'),
         status='SENT',
         sent_at=datetime.now(timezone.utc),
+        client_request_id=idem_key or None,
     )
     db.session.add(line_item)
-    db.session.flush()
+    try:
+        db.session.flush()
+    except IntegrityError:
+        # Lost a race on the (ticket_id, client_request_id) unique index.
+        db.session.rollback()
+        existing = TicketLineItem.query.filter_by(
+            ticket_id=ticket_id, client_request_id=idem_key).first()
+        if existing is None:
+            raise
+        return jsonify({**existing.to_dict(),
+                        'ticket_version': Ticket.query.get(ticket_id).version}), 200
 
     for mod_data in data.get('modifiers', []):
         from app.models.menu import Modifier
@@ -531,7 +558,7 @@ def add_item(ticket_id):
         current_app.logger.info(
             f'BAR CHIT SKIPPED (no print): item={line_item.id} name={menu_item.name} ticket={ticket_id}'
         )
-    return jsonify(line_item.to_dict()), 201
+    return jsonify({**line_item.to_dict(), 'ticket_version': ticket.version}), 201
 
     # # Auto-print chit to kitchen/bar printer (non-blocking — runs in background)
     # # Modifier rows are stored once per line item, so scale them by the line

@@ -28,6 +28,9 @@ def on_join(data):
         except Exception:
             emit('error', {'msg': 'Unauthorized'})
             return
+        join_room(room)
+        emit('joined', {'room': room})
+        return
     # Allow public rooms and ticket-specific rooms
     if room in _PUBLIC_ROOMS or room.startswith('ticket:'):
         join_room(room)

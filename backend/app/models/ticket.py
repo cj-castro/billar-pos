@@ -184,6 +184,8 @@ class TicketLineItem(db.Model):
     sort_order = db.Column(db.Integer, default=0)
     cost_snapshot_cents = db.Column(db.Integer, nullable=True)
     needs_reprint = db.Column(db.Boolean, default=False, nullable=False)
+    # Mobile idempotency key; unique per ticket via partial index (migration 002).
+    client_request_id = db.Column(db.String(64), nullable=True)
 
     menu_item = db.relationship('MenuItem')
     modifiers = db.relationship('LineItemModifier', backref='line_item', cascade='all,delete-orphan')
@@ -226,6 +228,7 @@ class TicketLineItem(db.Model):
             'void_reason': self.void_reason,
             'notes': self.notes,
             'needs_reprint': bool(self.needs_reprint),
+            'client_request_id': self.client_request_id,
             'modifiers': [m.to_dict() for m in self.modifiers]
         }
 
