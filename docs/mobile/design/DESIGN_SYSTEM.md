@@ -220,4 +220,6 @@ import tokens from '../../docs/mobile/design/tokens.json'; // or copied to mobil
 const { colors, spacing, radii, fontSizes, fontSizesKds, fontWeights, touch } = tokens;
 ```
 
+**Implementation note (shell phase):** Metro cannot import outside the project root, so the app consumes a *copy*: `mobile/src/theme/tokens.json`. This file (`docs/mobile/design/tokens.json`) stays the source of truth; after editing it run `node mobile/scripts/sync-tokens.mjs` (or `cd mobile && node scripts/sync-tokens.mjs`) and re-run `node docs/mobile/design/check-contrast.mjs`. The typed re-export is `mobile/src/theme/tokens.ts` (`colors, spacing, radii, fontSizes, fontWeights, touch, ...` plus `tableStatusStyle`, `lineStatusStyle`, `draftStatusStyle`, `kdsAgeLevel`, `ageStyle`).
+
 Keep one generated `theme.ts` that re-exports typed objects; screens import `theme`, never the JSON. Prototype CSS variables (`--c-surface-raised`, `--sp-4`, `--fs-body`, `--kfs-item`, `--t-primary`) are generated 1:1 from the same file by `prototypes/_build.mjs`.

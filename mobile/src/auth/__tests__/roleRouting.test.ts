@@ -8,7 +8,7 @@ describe('routeForRole', () => {
     expect(routeForRole('KITCHEN_STAFF')).toMatchObject({ group: '(kitchen)', station: 'KITCHEN' });
     expect(routeForRole('BAR_STAFF')).toMatchObject({ group: '(kitchen)', station: 'BAR' });
     expect(routeForRole('MANAGER')).toMatchObject({ group: '(manager)' });
-    expect(routeForRole('ADMIN')).toMatchObject({ group: '(admin)' });
+    expect(routeForRole('ADMIN')).toMatchObject({ group: '(manager)', href: '/overview' });
   });
 
   it.each(['CASHIER', '', null, undefined, 'waiter'])('unknown role %p -> /denied', (r) => {
@@ -17,7 +17,7 @@ describe('routeForRole', () => {
 });
 
 describe('canAccess', () => {
-  const groups: RouteGroup[] = ['(waiter)', '(kitchen)', '(manager)', '(admin)'];
+  const groups: RouteGroup[] = ['(waiter)', '(kitchen)', '(manager)'];
   const allowed = (role: string) => groups.filter((g) => canAccess(role, g));
 
   it('enforces the matrix', () => {

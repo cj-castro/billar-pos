@@ -5,7 +5,7 @@ import { loadLanguage } from '../i18n';
 import { useAuthStore } from '../state/authStore';
 import { routeForRole } from './roleRouting';
 
-export type BootTarget = '/setup' | '/login' | '/denied' | '/floor' | '/queue' | '/overview' | '/diagnostics';
+export type BootTarget = '/setup' | '/login' | '/denied' | '/floor' | '/queue' | '/overview';
 
 /**
  * Cold-start decision: server configured? tokens present and still valid? -> destination route.

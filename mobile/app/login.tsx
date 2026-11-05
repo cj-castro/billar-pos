@@ -1,16 +1,22 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { loginErrorKey } from '../src/auth/loginErrors';
 import { routeForRole } from '../src/auth/roleRouting';
-import { Button } from '../src/components/Button';
-import { Screen } from '../src/components/Screen';
-import { TextField } from '../src/components/TextField';
+import { AppButton } from '../src/components/AppButton';
+import { AppText } from '../src/components/AppText';
+import { AppTextField } from '../src/components/AppTextField';
+import { LanguageToggle } from '../src/components/LanguageToggle';
+import { Logo } from '../src/components/Logo';
+import { ScreenScaffold } from '../src/components/ScreenScaffold';
 import { getServerUrl } from '../src/config/serverConfig';
 import { useAuthStore } from '../src/state/authStore';
-import { colors, font } from '../src/theme/tokens';
+import { colors, radii, spacing } from '../src/theme/tokens';
+import { haptic } from '../src/utils/haptics';
 
+/** SCR-AUTH-02. */
 export default function LoginScreen() {
   const { t } = useTranslation('mobile');
   const router = useRouter();
@@ -19,6 +25,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const host = (getServerUrl() ?? '').replace(/^https?:\/\//, '');
 
   const onSubmit = async () => {
     if (!username.trim() || !password) {
@@ -29,8 +36,11 @@ export default function LoginScreen() {
     setError(null);
     try {
       const user = await login(username, password);
+      haptic.success();
       router.replace(routeForRole(user.role).href);
     } catch (e) {
+      haptic.error();
+      setPassword('');
       setError(t(loginErrorKey(e)));
     } finally {
       setBusy(false);
@@ -38,44 +48,64 @@ export default function LoginScreen() {
   };
 
   return (
-    <Screen>
-      <Text style={styles.title}>{t('login.title')}</Text>
-      <TextField
+    <ScreenScaffold scroll testID="screen-login" footer={<View style={styles.footer}><LanguageToggle /></View>}>
+      <View style={styles.head}>
+        <Logo size={80} />
+        <AppText variant="headline" style={styles.center} accessibilityRole="header">
+          {t('login.title')}
+        </AppText>
+        <View style={styles.pill}>
+          <MaterialCommunityIcons name="server" size={20} color={colors.textSecondary} />
+          <AppText variant="label" color={colors.textSecondary} numberOfLines={1} style={styles.host}>
+            {host}
+          </AppText>
+          <AppButton label={t('setup.change')} variant="ghost" onPress={() => router.push('/setup')} testID="change-server" style={styles.change} />
+        </View>
+      </View>
+
+      {!!error && (
+        <View style={styles.error} accessible accessibilityRole="alert" accessibilityLabel={error}>
+          <MaterialCommunityIcons name="alert-circle-outline" size={22} color={colors.dangerText} />
+          <AppText variant="body" color={colors.dangerText} style={styles.errorText} testID="login-error">
+            {error}
+          </AppText>
+        </View>
+      )}
+      <AppTextField
         label={t('login.username')}
+        icon="account-outline"
         value={username}
         onChangeText={setUsername}
         textContentType="username"
         autoComplete="username"
         returnKeyType="next"
+        error={null}
         testID="login-username"
       />
-      <TextField
+      <AppTextField
         label={t('login.password')}
+        icon="lock-outline"
+        password
         value={password}
         onChangeText={setPassword}
-        secureTextEntry
         textContentType="password"
         autoComplete="password"
         returnKeyType="go"
         onSubmitEditing={onSubmit}
         testID="login-password"
       />
-      {!!error && (
-        <Text style={styles.error} accessibilityRole="alert" testID="login-error">
-          {error}
-        </Text>
-      )}
-      <Button title={busy ? t('login.submitting') : t('login.submit')} onPress={onSubmit} loading={busy} testID="login-submit" />
-      <Text style={styles.muted}>
-        {t('login.server')}: {getServerUrl()}
-      </Text>
-      <Button title={t('setup.change')} variant="secondary" onPress={() => router.push('/setup')} testID="change-server" />
-    </Screen>
+      <AppButton label={busy ? t('login.submitting') : t('login.submit')} size="lg" fullWidth loading={busy} onPress={onSubmit} testID="login-submit" />
+    </ScreenScaffold>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { color: colors.text, fontSize: font.xl, fontWeight: '700' },
-  error: { color: colors.danger, fontSize: font.md },
-  muted: { color: colors.textMuted, fontSize: font.sm },
+  head: { alignItems: 'center', gap: spacing.s3, paddingTop: spacing.s4 },
+  center: { textAlign: 'center' },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: spacing.s2, backgroundColor: colors.surfaceRaised, borderRadius: radii.pill, paddingLeft: spacing.s4, maxWidth: '100%' },
+  host: { flexShrink: 1 },
+  change: { borderWidth: 0 },
+  error: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.s3, backgroundColor: colors.errorBannerBg, borderRadius: radii.md, padding: spacing.s4 },
+  errorText: { flex: 1 },
+  footer: { padding: spacing.s4, backgroundColor: colors.bg },
 });

@@ -1,12 +1,17 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { Button } from '../src/components/Button';
-import { Screen } from '../src/components/Screen';
-import { TextField } from '../src/components/TextField';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { AppButton } from '../src/components/AppButton';
+import { AppText } from '../src/components/AppText';
+import { AppTextField } from '../src/components/AppTextField';
+import { LanguageToggle } from '../src/components/LanguageToggle';
+import { Logo } from '../src/components/Logo';
+import { ScreenScaffold } from '../src/components/ScreenScaffold';
 import { getServerUrl, saveServerUrl, validateServer } from '../src/config/serverConfig';
-import { colors, font } from '../src/theme/tokens';
+import { colors, radii, spacing } from '../src/theme/tokens';
+import { haptic } from '../src/utils/haptics';
 
 const ERR_KEY = {
   invalid: 'setup.errInvalid',
@@ -15,56 +20,103 @@ const ERR_KEY = {
   not_pos: 'setup.errNotPos',
 } as const;
 
+/** SCR-AUTH-01: enter the POS address, test it, continue to login. */
 export default function SetupScreen() {
   const { t } = useTranslation('mobile');
   const router = useRouter();
   const [value, setValue] = useState(getServerUrl() ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [okMs, setOkMs] = useState<number | null>(null);
 
-  const onConnect = async () => {
+  const onTest = async () => {
     setBusy(true);
     setError(null);
+    setOkMs(null);
+    const started = Date.now();
     const check = await validateServer(value);
+    setBusy(false);
     if (!check.ok) {
+      haptic.error();
       setError(t(ERR_KEY[check.reason]));
-      setBusy(false);
       return;
     }
+    haptic.success();
+    setOkMs(Date.now() - started);
+  };
+
+  const onContinue = async () => {
     await saveServerUrl(value);
-    setBusy(false);
     router.replace('/login');
   };
 
   return (
-    <Screen>
-      <Text style={styles.title}>{t('setup.title')}</Text>
-      <Text style={styles.muted}>{t('setup.subtitle')}</Text>
-      <TextField
+    <ScreenScaffold
+      scroll
+      testID="screen-setup"
+      footer={
+        <View style={styles.footer}>
+          <AppButton label={t('continue')} size="lg" fullWidth disabled={okMs === null} onPress={onContinue} testID="server-continue" />
+          <LanguageToggle />
+        </View>
+      }
+    >
+      <View style={styles.head}>
+        <Logo />
+        <AppText variant="headline" style={styles.center} accessibilityRole="header">
+          {t('setup.title')}
+        </AppText>
+        <AppText variant="body" color={colors.textSecondary} style={styles.center}>
+          {t('setup.subtitle')}
+        </AppText>
+      </View>
+      <AppTextField
         label={t('setup.label')}
+        icon="server"
         placeholder={t('setup.placeholder')}
         value={value}
-        onChangeText={setValue}
+        onChangeText={(v) => {
+          setValue(v);
+          setOkMs(null);
+          setError(null);
+        }}
         keyboardType="url"
         returnKeyType="go"
-        onSubmitEditing={onConnect}
+        onSubmitEditing={onTest}
         error={error}
         testID="server-input"
       />
-      <Text style={styles.hint}>{t('setup.hint')}</Text>
-      <Button
-        title={busy ? t('setup.checking') : t('setup.connect')}
-        onPress={onConnect}
+      <AppButton
+        label={busy ? t('setup.checking') : t('setup.connect')}
+        icon="refresh"
+        variant="secondary"
+        size="lg"
+        fullWidth
         loading={busy}
         disabled={!value.trim()}
+        onPress={onTest}
         testID="server-connect"
       />
-    </Screen>
+      {okMs !== null && (
+        <View style={styles.ok} accessibilityRole="alert" accessible accessibilityLabel={`${t('setup.ok')}. ${t('setup.okBody')}`} testID="server-ok">
+          <MaterialCommunityIcons name="check" size={24} color={colors.success} />
+          <View>
+            <AppText variant="body" bold color={colors.success}>
+              {t('setup.ok')}
+            </AppText>
+            <AppText variant="label" color={colors.textSecondary}>
+              {`${t('setup.okBody')} ${okMs} ms`}
+            </AppText>
+          </View>
+        </View>
+      )}
+    </ScreenScaffold>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { color: colors.text, fontSize: font.xl, fontWeight: '700' },
-  muted: { color: colors.textMuted, fontSize: font.md },
-  hint: { color: colors.textMuted, fontSize: font.sm },
+  head: { alignItems: 'center', gap: spacing.s3, paddingTop: spacing.s6 },
+  center: { textAlign: 'center' },
+  ok: { flexDirection: 'row', alignItems: 'center', gap: spacing.s3, backgroundColor: colors.successTint, borderRadius: radii.md, padding: spacing.s4 },
+  footer: { padding: spacing.s4, gap: spacing.s3, backgroundColor: colors.bg },
 });

@@ -29,3 +29,11 @@ export function useElapsed(startIso: string | undefined | null): string {
   }, [startIso]);
   return elapsedSince(startIso, now);
 }
+
+/** "14:05" (24 h, device-local). Empty string for null/invalid. */
+export function formatClock(ts: number | Date | null | undefined): string {
+  if (ts == null) return '';
+  const d = typeof ts === 'number' ? new Date(ts) : ts;
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}

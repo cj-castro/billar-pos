@@ -45,11 +45,20 @@ Mobile must degrade gracefully if B1/B2 absent (feature-detect: missing `ticket_
 |---|---|---|---|
 | Discovery | Explore (haiku) | `docs/mobile/discovery/*` | DONE (DEPENDENCIES_AND_GAPS pending in Product WS) |
 | Env | DevOps Automator | `scripts/mobile/*`, `docs/mobile/architecture/LOCAL_DEV_ENVIRONMENT.md`, emulator `billar_mobile_api35` (emulator-5554, AVD in `D:\android-avd`), backend http://localhost:8090 (emulator: http://10.0.2.2:8090) | DONE |
-| Product | Product Manager | `docs/mobile/product/*`, `discovery/DEPENDENCIES_AND_GAPS.md` | running |
-| Architecture | Software Architect | `docs/mobile/architecture/*` (+ ADR/) | running |
-| Design | UI Designer | `docs/mobile/design/**` | running |
-| Backend ext | Backend Architect | B1–B4 + `backend/tests/test_mobile_extensions_live.py`, `docs/mobile/integration/BACKEND_EXTENSIONS.md` | running |
-| Mobile foundation | Mobile App Builder | `mobile/` scaffold | running |
+| Product | Product Manager | `docs/mobile/product/*`, `discovery/DEPENDENCIES_AND_GAPS.md` | DONE (accepted PM changes: English toggle P1, cancel-empty-ticket P0, request-bill confirm, floor merges `/tickets/pending-payment`) |
+| Architecture | Software Architect | `docs/mobile/architecture/*` (+ ADR/) | DONE |
+| Design | UI Designer | `docs/mobile/design/**` (tokens.json, 17 prototypes + screenshots) | DONE |
+| Backend ext | Backend Architect | B1–B4 + `backend/tests/test_mobile_extensions_live.py` (29/29 PASS), `docs/mobile/integration/BACKEND_EXTENSIONS.md` | DONE |
+| Mobile foundation | Mobile App Builder | `mobile/` Expo SDK 58 / RN 0.88; 68 tests pass; debug APK built (long-path ninja workaround) | DONE |
+| UI kit + shell | Mobile App Builder | components, nav shell, SCREEN_TO_CODE_MAPPING, `scripts/mobile/build-android-debug.ps1` | running |
+| Waiter slice | Mobile App Builder | `src/features/waiter`, `app/(waiter)` | next |
+| KDS/Manager/Admin slice | Mobile App Builder | `src/features/{kitchen,manager,admin}` | next |
+
+## Implementation notes (orchestrator)
+
+- Send = per-line `POST /tickets/<id>/items` with BOTH `Idempotency-Key` (B1) and `X-Ticket-Version`. With B1: retry → 200 same line. Without B1: retry → 409 → refetch, mark line "verificar" — never duplicates.
+- TanStack mutations `networkMode: 'always'` (fail fast offline, no silent queue).
+- One chit per item accepted (web POS does same). Batch endpoint = P2.
 
 ## Blockers / external dependencies
 

@@ -1,9 +1,12 @@
 import '../src/i18n';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { Stack } from 'expo-router';
+import { Stack, type ErrorBoundaryProps } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ErrorState } from '../src/components/ErrorState';
+import { ScreenScaffold } from '../src/components/ScreenScaffold';
+import { ToastProvider } from '../src/components/Toast';
 import { getServerUrl } from '../src/config/serverConfig';
 import { connectSocket, disconnectSocket } from '../src/realtime/socket';
 import { useAuthStore } from '../src/state/authStore';
@@ -25,14 +28,25 @@ function useRealtimeSession() {
   }, [userId, role]);
 }
 
+/** SCR-X-02: fatal render error (expo-router uses this for any route that throws). */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <ScreenScaffold testID="screen-error">
+      <ErrorState error={error} onRetry={retry} />
+    </ScreenScaffold>
+  );
+}
+
 export default function RootLayout() {
   useEffect(() => setupQueryClientListeners(), []);
   useRealtimeSession();
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
-        <StatusBar style="light" />
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }} />
+        <ToastProvider>
+          <StatusBar style="light" />
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }} />
+        </ToastProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
   );

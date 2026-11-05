@@ -1,7 +1,7 @@
 # Bola 8 Staff (mobile companion)
 
 Android-first (iOS-ready) Expo + React Native + TypeScript companion to the Bola 8 POS.
-Foundation only: server setup, login, role routing, API client, realtime, i18n. Feature screens come next.
+Foundation + UI kit + app shell: server setup, login, role routing, API client, realtime, i18n, design-system components, navigation. P0 feature screens are placeholders ("Pendiente") until the feature agents fill them.
 
 - Expo SDK **58** (React Native 0.88, React 19.3), Expo Router, TanStack Query 5, zustand 5, axios, socket.io-client 4, i18next.
 - Package `com.bola8.staff` (Android) / bundle id `com.bola8.staff` (iOS).
@@ -35,20 +35,23 @@ npm run lint        # expo lint (eslint-config-expo)
 
 ## Build a debug APK
 
-```bash
-npx expo prebuild --platform android --clean
-cd android && ./gradlew.bat assembleDebug      # ./gradlew on macOS/Linux
-# -> android/app/build/outputs/apk/debug/app-debug.apk
+```powershell
+pwsh scripts/mobile/build-android-debug.ps1          # from the repo root; -Clean regenerates android/
+# -> mobile/dist/bola8-staff-debug.apk  (gitignored; default ABIs x86_64 + arm64-v8a, -Archs to change)
 ```
 
-**Windows path-length gotcha.** The CMake/ninja steps of the native modules (gesture-handler, screens, worklets) fail with
-`ninja: error: mkdir(...): No such file or directory` when the project lives under a deep path
-(e.g. `D:\Projects\Code\billar-pos-worktrees\...`), even with `LongPathsEnabled=1`, because the SDK's ninja 1.10.2 is not long-path aware.
-Workaround used to produce the first APK: build from a short path (e.g. `E:\b8\m`) and point AGP at a CMake dir whose
-`bin\ninja.exe` is ninja >= 1.13 (`pip download ninja`), via `android/local.properties`: `cmake.dir=E\:\\b8\\cmake322`.
-Limiting ABIs speeds it up: `./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v8a,x86_64`.
+The script runs `npx expo prebuild --platform android` (only if `android/` is missing or with `-Clean`), writes
+`android/local.properties`, runs `gradlew.bat assembleDebug` and copies the APK. `android/` and `ios/` are **generated**
+(Expo CNG) and gitignored; native config lives in `app.config.ts`; never hand-edit the generated folders.
 
-`android/` and `ios/` are **generated** (Expo CNG) and gitignored. Native config lives in `app.config.ts`; never hand-edit the generated folders.
+**Windows path-length gotcha (CMake/ninja).** The native modules (gesture-handler, screens, worklets) fail with
+`ninja: error: mkdir(...): No such file or directory` on deep paths (this worktree lives under
+`D:\Projects\Codeillar-pos-worktrees\...`) because the SDK's ninja 1.10.2 is not long-path aware, even with `LongPathsEnabled=1`.
+The fix that is kept working: `android/local.properties` has `cmake.dir=E\:\\b8\\cmake322`, a private CMake 3.22 whose
+`bin
+inja.exe` is ninja 1.13.2 (`pip download ninja`, copy `ninja.exe` into the CMake `bin`). The build script rewrites
+that file on every run (prebuild `--clean` wipes `android/`); override the location with `-CmakeDir` or `$env:BOLA8_CMAKE_DIR`.
+If the directory does not exist the SDK CMake is used (fine on short paths). See the script header for the `subst` notes.
 
 ## Server URL
 
@@ -71,8 +74,10 @@ Input is normalized: `192.168.1.22:8080` becomes `http://192.168.1.22:8080`. It 
 ## Layout
 
 ```
-app/                 Expo Router: _layout (providers), index (boot gate), setup, login, denied,
-                     (waiter)/floor (kitchen)/queue (manager)/overview (admin)/diagnostics  -- placeholders
+app/                 Expo Router: _layout (providers, ErrorBoundary), index (boot), setup, login, denied,
+                     (waiter) (kitchen) (manager) groups: see docs/mobile/implementation/SCREEN_TO_CODE_MAPPING.md
+src/components/      UI kit (AppButton, StatusChip, TableCard, PinPad, Toast, ...)  -- one design system
+src/features/        feature code per role (+ README = ownership contract); common/ProfileScreen
 src/config/          server URL store + health validation
 src/api/             axios client (Bearer, single-flight refresh, ApiError) + endpoints/*
 src/domain/types.ts  wire types from backend to_dict()
@@ -80,7 +85,7 @@ src/state/           authStore (zustand), queryClient (+ AppState/NetInfo wiring
 src/auth/            roleRouting (role -> group, canAccess guard), boot, loginErrors
 src/realtime/        socket.io manager, role rooms, event -> query invalidation, useRealtimeEvent
 src/i18n/            i18next; web/{es,en}.ts copied from frontend/src/i18n; mobile.ts = app-only `mobile` namespace
-src/theme/tokens.ts  placeholder tokens (TODO: mirror docs/mobile/design/tokens.json when delivered)
+src/theme/            tokens.json (copy of docs/mobile/design/tokens.json; `node scripts/sync-tokens.mjs`) + typed tokens.ts
 src/test/            render-with-providers + mock server config
 ```
 

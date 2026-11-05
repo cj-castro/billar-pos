@@ -1,12 +1,16 @@
 import type { Station } from '../domain/types';
 
-export type RouteGroup = '(waiter)' | '(kitchen)' | '(manager)' | '(admin)';
+/**
+ * Route groups. ADMIN has no group of its own: per NAVIGATION_ARCHITECTURE.md admin = manager + a `system`
+ * tab, so ADMIN lives in `(manager)` (see docs/mobile/implementation/SCREEN_TO_CODE_MAPPING.md).
+ */
+export type RouteGroup = '(waiter)' | '(kitchen)' | '(manager)';
 
 export interface RoleTarget {
   /** Route group the role lives in. */
   group: RouteGroup;
   /** Concrete href to navigate to. */
-  href: '/floor' | '/queue' | '/overview' | '/diagnostics' | '/denied';
+  href: '/floor' | '/queue' | '/overview' | '/denied';
   /** KDS station for the (kitchen) group. */
   station?: Station;
 }
@@ -25,7 +29,7 @@ export function routeForRole(role: string | null | undefined): RoleTarget {
     case 'MANAGER':
       return { group: '(manager)', href: '/overview' };
     case 'ADMIN':
-      return { group: '(admin)', href: '/diagnostics' };
+      return { group: '(manager)', href: '/overview' };
     default:
       return DENIED;
   }
@@ -38,7 +42,7 @@ export function isKnownRole(role: string | null | undefined): boolean {
 /**
  * Group guard used by each group's `_layout.tsx`.
  * Managers/admins may also open the waiter and kitchen groups (D9: "+ floor/KDS read");
- * admins may open the manager group. Everyone else only their own.
+ * admins may open every group. Everyone else only their own.
  */
 export function canAccess(role: string | null | undefined, group: RouteGroup): boolean {
   switch (role) {
