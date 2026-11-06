@@ -151,31 +151,18 @@ describe('P1 ticket actions', () => {
     expect(await screen.findByText('Impresora no disponible.')).toBeTruthy();
   });
 
-  it('manager discount: pick %, verify PIN via /auth/verify-pin, then PATCH /discount', async () => {
-    const m = api({
-      'POST /auth/verify-pin': { data: { valid: true, manager_id: 'm1', manager_name: 'Rodrigo' } },
-      'PATCH /tickets/t1/discount': { data: ticket({ manual_discount_pct: 10 }) },
-    });
+  it('manager discount: pick %, then PATCH /discount directly (no PIN sheet)', async () => {
+    const m = api({ 'PATCH /tickets/t1/discount': { data: ticket({ manual_discount_pct: 10 }) } });
     useAuthStore.setState({ user: { id: 'm1', username: 'manager', name: 'Rodrigo', role: 'MANAGER' } });
     await renderScreen(<TicketDetailScreen ticketId="t1" mode="manager" />);
     await fireEvent.press(await screen.findByTestId('ticket-discount-btn'));
     await fireEvent.press(screen.getByTestId('discount-10'));
     await fireEvent.press(screen.getByTestId('discount-apply'));
-    await pin('1111');
     await waitFor(() => expect(m.of('PATCH', /discount/)).toHaveLength(1));
-    expect(m.of('POST', /verify-pin/)[0].data).toEqual({ pin: '1111' });
+    expect(m.of('POST', /verify-pin/)).toHaveLength(0);
+    expect(screen.queryByTestId('pin-sheet')).toBeNull();
     expect(m.of('PATCH', /discount/)[0].data).toEqual({ pct: 10, reason: 'mobile' });
     expect(await screen.findByText('Descuento aplicado')).toBeTruthy();
-  });
-
-  it('manager discount: wrong PIN (400 valid:false) never reaches the discount call', async () => {
-    const m = api({ 'POST /auth/verify-pin': { status: 400, data: { valid: false } } });
-    await renderScreen(<TicketDetailScreen ticketId="t1" mode="manager" />);
-    await fireEvent.press(await screen.findByTestId('ticket-discount-btn'));
-    await fireEvent.press(screen.getByTestId('discount-apply'));
-    await pin('0000');
-    expect(await screen.findByText('PIN incorrecto. Intenta de nuevo.')).toBeTruthy();
-    expect(m.of('PATCH', /discount/)).toHaveLength(0);
   });
 
   it('SEC-07: 3 consecutive INVALID_PIN lock the pad for 30 s with a countdown; no request while locked', async () => {

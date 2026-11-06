@@ -28,8 +28,28 @@ describe('OpenTableScreen', () => {
     expect(await screen.findByText('Abrir T2')).toBeTruthy();
     await fireEvent.changeText(screen.getByTestId('open-table-name'), '  Carlos ');
     await fireEvent.press(screen.getByTestId('open-table-submit'));
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/ticket/new1'));
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/ticket/new1/menu'));
     expect(m.of('POST', /^\/tickets$/)[0].data).toEqual({ resource_id: 'r1', ticket_type: 'TABLE', customer_name: 'Carlos' });
+  });
+
+  it('"Solo abrir" goes to the ticket instead of the menu', async () => {
+    base();
+    await renderScreen(<OpenTableScreen resourceId="r1" />);
+    await screen.findByText('Abrir T2');
+    expect(screen.getByText('Abrir y pedir')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('open-table-only'));
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/ticket/new1'));
+  });
+
+  it('express: POSTs an EXPRESS ticket without a resource, name optional, then the menu', async () => {
+    const m = base();
+    await renderScreen(<OpenTableScreen resourceId="express" />);
+    expect(await screen.findByText('Pedido rápido')).toBeTruthy();
+    expect(screen.queryByTestId('open-table-only')).toBeNull();
+    await fireEvent.changeText(screen.getByTestId('open-table-name'), 'Luis');
+    await fireEvent.press(screen.getByTestId('open-table-submit'));
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/ticket/new1/menu'));
+    expect(m.of('POST', /^\/tickets$/)[0].data).toEqual({ ticket_type: 'EXPRESS', customer_name: 'Luis' });
   });
 
   it('omits customer_name when empty and warns that pool time starts on open', async () => {
@@ -99,7 +119,7 @@ describe('OpenTableScreen', () => {
     expect(await screen.findByText('No pudimos confirmar si se abrió. Revisa e inténtalo de nuevo.')).toBeTruthy();
     fail = false;
     await fireEvent.press(screen.getByTestId('open-table-submit'));
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/ticket/new1'));
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/ticket/new1/menu'));
     expect(m.of('POST', /^\/tickets$/)).toHaveLength(2);
   });
 

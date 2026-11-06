@@ -2,7 +2,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { radii, spacing, tableStatusStyle, type TableState } from '../theme/tokens';
-import { elapsedSince, useElapsed } from '../utils/time';
+import { useSharedNow } from '../features/common/useSharedNow';
+import { timerText } from '../features/waiter/floor/floorModel';
 import { AppText } from './AppText';
 
 export interface TableCardProps {
@@ -19,16 +20,19 @@ export interface TableCardProps {
   /** Offline: dimmed, timer frozen with "~". */
   stale?: boolean;
   disabled?: boolean;
+  /** Bell badge: the customer asked for the bill. */
+  bell?: boolean;
   testID?: string;
 }
 
-export function TableCard({ code, kind, state, customerName, timerStart, timerStopped, timerLabel, onPress, stale, disabled, testID }: TableCardProps) {
+export function TableCard({ code, kind, state, customerName, timerStart, timerStopped, timerLabel, onPress, stale, disabled, bell, testID }: TableCardProps) {
   const { t } = useTranslation('mobile');
   const st = tableStatusStyle(state);
   const pool = kind === 'POOL';
   const frozen = !!(stale || timerStopped);
-  const live = useElapsed(pool && timerStart && !frozen ? timerStart : null);
-  const timer = pool && timerStart ? (frozen ? `~${elapsedSince(timerStart)}` : live) : '';
+  const running = !!(pool && timerStart);
+  const now = useSharedNow(running && !frozen);
+  const timer = running ? timerText(timerStart, now, frozen) : '';
   const inactive = state === 'INACTIVE';
   const stateText = t(st.labelKey);
   const short = state === 'BILL_REQUESTED' ? t('table.billShort') : stateText;
@@ -61,6 +65,11 @@ export function TableCard({ code, kind, state, customerName, timerStart, timerSt
           {short}
         </AppText>
       </View>
+      {!!bell && (
+        <View style={styles.bell} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" testID={testID ? `${testID}-bell` : undefined}>
+          <MaterialCommunityIcons name="bell-ring-outline" size={16} color={st.fg} />
+        </View>
+      )}
       {!!customerName && (
         <AppText variant="label" numberOfLines={1}>
           {customerName}
@@ -85,5 +94,6 @@ export function TableCard({ code, kind, state, customerName, timerStart, timerSt
 const styles = StyleSheet.create({
   card: { flex: 1, borderWidth: 1.5, borderRadius: radii.md, padding: spacing.s3, justifyContent: 'center', gap: 2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  bell: { position: 'absolute', top: 6, right: 6 },
   timer: { fontSize: 20, fontVariant: ['tabular-nums'] },
 });

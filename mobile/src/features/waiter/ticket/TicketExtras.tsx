@@ -2,8 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Modal, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { ApiError, toApiError } from '../../../api/client';
-import { verifyPin } from '../../../api/endpoints/auth';
+import { toApiError } from '../../../api/client';
 import { printPreBill, setCustomerName, setDiscount, transferTicket } from '../../../api/endpoints/ticketOps';
 import { updateQty, voidItem } from '../../../api/endpoints/tickets';
 import { qk } from '../../../api/queryKeys';
@@ -21,6 +20,7 @@ import { haptic } from '../../../utils/haptics';
 import { CUSTOMER_NAME_MAX } from '../openTable/OpenTableScreen';
 import { useResources } from '../queries';
 import { Sheet } from '../ui/Sheet';
+import { TicketMoreActions, type ActionRow } from './TicketMoreActions';
 
 /** P1 ticket actions: void / quantity change (manager PIN), customer name, transfer table, pre-bill, discount (manager). */
 type Flow =
@@ -32,8 +32,7 @@ type Flow =
   | { kind: 'qtyPin'; line: TicketLineItem; qty: number }
   | { kind: 'name' }
   | { kind: 'transfer' }
-  | { kind: 'discount'; pct: number }
-  | { kind: 'discountPin'; pct: number };
+  | { kind: 'discount'; pct: number };
 
 /** HTTP 429 on verify-pin / PIN endpoints: lock the pad for a minute. */
 const lockUntil = () => Date.now() + 60_000;
@@ -85,7 +84,8 @@ function SheetModal({ children, onClose, testID }: { children: ReactNode; onClos
   );
 }
 
-export function TicketExtras({ ctl, ticket, offline }: { ctl: TicketExtrasCtl; ticket: Ticket; offline: boolean }) {
+/** `bill` / `repeat` / `cancel` rows are built by the screen (they need its mutations) and slotted into the list in spec order. */
+export function TicketExtras({ ctl, ticket, offline, bill, repeat, cancel }: { ctl: TicketExtrasCtl; ticket: Ticket; offline: boolean; bill?: ActionRow | null; repeat?: ActionRow | null; cancel?: ActionRow | null }) {
   const { t } = useTranslation('mobile');
   const qc = useQueryClient();
   const toast = useToast();
@@ -161,22 +161,18 @@ export function TicketExtras({ ctl, ticket, offline }: { ctl: TicketExtrasCtl; t
 
   return (
     <View testID="ticket-extras" style={styles.wrap}>
-      <AppText variant="label" bold color={colors.textSecondary}>
-        {t('waiter.ticket.actions')}
-      </AppText>
-      <View style={styles.actions}>
-        <AppButton label={t('waiter.ticket.editName')} variant="secondary" icon="account-edit-outline" disabled={offline} onPress={() => { setName(ticket.customer_name ?? ''); setFlow({ kind: 'name' }); }} testID="ticket-edit-name" />
-        {!!ticket.resource_id && <AppButton label={t('waiter.ticket.transfer')} variant="secondary" icon="swap-horizontal" disabled={offline} onPress={() => setFlow({ kind: 'transfer' })} testID="ticket-transfer" />}
-        <AppButton
-          label={t('waiter.ticket.print')}
-          variant="secondary"
-          icon="printer-outline"
-          disabled={offline || busy}
-          onPress={() => void simple(() => printPreBill(ticketId), t('waiter.ticket.printOk'), { HTTP_503: t('waiter.ticket.printDown'), HTTP_500: t('waiter.ticket.printDown') })}
-          testID="ticket-print"
-        />
-        {manager && <AppButton label={t('waiter.ticket.discountAction')} variant="secondary" icon="percent-outline" disabled={offline} onPress={() => setFlow({ kind: 'discount', pct: ticket.manual_discount_pct ?? 0 })} testID="ticket-discount-btn" />}
-      </View>
+      <TicketMoreActions
+        title={t('waiter.ticket.actions')}
+        rows={[
+          bill,
+          { icon: 'printer-outline', label: t('waiter.ticket.print'), disabled: offline || busy, onPress: () => void simple(() => printPreBill(ticketId), t('waiter.ticket.printOk'), { HTTP_503: t('waiter.ticket.printDown'), HTTP_500: t('waiter.ticket.printDown') }), testID: 'ticket-print' },
+          { icon: 'account-edit-outline', label: t('waiter.ticket.editName'), disabled: offline, onPress: () => { setName(ticket.customer_name ?? ''); setFlow({ kind: 'name' }); }, testID: 'ticket-edit-name' },
+          !!ticket.resource_id && { icon: 'swap-horizontal', label: t('waiter.ticket.transfer'), disabled: offline, onPress: () => setFlow({ kind: 'transfer' }), testID: 'ticket-transfer' },
+          manager && { icon: 'percent-outline', label: t('waiter.ticket.discountAction'), disabled: offline, onPress: () => setFlow({ kind: 'discount', pct: ticket.manual_discount_pct ?? 0 }), testID: 'ticket-discount-btn' },
+          repeat,
+          cancel,
+        ]}
+      />
 
       {flow?.kind === 'lineMenu' && (
         <SheetModal testID="line-actions" onClose={close}>
@@ -264,17 +260,9 @@ export function TicketExtras({ ctl, ticket, offline }: { ctl: TicketExtrasCtl; t
               <AppButton key={p} label={`${p}%`} variant={flow.pct === p ? 'primary' : 'secondary'} onPress={() => setFlow({ kind: 'discount', pct: p })} testID={`discount-${p}`} />
             ))}
           </View>
-          <AppButton label={t('waiter.ticket.apply')} size="lg" fullWidth onPress={() => setFlow({ kind: 'discountPin', pct: flow.pct })} testID="discount-apply" />
+          <AppButton label={t('waiter.ticket.apply')} size="lg" fullWidth loading={busy} onPress={() => void simple(() => setDiscount(ticketId, flow.pct, 'mobile'), t('waiter.ticket.discountOk'))} testID="discount-apply" />
         </SheetModal>
       )}
-      {flow?.kind === 'discountPin' &&
-        pinPad(t('pin.title'), t('waiter.ticket.discountPin'), (pin) =>
-          void guarded(async () => {
-            const v = await verifyPin(pin); // PIN UX only; the discount call itself is gated by the manager JWT
-            if (!v.valid) throw new ApiError({ status: 401, code: 'INVALID_PIN', message: 'invalid' });
-            await setDiscount(ticketId, flow.pct, 'mobile');
-          }, t('waiter.ticket.discountOk')),
-        )}
     </View>
   );
 }

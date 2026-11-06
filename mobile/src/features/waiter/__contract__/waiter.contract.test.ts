@@ -176,7 +176,7 @@ describe('open table', () => {
   });
 });
 
-describe('add item: Idempotency-Key + X-Ticket-Version (B1)', () => {
+describe('add item: Idempotency-Key + X-Ticket-Version', () => {
   let ticket: Ticket;
   let version: number;
   const bar = () => simpleItem('BAR');
@@ -188,7 +188,7 @@ describe('add item: Idempotency-Key + X-Ticket-Version (B1)', () => {
     version = ticket.version;
   });
 
-  it('new key -> 201 with the line, client_request_id and ticket_version (B1 feature detection)', async () => {
+  it('new key -> 201 with the line, client_request_id and ticket_version', async () => {
     const key = newKey();
     const r = await rawAdd(ticket.id, key, version, { menu_item_id: bar().id, quantity: 2 });
     expect(r.status).toBe(201);
@@ -264,13 +264,13 @@ describe('add item: Idempotency-Key + X-Ticket-Version (B1)', () => {
     const patches: [string, LinePatch][] = [];
     const deps = { addItem: addItemIdem, fetchVersion: async (id: string) => (await getTicket(id)).version };
     const first = await sendDraft({ ticketId: t.id, lines, version: t.version, deps, onUpdate: (k, p) => patches.push([k, p]) });
-    expect(first).toMatchObject({ sent: lines.map((l) => l.key), failed: [], stopped: null, b1: true });
+    expect(first).toMatchObject({ sent: lines.map((l) => l.key), failed: [], stopped: null });
     let ticketNow = await getTicket(t.id);
     expect(ticketNow.line_items).toHaveLength(2);
     expect(ticketNow.line_items!.map((l) => l.status)).toEqual(['SENT', 'SENT']);
 
     // simulate "no response received" for line 2: the app retries BOTH with the same keys and a stale version
-    const again = await sendDraft({ ticketId: t.id, lines, version: t.version, b1Confirmed: true, deps, onUpdate: () => {} });
+    const again = await sendDraft({ ticketId: t.id, lines, version: t.version, deps, onUpdate: () => {} });
     expect(again.sent).toEqual(lines.map((l) => l.key));
     ticketNow = await getTicket(t.id);
     expect(ticketNow.line_items).toHaveLength(2); // still two: the server replayed, never duplicated

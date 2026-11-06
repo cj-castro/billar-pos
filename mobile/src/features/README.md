@@ -22,7 +22,7 @@ Two feature agents work in parallel after the shell phase. Stay inside your fold
 ## Rules of the road
 
 1. **One design system.** Build screens from `src/components/`: `ScreenScaffold` + `ScreenHeader` + `OfflineBanner`, `AppText` (never raw `Text`), `AppButton` (never a raw `Pressable` for actions), `AppTextField`, `EmptyState` / `ErrorState` / `LoadingSkeleton` for every data state, `useToast()` for feedback, `ConfirmDialog` for confirmations, `PinPad` for manager PIN. Errors: `errorMessage(err)` / `<ErrorState error={err} onRetry=... />` (maps `ApiError` to Spanish).
-2. **Fill in the placeholders.** Each route file already exists and renders `PendingScreen`. Replace its body, keep the file path and default export. Keep screens thin: data hooks and logic in `src/features/<role>/`, route files only compose.
+2. **Keep route files thin.** Data hooks and logic live in `src/features/<role>/`; route files only compose.
 3. **Route names are globally unique** (groups are not part of URLs): never add a second `floor`, `me`, `index`, ... See `docs/mobile/implementation/SCREEN_TO_CODE_MAPPING.md` (R2).
 4. **Tabs / modals**: edit only your own group's `_layout.tsx`. Tab screens use `<ScreenScaffold edges={['top']}>` (the tab bar owns the bottom inset); pushed screens with a `BottomActionBar` pass it as `footer`.
 5. **Server is the authority** (D3): never compute totals/charges; label estimates. Offline (D7): reads from cache + `OfflineBanner`, **disable** mutating buttons with a `helper` explaining why; never queue mutations. Mutations inherit the global `networkMode: 'always'` (fail fast, no hidden queue; never override it).

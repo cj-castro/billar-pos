@@ -8,7 +8,7 @@ import { useToast } from '../../components/Toast';
 import type { LineItemStatus, QueueItem, Station } from '../../domain/types';
 import { haptic } from '../../utils/haptics';
 import { errorMessage } from '../../utils/errorMessage';
-import { advanceAllReady, advanceItem, type AdvanceResult } from './kdsActions';
+import { advanceAllReady, advanceItem, revertItems, revertSet, type AdvanceResult } from './kdsActions';
 import { groupQueue, newItemIds, nextStatus, pendingCount } from './kdsModel';
 
 /** Socket events trigger invalidation (realtime/socket.ts); this poll is the safety net when the socket is down. */
@@ -93,7 +93,7 @@ export function useKdsActions(station: Station, items: readonly QueueItem[]) {
   );
 
   const run = useCallback(
-    async (ids: readonly string[], job: () => Promise<AdvanceResult[]>) => {
+    async (ids: readonly string[], job: () => Promise<AdvanceResult[]>): Promise<AdvanceResult[] | undefined> => {
       if (offline) {
         toast.show({ tone: 'warning', title: t('kitchen.offlineAdvance') });
         return;
@@ -101,7 +101,9 @@ export function useKdsActions(station: Station, items: readonly QueueItem[]) {
       if (ids.some((id) => busy.includes(id))) return; // double tap while in flight
       setBusy((b) => [...b, ...ids]);
       try {
-        settle(await job());
+        const results = await job();
+        settle(results);
+        return results;
       } finally {
         setBusy((b) => b.filter((id) => !ids.includes(id)));
       }
@@ -109,24 +111,51 @@ export function useKdsActions(station: Station, items: readonly QueueItem[]) {
     [busy, offline, settle, t, toast],
   );
 
+  /** 3 s snackbar after READY: "Deshacer" PATCHes the lines back to IN_PROGRESS. */
+  const offerUndo = useCallback(
+    (ids: readonly string[], results: AdvanceResult[] | undefined) => {
+      const undo = results ? revertSet(ids, results) : [];
+      if (!undo.length) return;
+      toast.show({
+        tone: 'success',
+        title: t('kitchen.markedReady'),
+        durationMs: 3000,
+        action: {
+          label: t('kitchen.undo'),
+          onPress: () => {
+            void revertItems(qc, station, undo).then((r) => {
+              if (r === 'served') toast.show({ tone: 'info', title: t('kitchen.alreadyServed') });
+              else if (r === 'failed') toast.show({ tone: 'error', title: t('kitchen.undoFailed') });
+            });
+          },
+        },
+      });
+    },
+    [qc, station, t, toast],
+  );
+
   const advance = useCallback(
-    (itemId: string) => {
+    async (itemId: string) => {
       const item = items.find((i) => i.id === itemId);
       const to = item ? nextStatus(item.status) : null;
       if (!item || !to) return;
-      return run([itemId], async () => [await advanceItem(qc, station, item, to)]);
+      const results = await run([itemId], async () => [await advanceItem(qc, station, item, to)]);
+      if (to === 'READY') offerUndo([itemId], results);
     },
-    [items, qc, run, station],
+    [items, offerUndo, qc, run, station],
   );
 
   const ticketItems = useCallback((ticketId: string) => items.filter((i) => i.ticket_id === ticketId && (i.status === 'SENT' || i.status === 'IN_PROGRESS')), [items]);
 
   const allReady = useCallback(
-    (ticketId: string) => {
+    async (ticketId: string) => {
       const list = ticketItems(ticketId);
-      return run(list.map((i) => i.id), () => advanceAllReady(qc, station, list));
+      const ids = list.map((i) => i.id);
+      // advanceAllReady results follow the plan order = the order of non-READY items, which `list` already is
+      const results = await run(ids, () => advanceAllReady(qc, station, list));
+      offerUndo(ids, results);
     },
-    [qc, run, station, ticketItems],
+    [offerUndo, qc, run, station, ticketItems],
   );
 
   const serve = useCallback(

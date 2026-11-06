@@ -1,0 +1,51 @@
+Running on billar_mobile_api35
+ > Flow j16-manager-cash
+Run _login.yaml...
+  Launch app "com.bola8.staff" with clear state... COMPLETED
+  Run flow when id: server-input is visible...
+    Tap on id: server-input... COMPLETED
+    Input text ${SERVER}... COMPLETED
+    Hide Keyboard... COMPLETED
+    Tap on id: server-connect... COMPLETED
+    Assert that id: server-ok is visible... COMPLETED
+    Tap on id: server-continue... COMPLETED
+  Run flow when id: server-input is visible... COMPLETED
+  Assert that id: login-username is visible... COMPLETED
+  Tap on id: login-username... COMPLETED
+  Input text ${USER_NAME}... COMPLETED
+  Tap on id: login-password... COMPLETED
+  Input text ${PASS}... COMPLETED
+  Hide Keyboard... COMPLETED
+  Tap on id: login-submit... COMPLETED
+Run _login.yaml... COMPLETED
+Assert that id: screen-overview is visible... COMPLETED
+Tap on "Caja"... COMPLETED
+Assert that id: screen-cash is visible... COMPLETED
+Run flow when id: cash-open-btn is visible...
+Run flow when id: cash-open-btn is visible... SKIPPED
+Assert that id: cash-summary is visible... COMPLETED
+Assert that id: line-expected is visible... COMPLETED
+Tap on id: cash-add-expense... COMPLETED
+Tap on id: expense-description... COMPLETED
+Input text Hielo... COMPLETED
+Tap on id: expense-payee... COMPLETED
+Input text Proveedor... COMPLETED
+Tap on id: expense-amount... COMPLETED
+Input text 50... COMPLETED
+Hide Keyboard... COMPLETED
+Tap on id: expense-save... COMPLETED
+Assert that "Hielo" is visible... COMPLETED
+Take screenshot 16-cash-open... COMPLETED
+Wait for animation to end... COMPLETED
+Assert that id: cash-close-btn is visible... COMPLETED
+Tap on id: cash-close-btn... COMPLETED
+Assert that id: count-pad-4 is visible... COMPLETED
+Tap on id: count-pad-4... COMPLETED
+Tap on id: count-pad-5... COMPLETED
+Tap on id: count-pad-0... COMPLETED
+Assert that id: close-diff is visible... COMPLETED
+Take screenshot 16-cash-close-sheet... COMPLETED
+Tap on id: close-cash-confirm... COMPLETED
+Assert that id: cash-closed-summary is visible... COMPLETED
+Assert that id: cash-closed-diff is visible... COMPLETED
+Take screenshot 16-cash-closed... COMPLETED

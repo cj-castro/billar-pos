@@ -54,3 +54,14 @@ export function useServerSetting(key: SettingKey) {
   });
   return { query: q, mutation: m, value: q.data ? parseBool(q.data.value) : null };
 }
+
+/** Free-form string setting (kds_warn_min, min_mobile_version, ...). '' = unset on the server. */
+export function useTextSetting(key: string) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: qk.settings(key), queryFn: () => getSetting(key) });
+  const m = useMutation({
+    mutationFn: (value: string) => putSetting(key, value),
+    onSuccess: (s) => qc.setQueryData(qk.settings(key), s),
+  });
+  return { query: q, mutation: m, value: q.data ? q.data.value : null };
+}

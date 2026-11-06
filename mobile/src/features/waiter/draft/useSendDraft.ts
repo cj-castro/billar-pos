@@ -6,6 +6,7 @@ import { haptic } from '../../../utils/haptics';
 import { toApiError } from '../../../api/client';
 import { getServerUrl } from '../../../config/serverConfig';
 import { useAuthStore } from '../../../state/authStore';
+import { useFavorites } from '../menu/favoritesStore';
 import { fetchTicketVersion } from '../queries';
 import { getDraftEpoch, useDraftStore, type DraftLine } from './draftStore';
 import { sendDraft, sendableLines, type SendResult } from './sendOrchestrator';
@@ -51,7 +52,7 @@ export function useSendDraft(ticketId: string) {
             // Offline: nothing was posted. Show the lines as retryable; the waiter must tap Enviar again (nothing resumes on reconnect).
             const s = useDraftStore.getState();
             for (const l of lines) s.patchLine(ticketId, l.key, { state: 'FAILED', error: 'NETWORK', errorDetail: undefined });
-            return { sent: [], failed: lines.map((l) => l.key), stopped: 'network', b1: !!store.b1Confirmed[ticketId], version: null };
+            return { sent: [], failed: lines.map((l) => l.key), stopped: 'network', version: null };
           }
           // other read failures: the first POST reports the real failure on its own line
         }
@@ -61,8 +62,6 @@ export function useSendDraft(ticketId: string) {
           ticketId,
           lines: lines.map((l) => ({ key: l.key, menuItemId: l.menuItemId, quantity: l.quantity, modifiers: l.modifiers, notes: l.notes, firstAttemptVersion: l.firstAttemptVersion })),
           version,
-          b1Confirmed: !!store.b1Confirmed[ticketId],
-          onB1: () => useDraftStore.getState().markB1(ticketId),
           isLive,
           deps: { addItem: addItemIdem, fetchVersion: fetchTicketVersion },
           onUpdate: (key, patch) => {
@@ -70,7 +69,10 @@ export function useSendDraft(ticketId: string) {
             if (patch.state === 'SENT') {
               // Remove from the persisted draft immediately: an app kill after this must never resend it.
               const done = byKey.get(key);
-              if (done) setSentView((v) => [...v, done]);
+              if (done) {
+                setSentView((v) => [...v, done]);
+                if (bound.userId) useFavorites.getState().record(bound.userId, done.menuItemId); // "Frecuentes"
+              }
               s.removeLine(ticketId, key);
             } else if (patch.state === 'FAILED') {
               s.patchLine(ticketId, key, {

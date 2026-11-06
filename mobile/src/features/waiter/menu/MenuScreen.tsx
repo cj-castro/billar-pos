@@ -15,9 +15,11 @@ import { OfflineBanner } from '../../../components/OfflineBanner';
 import { ScreenHeader } from '../../../components/ScreenHeader';
 import { ScreenScaffold } from '../../../components/ScreenScaffold';
 import { colors, fontSizes, MAX_FONT_SCALE, radii, spacing, touch } from '../../../theme/tokens';
+import { useAuthStore } from '../../../state/authStore';
 import { haptic } from '../../../utils/haptics';
 import { quickLine, needsConfigurator } from '../configure/configurator';
 import { selectLines, useDraftStore } from '../draft/draftStore';
+import { rankFavorites, useFavorites } from './favoritesStore';
 import { useMenuCategories, useMenuItems, useStockCheck, useTicketQuery } from '../queries';
 import { ALL_CATEGORIES, filterMenuItems } from './menuSearch';
 
@@ -34,6 +36,13 @@ export function MenuScreen({ ticketId }: { ticketId: string }) {
   const addLine = useDraftStore((s) => s.addLine);
   const [category, setCategory] = useState<string>(ALL_CATEGORIES);
   const [query, setQuery] = useState('');
+  const userId = useAuthStore((s) => s.user?.id);
+  const sent = useFavorites((s) => (userId ? s.byUser[userId] : undefined));
+  // Frequent = my most-sent items still on the menu (ranking is local, last 30 days).
+  const frequent = useMemo(() => {
+    const byId = new Map((items.data ?? []).map((i) => [i.id, i]));
+    return rankFavorites(sent ?? []).flatMap((id) => byId.get(id) ?? []);
+  }, [sent, items.data]);
 
   const blocked = useMemo(() => new Set(stock.data?.blocked_items ?? []), [stock.data]);
   const visible = useMemo(() => filterMenuItems(items.data ?? [], category, query), [items.data, category, query]);
@@ -140,12 +149,39 @@ export function MenuScreen({ ticketId }: { ticketId: string }) {
             </Pressable>
           )}
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} keyboardShouldPersistTaps="handled" testID="menu-chips">
-          <Chip label={t('waiter.menu.all')} selected={category === ALL_CATEGORIES} onPress={() => setCategory(ALL_CATEGORIES)} testID="chip-all" />
-          {(categories.data ?? []).map((c) => (
-            <Chip key={c.id} label={c.name} selected={category === c.id} onPress={() => setCategory(c.id)} testID={`chip-${c.id}`} />
-          ))}
-        </ScrollView>
+        {frequent.length > 0 && (
+          <View testID="menu-frequent" style={styles.freq}>
+            <AppText variant="caption" bold color={colors.textSecondary}>
+              {t('waiter.menu.frequent')}
+            </AppText>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} keyboardShouldPersistTaps="handled">
+              {frequent.map((i) => (
+                <MenuItemTile
+                  key={i.id}
+                  compact
+                  testID={`frequent-${i.id}`}
+                  name={i.name}
+                  priceCents={i.price_cents}
+                  routing={i.routing}
+                  soldOut={blocked.has(i.id)}
+                  draftQty={draftQty.get(i.id) ?? 0}
+                  onPress={() => onItem(i.id)}
+                  onLongPress={() => router.push(`/ticket/${ticketId}/configure/${i.id}`)}
+                />
+              ))}
+            </ScrollView>
+          </View>
+        )}
+        <View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} keyboardShouldPersistTaps="handled" testID="menu-chips">
+            <Chip label={t('waiter.menu.all')} selected={category === ALL_CATEGORIES} onPress={() => setCategory(ALL_CATEGORIES)} testID="chip-all" />
+            {(categories.data ?? []).map((c) => (
+              <Chip key={c.id} label={c.name} selected={category === c.id} onPress={() => setCategory(c.id)} testID={`chip-${c.id}`} />
+            ))}
+          </ScrollView>
+          {/* ponytail: plain overlay instead of a gradient (expo-linear-gradient is not installed) */}
+          <View pointerEvents="none" style={styles.fade} testID="menu-chips-fade" />
+        </View>
         {offline && (
           <AppText variant="caption" color={colors.warning}>
             {t('waiter.menu.staleStock')}
@@ -192,6 +228,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceRaised,
   },
   input: { flex: 1, minHeight: touch.primary, color: colors.textPrimary, fontSize: fontSizes.body, paddingVertical: 0 },
+  freq: { gap: spacing.s1 },
+  fade: { position: 'absolute', top: 0, right: 0, bottom: 0, width: 28, backgroundColor: colors.bg, opacity: 0.75 },
   chips: { gap: spacing.s2, paddingRight: spacing.s4 },
   chip: { minHeight: touch.min, paddingHorizontal: spacing.s4, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceRaised },
   chipOn: { backgroundColor: colors.primary },

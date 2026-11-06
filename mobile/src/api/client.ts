@@ -10,14 +10,17 @@ export class ApiError extends Error {
   code: string;
   isNetwork: boolean;
   isTimeout: boolean;
+  /** Parsed JSON error body (e.g. INSUFFICIENT_PAYMENT {total_cents}); never logged. */
+  details?: Record<string, unknown>;
 
-  constructor(init: { status?: number | null; code: string; message: string; isNetwork?: boolean; isTimeout?: boolean }) {
+  constructor(init: { status?: number | null; code: string; message: string; isNetwork?: boolean; isTimeout?: boolean; details?: Record<string, unknown> }) {
     super(init.message);
     this.name = 'ApiError';
     this.status = init.status ?? null;
     this.code = init.code;
     this.isNetwork = init.isNetwork ?? false;
     this.isTimeout = init.isTimeout ?? false;
+    this.details = init.details;
   }
 }
 
@@ -39,8 +42,10 @@ export function toApiError(err: unknown): ApiError {
     const data: unknown = res.data;
     let code = `HTTP_${res.status}`;
     let message = `Request failed (${res.status})`;
-    if (data && typeof data === 'object') {
+    let details: Record<string, unknown> | undefined;
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
       const d = data as Record<string, unknown>;
+      details = d;
       if (typeof d.error === 'string') {
         // Sometimes a CODE ("INVALID_PIN"), sometimes a human sentence (tickets.py:1213).
         if (/^[A-Z0-9_]+$/.test(d.error)) code = d.error;
@@ -50,7 +55,7 @@ export function toApiError(err: unknown): ApiError {
       else if (typeof d.msg === 'string') message = d.msg; // flask-jwt-extended
     }
     // string bodies (HTML error pages from get_or_404 / nginx) keep the generic message.
-    return new ApiError({ status: res.status, code, message });
+    return new ApiError({ status: res.status, code, message, details });
   }
   return new ApiError({ code: 'UNKNOWN', message: err instanceof Error ? err.message : 'Unknown error' });
 }
@@ -96,7 +101,7 @@ client.interceptors.request.use((config: ReqConfig) => {
 // Single-flight: concurrent 401s share one refresh call.
 let refreshPromise: Promise<string> | null = null;
 
-function refreshOnce(): Promise<string> {
+export function refreshOnce(): Promise<string> {
   if (!refreshPromise) {
     refreshPromise = doRefresh().finally(() => {
       refreshPromise = null;

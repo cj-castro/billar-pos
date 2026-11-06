@@ -7,7 +7,7 @@ import type { DraftErrorCode, DraftLine } from './draftStore';
  *
  * Guarantees: lines are posted one at a time, each with its own Idempotency-Key (the draft line key, never
  * regenerated) and the latest X-Ticket-Version. A line is never posted again after a confirmed 2xx, and an
- * ambiguous failure (timeout / 5xx / VERSION_CONFLICT without B1) is retried only with the SAME key.
+ * ambiguous failure (timeout / 5xx) is retried only with the SAME key.
  */
 export interface SendLine {
   key: string;
@@ -50,8 +50,6 @@ export interface SendResult {
   failed: string[];
   /** Why the loop stopped early (null = every line was attempted). */
   stopped: StopReason | null;
-  /** The server returned `ticket_version` (backend extension B1 deployed). */
-  b1: boolean;
   version: number | null;
 }
 
@@ -60,15 +58,11 @@ export interface SendParams {
   lines: SendLine[];
   /** Latest known ticket.version. */
   version: number | null;
-  /** This ticket's server has already answered an add with `ticket_version` (B1). Persisted per ticket. */
-  b1Confirmed?: boolean;
   deps: SendDeps;
   onUpdate: (key: string, patch: LinePatch) => void;
-  /** Called the first time a response carries `ticket_version`, so the caller can persist the flag. */
-  onB1?: () => void;
   /**
    * Run binding (session/server/draft still the same, line still exists). Checked before every POST and after every
-   * await, before any callback: once false the run ends silently (no POST, no onUpdate/onB1).
+   * await, before any callback: once false the run ends silently (no POST, no onUpdate).
    */
   isLive?: (key: string) => boolean;
 }
@@ -79,27 +73,25 @@ const ABORT = Symbol('send-aborted');
 const detailOf = (message: string) => (!message || /^Request failed \(\d+\)$/.test(message) ? undefined : message);
 
 export async function sendDraft(params: SendParams): Promise<SendResult> {
-  const state = { sent: [] as string[], failed: [] as string[], b1: params.b1Confirmed ?? false, version: params.version };
+  const state = { sent: [] as string[], failed: [] as string[], version: params.version };
   try {
     return await run(params, state);
   } catch (e) {
     if (e !== ABORT) throw e;
-    return { sent: state.sent, failed: state.failed, stopped: 'aborted', b1: state.b1, version: state.version };
+    return { sent: state.sent, failed: state.failed, stopped: 'aborted', version: state.version };
   }
 }
 
 async function run(
-  { ticketId, lines, version: initial, deps, onUpdate: rawUpdate, onB1: rawB1, isLive }: SendParams,
-  state: { sent: string[]; failed: string[]; b1: boolean; version: number | null },
+  { ticketId, lines, version: initial, deps, onUpdate: rawUpdate, isLive }: SendParams,
+  state: { sent: string[]; failed: string[]; version: number | null },
 ): Promise<SendResult> {
   const check = (key: string) => {
     if (isLive && !isLive(key)) throw ABORT;
   };
   let curKey = '';
   const onUpdate: SendParams['onUpdate'] = (k, p) => (check(k), rawUpdate(k, p));
-  const onB1 = rawB1 ? () => (check(curKey), rawB1()) : undefined;
   let version = initial;
-  let b1 = state.b1;
   const { sent, failed } = state;
 
   const refresh = async () => {
@@ -114,15 +106,9 @@ async function run(
   for (const line of lines) {
     curKey = line.key;
     check(line.key);
-    // Earlier attempt of unknown outcome? Then only the original version may be re-sent (H1).
+    // Earlier attempt of unknown outcome? Same key: the server replays it, whatever the version.
     const retryOfUncertain = line.firstAttemptVersion !== undefined;
-    if (retryOfUncertain && !b1 && line.firstAttemptVersion === null) {
-      // Without B1 and without a version header the first attempt cannot be told apart from a duplicate: never re-post.
-      failed.push(line.key);
-      onUpdate(line.key, { state: 'FAILED', error: 'VERIFY' });
-      return { sent, failed, stopped: 'verify', b1, version };
-    }
-    const attemptVersion = retryOfUncertain && !b1 ? (line.firstAttemptVersion as number) : version;
+    const attemptVersion = version;
     onUpdate(line.key, retryOfUncertain ? { state: 'SENDING' } : { state: 'SENDING', firstAttemptVersion: attemptVersion });
     let conflictRetried = false;
     let currentVersion = attemptVersion;
@@ -141,11 +127,9 @@ async function run(
         );
         check(line.key); // response after invalidation: nothing may touch the store
         if (typeof res?.ticket_version === 'number') {
-          if (!b1) onB1?.();
-          b1 = true;
           version = res.ticket_version;
         } else {
-          await refresh(); // no B1: the version moved, read it back before the next line
+          await refresh(); // response without ticket_version: the version moved, read it back before the next line
         }
         sent.push(line.key);
         onUpdate(line.key, { state: 'SENT' });
@@ -156,26 +140,25 @@ async function run(
         const err = toApiError(e);
 
         if (err.status === 409 && err.code === 'VERSION_CONFLICT') {
-          // Only with B1 may the version be refreshed (replay is decided before the version check, so the same key is safe).
-          // Without B1 the version moving can mean our earlier attempt landed: never refresh, never retry.
-          if (b1 && !conflictRetried) {
+          // Replay is decided before the version check, so refreshing and retrying with the same key is safe.
+          if (!conflictRetried) {
             await refresh();
             currentVersion = version;
             conflictRetried = true;
             continue;
           }
-          if (b1) await refresh();
+          await refresh();
           failed.push(line.key);
           onUpdate(line.key, { state: 'FAILED', error: 'VERIFY' });
-          return { sent, failed, stopped: 'verify', b1, version };
+          return { sent, failed, stopped: 'verify', version };
         }
         if ((err.status === 403 && err.code === 'TICKET_CLOSED') || err.status === 404 || (err.status === 409 && err.code === 'TICKET_NOT_OPEN')) {
           onUpdate(line.key, { state: 'PENDING' });
-          return { sent, failed, stopped: 'closed', b1, version };
+          return { sent, failed, stopped: 'closed', version };
         }
         if (err.status === 401) {
           onUpdate(line.key, { state: 'PENDING' });
-          return { sent, failed, stopped: 'unauthorized', b1, version };
+          return { sent, failed, stopped: 'unauthorized', version };
         }
         if (err.status === 422 || err.status === 400) {
           const error: DraftErrorCode =
@@ -188,7 +171,7 @@ async function run(
           // Outcome unknown. Keep the key; remaining lines stay untouched (they would fail the same way).
           failed.push(line.key);
           onUpdate(line.key, { state: 'FAILED', error: err.isNetwork || err.isTimeout ? 'NETWORK' : 'SERVER' });
-          return { sent, failed, stopped: 'network', b1, version };
+          return { sent, failed, stopped: 'network', version };
         }
         failed.push(line.key);
         onUpdate(line.key, { state: 'FAILED', error: 'UNKNOWN', errorDetail: detailOf(err.message) });
@@ -196,7 +179,7 @@ async function run(
       }
     }
   }
-  return { sent, failed, stopped: null, b1, version };
+  return { sent, failed, stopped: null, version };
 }
 
 // ---------------------------------------------------------------- selectors

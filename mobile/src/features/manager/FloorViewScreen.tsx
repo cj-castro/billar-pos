@@ -17,6 +17,7 @@ import { SectionHeader } from '../../components/SectionHeader';
 import { TableCard } from '../../components/TableCard';
 import { useConnectionLevel } from '../../components/connection';
 import { colors, spacing } from '../../theme/tokens';
+import { ExpressButton, WaitingButton } from '../waiter/floor/FloorHeaderButtons';
 import { floorTiles, type FloorKind } from './floorModel';
 import { MANAGER_POLL_MS, mk } from './keys';
 import { useRefreshOnEvents } from './useRefreshOnEvents';
@@ -65,6 +66,7 @@ export function FloorViewScreen() {
                       code={x.code}
                       kind={x.kind}
                       state={x.state}
+                      bell={x.state === 'BILL_REQUESTED'}
                       customerName={x.customerName}
                       timerStart={x.timerStart}
                       stale={level === 'offline'}
@@ -84,7 +86,19 @@ export function FloorViewScreen() {
       testID="screen-floor-view"
       padded={false}
       edges={['top']}
-      header={<ScreenHeader title={t('tabs.floorView')} subtitle={t('manager.floor.summary', { used, total: active })} right={<ConnectionPill />} />}
+      header={
+        <ScreenHeader
+          title={t('tabs.floorView')}
+          subtitle={t('manager.floor.summary', { used, total: active })}
+          leading={<ExpressButton />}
+          right={
+            <View style={styles.headRight}>
+              <WaitingButton />
+              <ConnectionPill />
+            </View>
+          }
+        />
+      }
       banner={<OfflineBanner />}
     >
       <View style={styles.ro}>
@@ -99,6 +113,7 @@ export function FloorViewScreen() {
 
 const styles = StyleSheet.create({
   content: { padding: spacing.s4, gap: spacing.s2 },
+  headRight: { flexDirection: 'row', alignItems: 'center' },
   ro: { paddingHorizontal: spacing.s4, paddingTop: spacing.s2 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s2 },
   cell: { width: '31.5%' },

@@ -21,19 +21,21 @@ import { LoadingSkeleton } from '../../../components/LoadingSkeleton';
 import { OfflineBanner } from '../../../components/OfflineBanner';
 import { ScreenHeader } from '../../../components/ScreenHeader';
 import { ScreenScaffold } from '../../../components/ScreenScaffold';
-import { StatusChip } from '../../../components/StatusChip';
 import { TicketLine } from '../../../components/TicketLine';
 import { useToast } from '../../../components/Toast';
 import { joinTicket, leaveTicket } from '../../../realtime/socket';
 import { colors, radii, spacing } from '../../../theme/tokens';
+import { ManagerActions } from '../../manager/ManagerActions';
 import { errorMessage } from '../../../utils/errorMessage';
 import { haptic } from '../../../utils/haptics';
 import { formatMXN } from '../../../utils/money';
-import { formatClock, useElapsed } from '../../../utils/time';
 import { useDraftStore, selectLines } from '../draft/draftStore';
 import { useResources, useTicketQuery } from '../queries';
-import { activeTimerStart, canCancelTable, canRequestBill, hasTimerSessions, lineStatus } from './ticketRules';
 import { TicketExtras, useTicketExtras } from './TicketExtras';
+import { TicketHeader, usePoolLive } from './TicketHeader';
+import type { ActionRow } from './TicketMoreActions';
+import { TicketTotals } from './TicketTotals';
+import { activeLines, canCancelTable, canRequestBill, hasTimerSessions, lastRoundLines, lineStatus } from './ticketRules';
 
 export type TicketMode = 'waiter' | 'manager';
 
@@ -70,9 +72,8 @@ export function TicketDetailScreen({ ticketId, mode }: TicketDetailScreenProps) 
   );
 
   const ticket = ticketQ.data;
-  const timerStart = ticket ? activeTimerStart(ticket) : null;
-  const elapsed = useElapsed(timerStart);
   const resource = ticket?.resource_id ? resources.data?.find((r) => r.id === ticket.resource_id) : undefined;
+  const live = usePoolLive(ticket, resource);
   const isPool = resource?.type === 'POOL_TABLE' || (!!ticket && hasTimerSessions(ticket));
 
   const goBack = () => {
@@ -151,6 +152,21 @@ export function TicketDetailScreen({ ticketId, mode }: TicketDetailScreenProps) 
     if (draft.length > 0) setDialog('draftBlock');
     else setDialog('bill');
   };
+  const onPay = () => {
+    if (draft.length > 0 && !manager) setDialog('draftBlock');
+    else router.push(`/ticket/${ticketId}/pay`);
+  };
+  /** Copies the newest sent batch into the local draft, then opens it. */
+  const repeatRound = () => {
+    const rows = ticket ? lastRoundLines(ticket) : [];
+    if (rows.length === 0) {
+      toast.show({ tone: 'info', title: t('waiter.ticket.repeatNone') });
+      return;
+    }
+    rows.forEach((l) => useDraftStore.getState().addLine(ticketId, l));
+    toast.show({ tone: 'success', title: t('waiter.ticket.repeatOk') });
+    router.push(`/ticket/${ticketId}/draft`);
+  };
 
   // ------------------------------------------------------------------ states
   const frame = (children: React.ReactNode, footer?: React.ReactNode, title?: string) => (
@@ -183,30 +199,34 @@ export function TicketDetailScreen({ ticketId, mode }: TicketDetailScreenProps) 
   const open = ticket.status === 'OPEN';
   const code = ticket.resource_code ?? '—';
   const lines = ticket.line_items ?? [];
-  const subtitle = [ticket.customer_name, t('waiter.ticket.openedAt', { time: formatClock(new Date(ticket.opened_at)) })].filter(Boolean).join(' · ');
-  const stateChip = ticket.payment_requested ? 'BILL_REQUESTED' : 'OCCUPIED';
   const billable = canRequestBill(ticket);
-  const billHelper = !open ? undefined : offline ? t('waiter.ticket.offlineBill') : !billable && !ticket.payment_requested ? t('waiter.ticket.emptyBill') : undefined;
-  const hasRunningTimer = !!timerStart;
+  const payable = activeLines(ticket).length > 0 || hasTimerSessions(ticket);
+  const payHelper = !open ? undefined : offline ? t('waiter.ticket.offlinePay') : !payable ? t('waiter.ticket.emptyPay') : undefined;
 
   const footer = open ? (
     <BottomActionBar
       testID="ticket-actions"
-      helper={billHelper}
+      helper={payHelper}
+      primary={{ label: t('waiter.ticket.pay'), onPress: onPay, disabled: offline || !payable, testID: 'ticket-pay' }}
       {...(manager
-        ? { primary: { label: ticket.payment_requested ? t('waiter.ticket.billRequested') : t('waiter.ticket.requestBill'), onPress: onRequestBill, disabled: !billable || offline, loading: billMutation.isPending, testID: 'ticket-request-bill' } }
-        : {
-            primary: { label: t('waiter.ticket.addProducts'), onPress: () => router.push(`/ticket/${ticketId}/menu`), disabled: ticket.payment_requested, testID: 'ticket-add-products' },
-            secondary: {
-              label: ticket.payment_requested ? t('waiter.ticket.billAsked') : t('waiter.ticket.requestBill'),
-              onPress: onRequestBill,
-              disabled: !billable || offline,
-              loading: billMutation.isPending,
-              testID: 'ticket-request-bill',
-            },
-          })}
+        ? {}
+        : { secondary: { label: t('waiter.ticket.add'), onPress: () => router.push(`/ticket/${ticketId}/menu`), disabled: ticket.payment_requested, testID: 'ticket-add-products' } })}
     />
   ) : undefined;
+
+  const billRow: ActionRow = {
+    icon: 'receipt-text-outline',
+    label: ticket.payment_requested ? t('waiter.ticket.billAsked') : t('waiter.ticket.requestBill'),
+    onPress: onRequestBill,
+    disabled: !billable || offline,
+    loading: billMutation.isPending,
+    testID: 'ticket-request-bill',
+  };
+  const repeatRow: ActionRow | null = manager ? null : { icon: 'repeat', label: t('waiter.ticket.repeatRound'), onPress: repeatRound, testID: 'ticket-repeat' };
+  const cancelRow: ActionRow | null = canCancelTable(ticket)
+    ? { icon: 'close-circle-outline', label: t('waiter.ticket.cancelTicket'), danger: true, disabled: offline, onPress: () => setDialog('cancel'), testID: 'ticket-cancel' }
+    : null;
+  const title = ticket.ticket_type === 'EXPRESS' ? t('waiter.ticket.express', { id: String(ticket.id).slice(-4).toUpperCase() }) : isPool ? t('waiter.ticket.pool', { code }) : t('waiter.ticket.table', { code });
 
   return frame(
     <>
@@ -227,30 +247,7 @@ export function TicketDetailScreen({ ticketId, mode }: TicketDetailScreenProps) 
           </View>
         )}
 
-        <View style={styles.hero}>
-          <View style={styles.flex}>
-            {hasRunningTimer ? (
-              <>
-                <AppText variant="label" color={colors.textSecondary}>
-                  {`${t('waiter.ticket.poolTime')} · ${t('waiter.ticket.estimated')}`}
-                </AppText>
-                <AppText variant="timer" testID="ticket-timer">
-                  {elapsed}
-                </AppText>
-              </>
-            ) : (
-              <>
-                <AppText variant="label" color={colors.textSecondary}>
-                  {subtitle}
-                </AppText>
-                <AppText variant="headline" testID="ticket-hero-total">
-                  {formatMXN(ticket.total_cents)}
-                </AppText>
-              </>
-            )}
-          </View>
-          {open && <StatusChip kind="table" status={stateChip} size="lg" testID="ticket-state" />}
-        </View>
+        <TicketHeader ticket={ticket} live={live} open={open} />
 
         {open && draft.length > 0 && !manager && (
           <Pressable
@@ -306,34 +303,24 @@ export function TicketDetailScreen({ ticketId, mode }: TicketDetailScreenProps) 
           </View>
         )}
 
-        <View style={styles.totals} testID="ticket-totals">
-          <TotalRow label={t('waiter.ticket.subtotal')} value={formatMXN(ticket.subtotal_cents)} testID="ticket-subtotal" />
-          {ticket.discount_cents > 0 && <TotalRow label={t('waiter.ticket.discount')} value={`-${formatMXN(ticket.discount_cents)}`} color={colors.success} testID="ticket-discount" />}
-          {(ticket.pool_time_cents > 0 || hasRunningTimer) && (
-            <TotalRow
-              label={`${t('waiter.ticket.poolTime')}${hasRunningTimer ? ` (${t('waiter.ticket.estimated')})` : ''}`}
-              value={`${hasRunningTimer ? '≈ ' : ''}${formatMXN(ticket.pool_time_cents)}`}
-              color={hasRunningTimer ? colors.warning : undefined}
-              testID="ticket-pool"
-            />
-          )}
-          <TotalRow label={t('waiter.ticket.total')} value={formatMXN(ticket.total_cents)} bold testID="ticket-total" />
-          <AppText variant="caption" color={colors.textMuted}>
-            {t('waiter.ticket.serverNote')}
-          </AppText>
-        </View>
+        <TicketTotals ticket={ticket} running={live !== null} />
 
-        {open && canCancelTable(ticket) && (
-          <AppButton label={t('waiter.ticket.cancelTable')} variant="dangerOutline" icon="close-circle-outline" onPress={() => setDialog('cancel')} disabled={offline} testID="ticket-cancel" />
-        )}
-        {open && <TicketExtras ctl={extras} ticket={ticket} offline={offline} />}
+        {open && <TicketExtras ctl={extras} ticket={ticket} offline={offline} bill={billRow} repeat={repeatRow} cancel={cancelRow} />}
+
+        {/* MANAGER/ADMIN only (the component gates by role itself) */}
+        <ManagerActions ticket={ticket} offline={offline} onGone={goBack} />
       </ScrollView>
 
       <ConfirmDialog
         visible={dialog === 'bill'}
         title={t('waiter.ticket.confirmBillTitle', { code })}
-        message={isPool ? `${t('waiter.ticket.confirmBillBody')} ${t('waiter.ticket.confirmBillPool')}` : t('waiter.ticket.confirmBillBody')}
-        confirmLabel={t('waiter.ticket.requestBill')}
+        message={
+          isPool
+            ? `${t('waiter.ticket.confirmBillBody')} ${t('waiter.ticket.confirmBillPool')}${live ? `
+${t('waiter.ticket.poolSummary', { elapsed: live.elapsed, est: live.estimateCents != null ? formatMXN(live.estimateCents) : '—' })}` : ''}`
+            : t('waiter.ticket.confirmBillBody')
+        }
+        confirmLabel={isPool ? t('waiter.ticket.confirmBillPoolStop') : t('waiter.ticket.requestBill')}
         cancelLabel={t('cancel')}
         loading={billMutation.isPending}
         onCancel={() => setDialog(null)}
@@ -371,27 +358,13 @@ export function TicketDetailScreen({ ticketId, mode }: TicketDetailScreenProps) 
       />
     </>,
     footer,
-    isPool ? t('waiter.ticket.pool', { code }) : t('waiter.ticket.table', { code }),
-  );
-}
-
-function TotalRow({ label, value, bold, color, testID }: { label: string; value: string; bold?: boolean; color?: string; testID?: string }) {
-  return (
-    <View style={styles.totalRow}>
-      <AppText variant={bold ? 'bodyLg' : 'body'} bold={bold} color={color ?? (bold ? colors.textPrimary : colors.textSecondary)}>
-        {label}
-      </AppText>
-      <AppText variant={bold ? 'bodyLg' : 'body'} bold={bold} color={color} testID={testID}>
-        {value}
-      </AppText>
-    </View>
+    title,
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { padding: spacing.s4, gap: spacing.s3, paddingBottom: spacing.s8 },
-  hero: { flexDirection: 'row', alignItems: 'center', gap: spacing.s3, minHeight: 64 },
   draftBar: {
     minHeight: 48,
     flexDirection: 'row',
@@ -407,6 +380,4 @@ const styles = StyleSheet.create({
   empty: { minHeight: 220 },
   lines: { gap: spacing.s2 },
   lineWrap: { gap: spacing.s1 },
-  totals: { gap: spacing.s1, paddingVertical: spacing.s3, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
 });

@@ -71,6 +71,13 @@ describe('error normalization', () => {
     expect(await get('/x')).toMatchObject({ status: 422, message: 'Signature verification failed' });
   });
 
+  it('keeps the parsed JSON body as details (422 totals); none for HTML', async () => {
+    useAdapter(() => ({ status: 422, data: { error: 'INSUFFICIENT_PAYMENT', total_cents: 14500 } }));
+    expect((await get('/x') as ApiError).details).toEqual({ error: 'INSUFFICIENT_PAYMENT', total_cents: 14500 });
+    useAdapter(() => ({ status: 500, data: '<html/>' }));
+    expect((await get('/x') as ApiError).details).toBeUndefined();
+  });
+
   it('HTML error body does not crash', async () => {
     useAdapter(() => ({ status: 500, data: '<!doctype html><title>500</title>' }));
     expect(await get('/x')).toMatchObject({ status: 500, code: 'HTTP_500', message: 'Request failed (500)' });

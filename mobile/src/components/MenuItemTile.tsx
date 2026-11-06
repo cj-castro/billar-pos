@@ -14,10 +14,12 @@ export interface MenuItemTileProps {
   onPress?: () => void;
   /** Long-press opens the configurator even for items without options. */
   onLongPress?: () => void;
+  /** One-line chip (the "Frecuentes" row). */
+  compact?: boolean;
   testID?: string;
 }
 
-export function MenuItemTile({ name, priceCents, soldOut, draftQty = 0, onPress, onLongPress, testID }: MenuItemTileProps) {
+export function MenuItemTile({ name, priceCents, soldOut, draftQty = 0, compact, onPress, onLongPress, testID }: MenuItemTileProps) {
   const { t } = useTranslation('mobile');
   const inDraft = draftQty > 0 && !soldOut;
   const label = [name, soldOut ? t('menu.soldOutA11y') : formatMXN(priceCents), inDraft ? t('menu.inDraft', { n: draftQty }) : null].filter(Boolean).join(', ');
@@ -31,6 +33,7 @@ export function MenuItemTile({ name, priceCents, soldOut, draftQty = 0, onPress,
       onLongPress={soldOut ? undefined : onLongPress}
       style={({ pressed }) => [
         styles.tile,
+        compact && styles.compact,
         soldOut && styles.soldOut,
         inDraft && styles.inDraft,
         { opacity: pressed && !soldOut ? 0.85 : 1 },
@@ -71,6 +74,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'transparent',
   },
+  compact: { flex: 0, minHeight: 48, width: 132, padding: spacing.s2, justifyContent: 'center', gap: 0 },
   soldOut: { backgroundColor: colors.surface, borderColor: colors.border, borderStyle: 'dashed' },
   inDraft: { borderColor: colors.primary },
   badge: {

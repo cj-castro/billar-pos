@@ -25,6 +25,12 @@ export async function openTicket(body: OpenTicketBody): Promise<Ticket> {
   return data;
 }
 
+/** Open EXPRESS tickets (no table). */
+export async function listActiveExpress(): Promise<Ticket[]> {
+  const { data } = await client.get<Ticket[]>('/tickets/active-express');
+  return data;
+}
+
 export interface AddItemBody {
   menu_item_id: string;
   quantity: number;
@@ -33,7 +39,7 @@ export interface AddItemBody {
 }
 
 export interface AddItemOptions {
-  /** Backend extension B1; harmlessly ignored by servers without it. */
+  /** Optimistic lock; the server replays a repeated Idempotency-Key. */
   idempotencyKey?: string;
   /** Optimistic lock (409 VERSION_CONFLICT on mismatch). */
   ticketVersion?: number;

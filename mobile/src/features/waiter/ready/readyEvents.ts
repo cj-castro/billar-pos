@@ -24,6 +24,8 @@ const SEEN_MAX = 300;
  * deliver duplicates). `myTicketIds` null = not loaded yet. `seen` is owned by the caller and mutated on notify.
  */
 export function classifyReadyEvent(payload: ItemEvent | undefined, myTicketIds: ReadonlySet<string> | null, seen: Set<string>): ReadyDecision {
+  // Item moved off READY (undo): forget it so a later re-READY alerts again.
+  if (payload?.item_id && payload.status && payload.status !== 'READY') seen.delete(`${payload.item_id}:READY`);
   if (!payload || payload.status !== 'READY' || !payload.item_id) return { action: 'ignore' };
   if (!payload.ticket_id || !payload.menu_item_name || !myTicketIds) return { action: 'refetch' };
   if (!myTicketIds.has(payload.ticket_id)) return { action: 'ignore' };

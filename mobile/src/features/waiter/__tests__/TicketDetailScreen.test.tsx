@@ -241,7 +241,7 @@ describe('TicketDetailScreen', () => {
     await screen.findByTestId('ticket-line-a');
     await setOnline(false);
     await waitFor(() => expect(screen.getByTestId('ticket-request-bill').props.accessibilityState.disabled).toBe(true));
-    expect(screen.getByText('Sin conexión. Necesitas conexión para pedir la cuenta.')).toBeTruthy();
+    expect(screen.getByText('Sin conexión. Necesitas conexión para cobrar.')).toBeTruthy();
     expect(screen.getByTestId('ticket-add-products').props.accessibilityState.disabled).toBe(false);
     expect(screen.getByTestId('ticket-line-a')).toBeTruthy();
   });
@@ -252,6 +252,54 @@ describe('TicketDetailScreen', () => {
     expect(await screen.findByText('Ticket no encontrado')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('ticket-not-found-action'));
     expect(mockRouter.replace).toHaveBeenCalledWith('/floor');
+  });
+
+  it('"Cobrar" goes to the pay screen and is disabled offline', async () => {
+    api();
+    await renderScreen(<TicketDetailScreen ticketId="t1" mode="waiter" />);
+    await fireEvent.press(await screen.findByTestId('ticket-pay'));
+    expect(mockRouter.push).toHaveBeenCalledWith('/ticket/t1/pay');
+    await setOnline(false);
+    await waitFor(() => expect(screen.getByTestId('ticket-pay').props.accessibilityState.disabled).toBe(true));
+  });
+
+  it('manager mode also offers Cobrar', async () => {
+    api();
+    await renderScreen(<TicketDetailScreen ticketId="t1" mode="manager" />);
+    await fireEvent.press(await screen.findByTestId('ticket-pay'));
+    expect(mockRouter.push).toHaveBeenCalledWith('/ticket/t1/pay');
+  });
+
+  it('pool header shows the estimate and the stop-time confirmation names it', async () => {
+    const r = [resource({ id: 'bt1', code: 'BT1', type: 'POOL_TABLE', status: 'IN_USE', active_ticket_id: 't1', pool_config: { billing_mode: 'PER_HOUR', rate_cents: 6000, promo_free_minutes: 0 } })];
+    const t = ticket({ resource_id: 'bt1', resource_code: 'BT1', timer_sessions: [{ id: 's1', start_time: new Date(Date.now() - 600_000).toISOString(), end_time: null, status: 'ACTIVE' }] });
+    mockApi({ 'GET /tickets/t1': { data: t }, 'GET /resources': { data: r } });
+    await renderScreen(<TicketDetailScreen ticketId="t1" mode="waiter" />);
+    expect((await screen.findByTestId('ticket-estimate')).props.children).toBe('≈ $60.00');
+    await fireEvent.press(screen.getByTestId('ticket-request-bill'));
+    expect(screen.getByText('Detener tiempo y pedir cuenta')).toBeTruthy();
+  });
+
+  it('"Repetir última ronda" copies the newest sent batch into the draft and opens it', async () => {
+    api();
+    await renderScreen(<TicketDetailScreen ticketId="t1" mode="waiter" />);
+    await fireEvent.press(await screen.findByTestId('ticket-repeat'));
+    expect(useDraftStore.getState().byTicket.t1?.length).toBeGreaterThan(0);
+    expect(mockRouter.push).toHaveBeenCalledWith('/ticket/t1/draft');
+  });
+
+  it('"Repetir última ronda" toasts when nothing was sent', async () => {
+    api(ticket({ line_items: [line({ sent_at: null })] }));
+    await renderScreen(<TicketDetailScreen ticketId="t1" mode="waiter" />);
+    await fireEvent.press(await screen.findByTestId('ticket-repeat'));
+    expect(await screen.findByText('Aún no hay productos enviados.')).toBeTruthy();
+    expect(mockRouter.push).not.toHaveBeenCalledWith('/ticket/t1/draft');
+  });
+
+  it('EXPRESS ticket titles itself "Rápido #id"', async () => {
+    api(ticket({ ticket_type: 'EXPRESS', resource_id: null, resource_code: null }));
+    await renderScreen(<TicketDetailScreen ticketId="t1" mode="waiter" />);
+    expect(await screen.findByText('Rápido #T1')).toBeTruthy();
   });
 
   it('server error shows ErrorState with retry', async () => {

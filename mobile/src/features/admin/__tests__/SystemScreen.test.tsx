@@ -90,6 +90,21 @@ describe('SystemScreen (admin diagnostics)', () => {
     expect(screen.getByTestId('switch-print_bar_tickets').props.value).toBe(false);
   });
 
+  it('numeric setting editor validates and PUTs the string value', async () => {
+    (getSetting as jest.Mock).mockImplementation(async (key: string) => ({ key, value: key === 'kds_warn_min' ? '10' : 'false' }));
+    await show();
+    const input = await screen.findByTestId('input-kds_warn_min');
+    await waitFor(() => expect(input.props.value).toBe('10'));
+    await fireEvent.changeText(input, 'abc');
+    await fireEvent.press(screen.getByTestId('save-kds_warn_min'));
+    expect(putSetting).not.toHaveBeenCalled();
+    expect(await screen.findByText('Número inválido')).toBeTruthy();
+    await fireEvent.changeText(input, '15');
+    await fireEvent.press(screen.getByTestId('save-kds_warn_min'));
+    await waitFor(() => expect(putSetting).toHaveBeenCalledWith('kds_warn_min', '15'));
+    expect(screen.getByTestId('diag-min-version')).toBeTruthy();
+  });
+
   it.each(['MANAGER', 'WAITER', 'KITCHEN_STAFF', 'BAR_STAFF'])('%s deep-linking to /system is sent to /denied and sees no diagnostics', async (role) => {
     useAuthStore.setState({ user: { id: 'x', username: 'x', name: 'X', role } });
     await show();

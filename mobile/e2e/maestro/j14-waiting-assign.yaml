@@ -1,0 +1,44 @@
+# J14 (v2): waiter adds a party to the waiting list, assigns it to a free table, lands on that ticket's menu.
+# Not run in CI; needs an open cash session and a free table T06.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- tapOn:
+    id: floor-waiting
+- extendedWaitUntil:
+    visible:
+      id: waiting-add
+    timeout: 10000
+- tapOn:
+    id: waiting-add
+- tapOn:
+    id: waiting-name
+- inputText: Familia Ruiz
+- hideKeyboard
+- tapOn:
+    id: waiting-save
+- extendedWaitUntil:
+    visible: "Familia Ruiz"
+    timeout: 10000
+- takeScreenshot: j14-waiting-list
+- tapOn: "Asignar"
+- extendedWaitUntil:
+    visible:
+      id: assign-table-T06
+    timeout: 10000
+- takeScreenshot: j14-assign-sheet
+- tapOn:
+    id: assign-table-T06
+- extendedWaitUntil:
+    visible:
+      id: menu-search
+    timeout: 15000
+- takeScreenshot: j14-menu-after-assign

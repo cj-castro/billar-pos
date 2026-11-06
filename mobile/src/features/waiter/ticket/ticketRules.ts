@@ -1,5 +1,6 @@
 import type { Ticket, TicketLineItem } from '../../../domain/types';
 import type { LineStatus } from '../../../theme/tokens';
+import type { NewDraftLine } from '../draft/draftStore';
 
 /** STAGED never reaches the app (nothing creates it, matrix G24) but is rendered as SENT if it ever does. */
 export const lineStatus = (l: Pick<TicketLineItem, 'status'>): LineStatus => (l.status === 'STAGED' ? 'SENT' : l.status);
@@ -31,3 +32,23 @@ export function canRequestBill(t: Ticket): boolean {
 }
 
 export const readyLines = (t: Ticket) => (t.line_items ?? []).filter((l) => l.status === 'READY');
+
+/** Lines sent within this window of the newest send count as one "round" (sends post line by line). */
+const ROUND_WINDOW_MS = 60_000;
+
+/** "Repetir última ronda": the newest sent batch (non-voided, same item/modifiers/qty/notes) as draft lines. */
+export function lastRoundLines(t: Pick<Ticket, 'line_items'>): NewDraftLine[] {
+  const sent = activeLines(t).filter((l) => l.sent_at && !Number.isNaN(Date.parse(l.sent_at)));
+  if (sent.length === 0) return [];
+  const newest = Math.max(...sent.map((l) => Date.parse(l.sent_at as string)));
+  return sent
+    .filter((l) => newest - Date.parse(l.sent_at as string) <= ROUND_WINDOW_MS)
+    .map((l) => ({
+      menuItemId: l.menu_item_id,
+      name: l.menu_item_name,
+      unitPriceCents: l.unit_price_cents,
+      quantity: l.quantity,
+      modifiers: l.modifiers.map((m) => ({ id: m.modifier_id, name: m.name, priceCents: m.price_cents })),
+      notes: l.notes ?? '',
+    }));
+}

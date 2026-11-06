@@ -2,7 +2,9 @@ import { useEffect } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import { io, type Socket } from 'socket.io-client';
 import { create } from 'zustand';
+import { refreshOnce } from '../api/client';
 import { qk } from '../api/queryKeys';
+import { serverSupports } from '../config/serverInfo';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -99,8 +101,10 @@ export function roomsForRole(role: string): { room: string; withToken?: boolean 
 
 function joinAll() {
   if (!socket || !opts) return;
+  // SEC-05: with handshake auth the JWT is already on the connection; legacy servers still need it per join.
+  const joinToken = !serverSupports('socket_handshake_auth');
   for (const { room, withToken } of roomsForRole(opts.role))
-    socket.emit('join', withToken ? { room, token: opts.getToken() } : { room });
+    socket.emit('join', withToken && joinToken ? { room, token: opts.getToken() } : { room });
   ticketRooms.forEach((id) => socket!.emit('join', { room: `ticket:${id}` }));
   extraRooms.forEach((room) => socket!.emit('join', { room }));
 }
@@ -113,25 +117,44 @@ export function connectSocket(o: ConnectOptions) {
     path: '/socket.io',
     transports: ['websocket', 'polling'],
     forceNew: true, // L7: own Manager per connection, so reconnect_attempt listeners cannot pile up on a cached one
+    // Function form: evaluated on every connect AND reconnect, so a refreshed access token is picked up.
+    auth: (cb) => cb({ token: o.getToken() }),
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 10_000,
   });
   socket = s;
 
+  let refreshed = false;
   s.on('connect', () => {
+    refreshed = false;
     setConn('connected');
     joinAll(); // re-joins floor/kitchen/bar/manager and every open ticket room
     resyncAll(o.queryClient);
   });
   s.on('disconnect', () => setConn('reconnecting'));
-  s.on('connect_error', () => setConn('reconnecting'));
+  // The server rejects a bad/expired handshake JWT with a connect_error and does NOT retry on its own:
+  // refresh the token once (same single-flight as the HTTP client), then reconnect so the new auth is sent.
+  s.on('connect_error', () => {
+    setConn('reconnecting');
+    if (refreshed || !o.getToken()) return;
+    refreshed = true;
+    refreshOnce().then(
+      () => socket === s && s.disconnect().connect(),
+      () => undefined, // refresh failed: the auth bridge already handled session expiry
+    );
+  });
   s.io.on('reconnect_attempt', () => setConn('reconnecting'));
 
   s.onAny((event: string, payload: Payload) => {
     handleRealtimeEvent(event, payload, o.queryClient);
     listeners.get(event)?.forEach((fn) => fn(payload));
   });
+}
+
+/** After a token refresh: if the socket is down, reconnect so the handshake carries the new JWT. */
+export function reconnectSocket() {
+  if (socket && !socket.connected) socket.disconnect().connect();
 }
 
 export function disconnectSocket() {

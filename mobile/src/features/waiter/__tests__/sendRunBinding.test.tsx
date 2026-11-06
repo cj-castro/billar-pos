@@ -17,7 +17,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   online(true);
   mockServerConfig();
-  useDraftStore.setState({ byTicket: {}, b1Confirmed: {}, ownerId: null });
+  useDraftStore.setState({ byTicket: {}, ownerId: null });
   useAuthStore.setState({ user: user('A'), accessToken: 'ta', refreshToken: 'ra' });
 });
 

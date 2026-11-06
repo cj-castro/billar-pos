@@ -97,6 +97,14 @@ def update_status(item_id):
     if item.status == 'VOIDED':
         return jsonify({'error': 'ITEM_VOIDED',
                         'message': 'Item was voided and cannot change status'}), 409
+    expected_from = data.get('expected_from')
+    if expected_from:
+        # Opt-in compare-and-set (mobile). Web omits expected_from -> unchanged.
+        if item.status != expected_from:
+            return jsonify({'error': 'STATUS_CHANGED', 'current': item.status}), 409
+        if (item.status == 'READY' and new_status == 'IN_PROGRESS'
+                and (item.served_at or not item.ticket or item.ticket.status != 'OPEN')):
+            return jsonify({'error': 'STATUS_CHANGED', 'current': item.status}), 409
     item.status = new_status
     if new_status == 'SERVED':
         item.served_at = datetime.now(timezone.utc)

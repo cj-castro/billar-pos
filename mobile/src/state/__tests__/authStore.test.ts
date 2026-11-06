@@ -94,7 +94,7 @@ it('SEC-04: logout clears ALL persisted drafts (memory and AsyncStorage) and the
 
   await useAuthStore.getState().logout();
 
-  expect(useDraftStore.getState()).toMatchObject({ byTicket: {}, ownerId: null, b1Confirmed: {} });
+  expect(useDraftStore.getState()).toMatchObject({ byTicket: {}, ownerId: null });
   const raw = await AsyncStorage.getItem('bola8.waiter.drafts');
   expect(raw === null || !/Nachos|Alitas/.test(raw)).toBe(true);
 });

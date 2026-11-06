@@ -85,3 +85,28 @@ All workstreams are finished and committed (HEAD `35ba5b3c`). Everything was ver
 5. **iOS on a Mac** (`ios/MAC_SETUP.md`, `ios/IOS_READINESS.md`).
 
 Housekeeping: delete the stray empty file `d:	mp_ready.cjs` manually; `mobile/README.md` still describes placeholders and needs a refresh.
+
+## v2 (2026-11-06)
+
+Scope source: [v2/DESIGN_SPEC_V2.md](v2/DESIGN_SPEC_V2.md), [v2/API_CONTRACTS.md](v2/API_CONTRACTS.md), [v2/POLISH_BACKLOG.md](v2/POLISH_BACKLOG.md).
+
+**Decisions superseded**
+
+| Old | v2 |
+|---|---|
+| D4 no payment settlement | Waiter, manager and admin close and charge tickets from the phone (Cobrar: efectivo / tarjeta / mixto, propina, `Idempotency-Key`). |
+| D9 role entry | MANAGER: Resumen, Tickets, Piso, Caja, Mas. ADMIN: Resumen, Tickets, Caja, Reportes, Mas. KITCHEN/BAR unchanged. |
+| D16 manager read-only on waiter flows | MANAGER/ADMIN may open tables and add items. |
+| D17 admin diagnostics only | Admin also gets Reportes and Sistema editors (KDS thresholds, `waiter_can_close_ticket`, `min_mobile_version`). |
+
+Also changed since v1: discount no longer asks for a PIN (server gates by MANAGER/ADMIN JWT); void and qty-decrease still do.
+
+**New screens**: Cobrar (`ticket/[id]/pay`), Lista de espera, Rapido (EXPRESS) and express open-table, Caja (open/close/gastos), Mas, Reportes, KdsMeSheet (replaces the `kds-me` route, now removed). See `design/SCREEN_INVENTORY.md` section G.
+
+**Backend changes (worktree only, not deployed)**: migration `004_ticket_close_request_id` (`tickets.close_request_id`); `GET /health` returns `server_version`, `min_mobile_version` (setting, default `1.0.0`) and `features` (`socket_handshake_auth`, `idempotent_add_item`, `idempotent_close`); socket auth in the connect handshake; `POST /tickets/<id>/close` takes `Idempotency-Key` and rejects bad amounts with 422 `AMOUNT_MISMATCH` (plain `INSUFFICIENT_PAYMENT` otherwise); setting `waiter_can_close_ticket` (false -> 403 `PIN_REQUIRED`). The app reads the 422 body (`ApiError.details`) to show the server total without a refetch.
+
+**Code health**: query keys consolidated in `src/api/queryKeys.ts`; all app-only strings in `src/i18n/mobile.ts` (no self-registering bundles); cash endpoints live in `endpoints/cash.ts`.
+
+**Tests (2026-11-06)**: `tsc` and `eslint app src` clean; `npm test -- --ci` 54 suites / 596 tests pass. Contract vs local backend (:8090, migration 004): 3 suites, 56/56 pass.
+
+**Unverified**: nothing v2 ran on a physical phone, the bar machine or iOS; no Maestro rerun after v2; manager PIN success paths; real printer; Release build with a real keystore (`expo prebuild --clean` + `assembleRelease`); `GET /settings/<key>` for KDS roles (403 falls back to defaults); pool `rate_cents` unit; backend socket handshake sessions are per-process (single worker required).

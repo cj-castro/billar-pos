@@ -974,6 +974,9 @@ def close_ticket(ticket_id):
         return jsonify({'error': 'INVALID_PAYMENT_TYPE_2'}), 422
     if tip_source and tip_source not in ('CASH', 'CARD', 'SPLIT'):
         return jsonify({'error': 'INVALID_TIP_SOURCE'}), 422
+    # Mobile sends Idempotency-Key; its presence also opts in to the stricter
+    # AMOUNT_MISMATCH contract. The web never sends it, so it is unaffected.
+    close_key = (request.headers.get('Idempotency-Key') or '').strip()[:64] or None
 
     # Every monetary field is validated before it can reach an Integer column
     # or the cash-session reconciliation.
@@ -998,6 +1001,11 @@ def close_ticket(ticket_id):
                 'message': ('La propina en efectivo y en tarjeta debe sumar '
                             'exactamente el total de la propina.'),
             }), 422
+    if (close_key and tip_source == 'SPLIT' and tip_cents
+            and (tip_cash_cents or 0) + (tip_card_cents or 0) != tip_cents):
+        return jsonify({'error': 'AMOUNT_MISMATCH',
+                        'message': 'SPLIT tip parts must sum to tip_cents',
+                        'tip_cents': tip_cents}), 422
     if payment_type_2 and tendered_cents_2 is None:
         return jsonify({
             'error': 'TENDERED_2_REQUIRED',
@@ -1011,9 +1019,37 @@ def close_ticket(ticket_id):
         return jsonify({'error': 'EXTERNAL_PAYMENT_DELIVERY_ONLY'}), 422
     if ticket.status == 'CLOSED':
         # Mobile retry after network timeout — ticket was already closed successfully.
-        return jsonify(ticket.to_dict()), 200
+        if close_key and ticket.close_request_id != close_key:
+            return jsonify({'error': 'TICKET_NOT_OPEN', 'status': 'CLOSED'}), 409
+        result = ticket.to_dict()
+        if close_key:
+            paid = (ticket.tendered_cents or 0) + (ticket.tendered_cents_2 or 0)
+            has_cash = 'CASH' in (ticket.payment_type, ticket.payment_type_2)
+            result['change_due'] = (max(0, paid - (ticket.total_cents + (ticket.tip_cents or 0)))
+                                    if has_cash and paid else 0)
+        return jsonify(result), 200
     if ticket.status != 'OPEN':
         return jsonify({'error': 'TICKET_NOT_OPEN'}), 409
+
+    if (close_key and get_jwt().get('role') == 'WAITER'
+            and not settings_svc.get_bool('waiter_can_close_ticket', True)):
+        from datetime import timedelta
+        from app.api.auth import verify_manager_pin
+        from app.models.audit import AuditLog
+        pin = (data.get('manager_pin') or '').strip()
+        # ponytail: DB-backed per-user lockout (works across workers); 5 bad PINs / 10 min.
+        if pin and AuditLog.query.filter(
+                AuditLog.user_id == user_id, AuditLog.action == 'MANAGER_PIN_FAILED',
+                AuditLog.created_at > datetime.now(timezone.utc) - timedelta(minutes=10)
+        ).count() >= 5:
+            db.session.rollback()
+            return jsonify({'error': 'PIN_LOCKED'}), 429
+        if verify_manager_pin(pin) is None:
+            if pin:
+                audit_svc.log(user_id, 'MANAGER_PIN_FAILED', 'ticket', ticket.id,
+                              ip_address=request.remote_addr)
+                db.session.commit()
+            return jsonify({'error': 'PIN_REQUIRED'}), 403
 
     # Stop any running timer — flush so recalculate_totals sees the charge
     timer_charge = _stop_active_timer(ticket, user_id)
@@ -1049,7 +1085,8 @@ def close_ticket(ticket_id):
             and total_tendered < required_total):
         db.session.rollback()
         return jsonify({
-            'error': 'INSUFFICIENT_PAYMENT',
+            'error': 'AMOUNT_MISMATCH' if close_key else 'INSUFFICIENT_PAYMENT',
+            'expected_total_cents': amount_owed,
             'message': (f'El monto recibido (${total_tendered / 100:.2f}) es menor al total '
                         f'a pagar (${amount_owed / 100:.2f}).'),
             'total_cents': ticket.total_cents,
@@ -1079,6 +1116,7 @@ def close_ticket(ticket_id):
     ticket.closed_at = datetime.now(timezone.utc)
     ticket.payment_requested = False
     ticket.version += 1
+    ticket.close_request_id = close_key
 
     # Change: total tendered across all methods minus bill+tip
     change_due = max(0, total_tendered - amount_owed) if total_tendered else 0

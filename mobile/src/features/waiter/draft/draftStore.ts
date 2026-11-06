@@ -33,8 +33,7 @@ export interface DraftLine {
   errorDetail?: string;
   /**
    * X-Ticket-Version sent on this line's FIRST POST (null = no header was sent). `undefined` = never attempted.
-   * Without B1 a retry re-sends exactly this version, so a first attempt that landed turns the retry into a 409
-   * instead of a duplicate (H1).
+   * Marks the line as possibly-landed (locked for editing, H2); a retry reuses the same key so the server replays it.
    */
   firstAttemptVersion?: number | null;
   addedAt: number;
@@ -51,9 +50,6 @@ export const EMPTY_LINES: readonly DraftLine[] = Object.freeze([]);
 
 interface DraftState {
   byTicket: Record<string, DraftLine[]>;
-  /** Tickets whose server has answered an add with `ticket_version` (backend B1 deployed). */
-  b1Confirmed: Record<string, boolean>;
-  markB1: (ticketId: string) => void;
   /** User who owns the drafts; a different user logging in wipes them (SEC-04). */
   ownerId: string | null;
   claimDrafts: (userId: string) => void;
@@ -82,16 +78,14 @@ export const useDraftStore = create<DraftState>()(
   persist(
     (set, get) => ({
       byTicket: {},
-      b1Confirmed: {},
       ownerId: null,
       claimDrafts: (userId) => {
         const { ownerId } = get();
         if (ownerId && ownerId !== userId) {
           draftEpoch++;
-          set({ byTicket: {}, b1Confirmed: {}, ownerId: userId });
+          set({ byTicket: {}, ownerId: userId });
         } else if (ownerId !== userId) set({ ownerId: userId });
       },
-      markB1: (ticketId) => set((s) => (s.b1Confirmed[ticketId] ? s : { b1Confirmed: { ...s.b1Confirmed, [ticketId]: true } })),
 
       addLine: (ticketId, line) => {
         const lines = get().byTicket[ticketId] ?? [];
@@ -136,16 +130,16 @@ export const useDraftStore = create<DraftState>()(
 
       clearAll: () => {
         draftEpoch++;
-        set({ byTicket: {}, b1Confirmed: {}, ownerId: null });
+        set({ byTicket: {}, ownerId: null });
       },
     }),
     {
       name: 'bola8.waiter.drafts',
       version: 1,
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (s) => ({ byTicket: s.byTicket, b1Confirmed: s.b1Confirmed, ownerId: s.ownerId }),
+      partialize: (s) => ({ byTicket: s.byTicket, ownerId: s.ownerId }),
       // A line caught mid-flight by an app kill may or may not have reached the server: never show it as "sending".
-      // Keeping the same key makes a retry safe with B1 (server replays) and flags it for the waiter otherwise.
+      // Keeping the same key makes a retry safe (the server replays it).
       merge: (persisted, current) => {
         const stored = (persisted as { byTicket?: Record<string, DraftLine[]> } | undefined)?.byTicket ?? {};
         const byTicket: Record<string, DraftLine[]> = {};
@@ -153,9 +147,8 @@ export const useDraftStore = create<DraftState>()(
           if (!Array.isArray(lines) || !lines.length) continue;
           byTicket[id] = lines.map((l) => (l.state === 'SENDING' ? { ...l, state: 'FAILED' as const, error: 'NETWORK' as const } : l));
         }
-        const b1Confirmed = (persisted as { b1Confirmed?: Record<string, boolean> } | undefined)?.b1Confirmed ?? {};
         const ownerId = (persisted as { ownerId?: string | null } | undefined)?.ownerId ?? null;
-        return { ...current, byTicket, b1Confirmed, ownerId };
+        return { ...current, byTicket, ownerId };
       },
     },
   ),

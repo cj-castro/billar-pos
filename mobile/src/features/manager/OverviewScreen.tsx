@@ -30,7 +30,13 @@ function AlertRow({ alert, onDismiss }: { alert: OverviewAlert; onDismiss?: () =
         ? t('manager.alerts.oldItems', { count: alert.count, min: 20 })
         : alert.kind === 'ghost'
           ? t('manager.alerts.ghost', { count: alert.count })
-          : alert.detail
+          : alert.kind === 'old_tickets'
+            ? t('mgr.ov.oldTickets', { count: alert.count })
+            : alert.kind === 'cash_closed_open'
+              ? t('mgr.ov.cashClosedOpen', { count: alert.count })
+              : alert.kind === 'voids'
+                ? t('mgr.ov.voids', { count: alert.count })
+                : alert.detail
             ? t('manager.alerts.printFailed', { error: alert.detail })
             : t('manager.alerts.printFailedGeneric');
   const danger = alert.severity === 'alert';
@@ -103,6 +109,19 @@ export function OverviewScreen() {
         </View>
 
         <View style={[styles.tiles, stale && styles.stale]}>
+          <View style={styles.tileRow}>
+            <StatTile
+              testID="tile-sales"
+              value={stats.salesCents == null ? null : formatMXN(stats.salesCents)}
+              label={t('mgr.ov.sales')}
+              footnote={stats.cashOpen === false ? t('manager.cash.closed') : [stats.cashOpenedAt ? t('manager.cash.since', { time: formatClock(new Date(stats.cashOpenedAt)) }) : null, stats.tipsCents != null ? t('mgr.ov.tips', { amount: formatMXN(stats.tipsCents) }) : null].filter(Boolean).join(' · ') || undefined}
+              onPress={() => router.push('/caja')}
+            />
+          </View>
+          <View style={styles.tileRow}>
+            <StatTile testID="tile-cash-sales" value={stats.cashSalesCents == null ? null : formatMXN(stats.cashSalesCents)} label={t('mgr.ov.cashSales')} onPress={() => router.push('/caja')} />
+            <StatTile testID="tile-card-sales" value={stats.cardSalesCents == null ? null : formatMXN(stats.cardSalesCents)} label={t('mgr.ov.cardSales')} onPress={() => router.push('/caja')} />
+          </View>
           <View style={styles.tileRow}>
             <StatTile testID="tile-open" value={stats.openTickets} label={t('manager.tiles.openTickets')} footnote={stats.openTotalCents != null ? t('manager.tiles.openTotal', { amount: formatMXN(stats.openTotalCents) }) : undefined} onPress={() => router.push('/tickets')} />
             <StatTile testID="tile-bills" value={stats.billRequested} label={t('manager.tiles.bills')} tone={(stats.billRequested ?? 0) > 0 ? 'warning' : 'neutral'} onPress={() => router.push({ pathname: '/tickets', params: { filter: 'bills' } })} />

@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { ageStyle, fontSizesKds, kdsAgeLevel, radii, spacing } from '../theme/tokens';
+import { ageLevelFor, type KdsThresholds } from '../features/kitchen/kdsModel';
+import { ageStyle, fontSizesKds, kds, radii, spacing } from '../theme/tokens';
 import { useNow } from '../utils/useNow';
 import { AppText } from './AppText';
 
@@ -19,16 +20,20 @@ export interface KdsAgeBadgeProps {
   now?: number;
   /** Server-vs-device clock offset in ms (serverNow - Date.now()). */
   clockOffsetMs?: number;
+  /** Server-configured warn/late minutes (defaults to the design tokens 10/20). */
+  thresholds?: KdsThresholds;
   testID?: string;
 }
 
-export function KdsAgeBadge({ since, now, clockOffsetMs = 0, testID = 'kds-age' }: KdsAgeBadgeProps) {
+const TOKEN_TH: KdsThresholds = { warnMin: kds.warnAfterMin, lateMin: kds.alertAfterMin };
+
+export function KdsAgeBadge({ since, now, clockOffsetMs = 0, thresholds = TOKEN_TH, testID = 'kds-age' }: KdsAgeBadgeProps) {
   const { t } = useTranslation('mobile');
   const tick = useNow(now);
 
   const start = new Date(since).getTime();
   const seconds = Number.isNaN(start) ? 0 : (tick + clockOffsetMs - start) / 1000;
-  const level = kdsAgeLevel(seconds / 60);
+  const level = ageLevelFor(seconds / 60, thresholds);
   const st = ageStyle(level);
   const a11y = [
     t('kds.age', { min: Math.floor(seconds / 60), sec: Math.floor(seconds % 60) }),

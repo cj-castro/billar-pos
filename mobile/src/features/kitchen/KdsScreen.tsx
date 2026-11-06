@@ -19,7 +19,11 @@ import { useCanGoBack } from '../../utils/useCanGoBack';
 import { colors, layout, radii, spacing } from '../../theme/tokens';
 import { formatClock } from '../../utils/time';
 import { useNow } from '../../utils/useNow';
+import { KdsMeSheet } from './KdsMeSheet';
+import { queueSummary } from './kdsModel';
+import { StationSwitch } from './StationSwitch';
 import { useFreshIds, useKdsActions, useKdsQueue, useStaleLive } from './useKds';
+import { useKdsThresholds, useNewTicketSound } from './useKdsSettings';
 
 export interface KdsScreenProps {
   /** Station locked by role (KITCHEN_STAFF / BAR_STAFF). null/undefined = manager/admin: show the switch. */
@@ -32,34 +36,13 @@ const GAP = spacing.s3;
 /** No successful KDS poll for this long while disconnected: advance buttons lock (3 polls of 15 s). */
 const KDS_LOCK_AFTER_MS = 45_000;
 
-function StationSwitch({ value, onChange }: { value: Station; onChange: (s: Station) => void }) {
-  const { t } = useTranslation('mobile');
-  return (
-    <View style={styles.switch} accessibilityRole="tablist" accessibilityLabel={t('kitchen.stationSwitch')}>
-      {(['KITCHEN', 'BAR'] as const).map((s) => (
-        <Pressable
-          key={s}
-          testID={`station-${s}`}
-          accessibilityRole="tab"
-          accessibilityLabel={t(`kitchen.station.${s}`)}
-          accessibilityState={{ selected: value === s }}
-          onPress={() => onChange(s)}
-          style={[styles.seg, value === s && styles.segOn]}
-        >
-          <AppText variant="body" bold color={value === s ? colors.textOnAccent : colors.textSecondary}>
-            {t(`kitchen.station.${s}`)}
-          </AppText>
-        </Pressable>
-      ))}
-    </View>
-  );
-}
-
 function KdsStation({ station, tabs, header }: { station: Station; tabs?: boolean; header: ReactNode }) {
   const { t } = useTranslation('mobile');
   const { width } = useWindowDimensions();
   const q = useKdsQueue(station);
   const fresh = useFreshIds(q.data);
+  useNewTicketSound(q.data, station);
+  const thresholds = useKdsThresholds();
   const actions = useKdsActions(station, q.items);
   const stale = useStaleLive();
   // M8 / US-K-06: connection down AND no successful poll for 3 cycles = stale -> advancing is disabled (reads keep working).
@@ -112,6 +95,7 @@ function KdsStation({ station, tabs, header }: { station: Station; tabs?: boolea
                 onServed={allReady ? () => actions.serve(g.ticketId) : undefined}
                 servedLabel={t('kitchen.served')}
                 disabled={locked}
+                thresholds={thresholds}
               />
             </View>
           );
@@ -168,26 +152,30 @@ export function KdsScreen({ fixedStation, tabs }: KdsScreenProps) {
   const station = fixedStation ?? picked;
   const q = useKdsQueue(station); // same query as KdsStation (shared cache): only feeds the header counter
   const switchable = !fixedStation;
+  const [meOpen, setMeOpen] = useState(false);
+  const clock = useNow(undefined, 30_000);
+  const sum = queueSummary(q.items, clock);
+  const subtitle = sum.count === 0 || sum.oldestMin === null ? t('kitchen.queueEmpty') : t('kitchen.queueSummary', { n: sum.count, min: sum.oldestMin });
 
   const right = (
     <View style={styles.right}>
       <ConnectionPill />
-      {!tabs && <IconButton icon="account-outline" accessibilityLabel={t('kitchen.menu')} onPress={() => router.push('/kds-me')} testID="kds-menu" />}
+      {!tabs && <IconButton icon="account-outline" accessibilityLabel={t('kitchen.menu')} onPress={() => setMeOpen(true)} testID="kds-menu" />}
     </View>
   );
   const bar = tabs ? (
-    <ScreenHeader title={t(`kitchen.station.${station}`)} subtitle={t('kitchen.pending', { n: q.pending })} right={right} />
+    <ScreenHeader title={t(`kitchen.station.${station}`)} subtitle={subtitle} right={right} />
   ) : (
     <ScreenHeader
       // Back only when pushed (admin/manager from Overview); the kiosk root (kitchen/bar login) has nothing to go back to.
       onBack={canBack ? () => router.back() : undefined}
       leading={
-        <Pressable testID="kds-logo" accessibilityRole="button" accessibilityLabel={t('kitchen.menu')} delayLongPress={600} onLongPress={() => router.push('/kds-me')}>
+        <Pressable testID="kds-logo" accessibilityRole="button" accessibilityLabel={t('kitchen.menu')} delayLongPress={600} onLongPress={() => setMeOpen(true)}>
           <Logo size={40} />
         </Pressable>
       }
       title={t(`kitchen.station.${station}`)}
-      subtitle={t('kitchen.pending', { n: q.pending })}
+      subtitle={subtitle}
       subtitleTestID="kds-pending"
       right={right}
     />
@@ -205,15 +193,17 @@ export function KdsScreen({ fixedStation, tabs }: KdsScreenProps) {
     bar
   );
 
-  return <KdsStation key={station} station={station} tabs={tabs} header={header} />;
+  return (
+    <>
+      <KdsStation key={station} station={station} tabs={tabs} header={header} />
+      {!tabs && <KdsMeSheet visible={meOpen} onClose={() => setMeOpen(false)} station={station} onStation={switchable ? setPicked : undefined} />}
+    </>
+  );
 }
 
 const styles = StyleSheet.create({
   right: { flexDirection: 'row', alignItems: 'center', gap: spacing.s2 },
   switchRow: { paddingHorizontal: spacing.s4, paddingBottom: spacing.s2, backgroundColor: colors.surface, alignItems: 'flex-start' },
-  switch: { flexDirection: 'row', backgroundColor: colors.surfaceRaised, borderRadius: radii.pill, padding: 2 },
-  seg: { minHeight: 40, paddingHorizontal: spacing.s3, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
-  segOn: { backgroundColor: colors.primary },
   grid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
   cardWrap: { borderRadius: radii.lg + 3, borderWidth: 3, borderColor: 'transparent' },
   full: { width: '100%' },

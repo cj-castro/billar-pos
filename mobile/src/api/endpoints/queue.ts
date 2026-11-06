@@ -13,7 +13,8 @@ export async function getCounts(): Promise<{ kitchen: number; bar: number }> {
 
 export type QueueTargetStatus = 'IN_PROGRESS' | 'READY' | 'SERVED';
 
-export async function updateStatus(itemId: string, status: QueueTargetStatus): Promise<{ item_id: string; status: string }> {
-  const { data } = await client.patch<{ item_id: string; status: string }>(`/queue/${itemId}/status`, { status });
+/** `expectedFrom` = compare-and-set: the server answers 409 STATUS_CHANGED {current} if the item already moved. */
+export async function updateStatus(itemId: string, status: QueueTargetStatus, expectedFrom?: string): Promise<{ item_id: string; status: string }> {
+  const { data } = await client.patch<{ item_id: string; status: string }>(`/queue/${itemId}/status`, expectedFrom ? { status, expected_from: expectedFrom } : { status });
   return data;
 }

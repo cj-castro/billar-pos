@@ -4,7 +4,8 @@ import { qi } from '../../kitchen/testFixtures';
 import { floorTiles } from '../floorModel';
 import { aggregateOverview, deriveAlerts, oldestWaiting } from '../overviewModel';
 import { parsePrintFailed, usePrintFailures } from '../printFailures';
-import { managerTabVisibility } from '../tabs';
+import type { CashSummaryResponse } from '../../../api/endpoints/cash';
+import { managerTabsFor } from '../tabs';
 import { filterTickets } from '../ticketsModel';
 
 const NOW = new Date('2026-11-05T21:00:00+00:00').getTime();
@@ -180,10 +181,70 @@ describe('floorTiles', () => {
   });
 });
 
-describe('managerTabVisibility', () => {
-  it('system tab is ADMIN only, kds tab MANAGER only', () => {
-    expect(managerTabVisibility('ADMIN')).toEqual({ kds: false, system: true });
-    expect(managerTabVisibility('MANAGER')).toEqual({ kds: true, system: false });
-    for (const r of ['WAITER', 'KITCHEN_STAFF', 'BAR_STAFF', undefined, null]) expect(managerTabVisibility(r).system).toBe(false);
+describe('managerTabsFor', () => {
+  it('MANAGER: Resumen Tickets Piso Caja Mas; ADMIN: Resumen Tickets Caja Reportes Mas', () => {
+    expect(managerTabsFor('MANAGER').bar).toEqual(['overview', 'tickets', 'floor-view', 'caja', 'mas']);
+    expect(managerTabsFor('ADMIN').bar).toEqual(['overview', 'tickets', 'caja', 'reportes', 'mas']);
+  });
+  it('Mas holds Piso + Sistema for ADMIN only; both have Cocina/Barra, Lista de espera and Yo', () => {
+    expect(managerTabsFor('ADMIN').more).toEqual(['kds', 'waiting', 'floor', 'system', 'profile']);
+    expect(managerTabsFor('MANAGER').more).toEqual(['kds', 'waiting', 'profile']);
+    for (const r of ['WAITER', undefined, null]) expect(managerTabsFor(r).more).not.toContain('system');
+  });
+});
+
+const summary = (over: Partial<CashSummaryResponse['summary']> = {}): CashSummaryResponse => ({
+  session: cash().session!,
+  summary: {
+    ticket_count: 4,
+    total_sales_cents: 100000,
+    total_tips_cents: 9000,
+    cash_sales_cents: 60000,
+    card_sales_cents: 40000,
+    cash_tips_cents: 3000,
+    card_tips_cents: 6000,
+    total_expenses_cents: 0,
+    cash_expenses_cents: 0,
+    card_expenses_cents: 0,
+    tip_payout_cents: 9000,
+    opening_fund_cents: 50000,
+    expected_cash_cents: 104000,
+    closing_cash_counted_cents: null,
+    cash_over_short_cents: null,
+    expenses: [],
+    tip_distribution: null,
+    ...over,
+  },
+});
+
+describe('overview sales + v2 alerts', () => {
+  it('money tiles come from the session summary; closed register (null) = 0; failed (undefined) = null', () => {
+    expect(aggregateOverview({ summary: summary() })).toMatchObject({ salesCents: 100000, cashSalesCents: 60000, cardSalesCents: 40000, tipsCents: 9000 });
+    expect(aggregateOverview({ summary: null })).toMatchObject({ salesCents: 0, cashSalesCents: 0, cardSalesCents: 0 });
+    expect(aggregateOverview({})).toMatchObject({ salesCents: null, cashSalesCents: null, cardSalesCents: null });
+  });
+
+  it('tickets open more than 2 h (strictly)', () => {
+    const inp = { cash: cash(), openAll: [row('a', 1, { opened_at: minAgo(121) }), row('b', 1, { opened_at: minAgo(120) }), row('c', 1, { opened_at: minAgo(5) })] };
+    const alerts = deriveAlerts(aggregateOverview(inp), inp, NOW);
+    expect(alerts.filter((a) => a.kind === 'old_tickets')).toEqual([expect.objectContaining({ count: 1, severity: 'warning' })]);
+  });
+
+  it('closed register with open tickets raises a second, stronger alert; closed with none does not', () => {
+    const closed = cash({ open: false, session: null, open_tickets_count: 0 });
+    const a1 = { cash: closed, openAll: [row('a', 1)] };
+    expect(deriveAlerts(aggregateOverview(a1), a1, NOW).map((a) => a.kind)).toEqual(['cash_closed', 'cash_closed_open']);
+    const a2 = { cash: closed, openAll: [] };
+    expect(deriveAlerts(aggregateOverview(a2), a2, NOW).map((a) => a.kind)).toEqual(['cash_closed']);
+  });
+
+  it('voids today: alert from 3, none below or when unknown', () => {
+    const kinds = (n: number | undefined) => {
+      const inp = { cash: cash(), voidsToday: n };
+      return deriveAlerts(aggregateOverview(inp), inp, NOW).map((a) => a.kind);
+    };
+    expect(kinds(3)).toEqual(['voids']);
+    expect(kinds(2)).toEqual([]);
+    expect(kinds(undefined)).toEqual([]);
   });
 });

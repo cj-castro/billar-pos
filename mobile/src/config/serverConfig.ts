@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { setServerInfo } from './serverInfo';
 
 export const SERVER_URL_KEY = 'bola8.serverUrl';
 export const HEALTH_TIMEOUT_MS = 5000;
@@ -84,9 +85,11 @@ export async function validateServer(base: string): Promise<ServerCheck> {
       validateStatus: () => true,
     });
     const body = res.data as { status?: unknown } | undefined;
-    return res.status === 200 && body && typeof body === 'object' && body.status === 'ok'
-      ? { ok: true }
-      : { ok: false, reason: 'not_pos' };
+    if (res.status === 200 && body && typeof body === 'object' && body.status === 'ok') {
+      setServerInfo(body);
+      return { ok: true };
+    }
+    return { ok: false, reason: 'not_pos' };
   } catch (e) {
     const code = (e as { code?: string })?.code;
     return { ok: false, reason: code === 'ECONNABORTED' || code === 'ETIMEDOUT' ? 'timeout' : 'unreachable' };

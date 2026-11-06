@@ -1,0 +1,23 @@
+# J15: kitchen marks a line Listo, then taps Deshacer within 3 s -> line is back "En preparación". (Not run in CI.)
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: kitchen
+  PASS: kitchen123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-kds
+    timeout: 20000
+- tapOn: Chicken Wings
+- assertVisible: ".*En preparación.*"
+- tapOn: Chicken Wings
+- assertVisible: "Marcado como listo"
+- tapOn:
+    id: toast-action
+- assertVisible: ".*En preparación.*"
+- longPressOn:
+    id: kds-logo
+- assertVisible:
+    id: kds-me-sheet

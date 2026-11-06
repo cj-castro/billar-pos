@@ -10,6 +10,7 @@ import { LanguageToggle } from '../src/components/LanguageToggle';
 import { Logo } from '../src/components/Logo';
 import { ScreenScaffold } from '../src/components/ScreenScaffold';
 import { ConfirmDialog } from '../src/components/ConfirmDialog';
+import { updateRequired } from '../src/config/serverInfo';
 import { getServerUrl, normalizeServerUrl, saveServerUrl, validateServer } from '../src/config/serverConfig';
 import { useAuthStore } from '../src/state/authStore';
 import { colors, radii, spacing } from '../src/theme/tokens';
@@ -55,7 +56,7 @@ export default function SetupScreen() {
     // (tokens, user, query cache, socket, drafts) so nothing is ever sent to the new host.
     if (hasSession && normalizeServerUrl(value) !== getServerUrl()) await useAuthStore.getState().logout();
     await saveServerUrl(value);
-    router.replace('/login');
+    router.replace(updateRequired() ? '/update-required' : '/login');
   };
   const onContinue = () => {
     if (hasSession && normalizeServerUrl(value) !== getServerUrl()) setConfirmSwitch(true);

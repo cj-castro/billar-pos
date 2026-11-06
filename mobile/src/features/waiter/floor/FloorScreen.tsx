@@ -1,8 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import { listActiveExpress } from '../../../api/endpoints/tickets';
+import { qk2 } from '../../../api/queryKeys';
 import { AppText } from '../../../components/AppText';
 import { ConnectionPill } from '../../../components/ConnectionPill';
 import { useConnectionLevel } from '../../../components/connection';
@@ -17,7 +20,10 @@ import { TableCard } from '../../../components/TableCard';
 import { useAuthStore } from '../../../state/authStore';
 import { colors, radii, spacing, touch } from '../../../theme/tokens';
 import { formatMXN } from '../../../utils/money';
+import { useDraftStore } from '../draft/draftStore';
 import { useCashStatus, usePendingPayment, useResources } from '../queries';
+import { ExpressButton, WaitingButton } from './FloorHeaderButtons';
+import { expressChips, unsentSummary } from './floorModel';
 import { deriveFloor, type FloorCard, type FloorKind } from './floorState';
 
 const COLUMNS: Record<FloorKind, number> = { POOL: 2, TABLE: 3, BAR: 3 };
@@ -43,18 +49,32 @@ export function FloorScreen({ mode = 'waiter', onOpenTicket }: FloorScreenProps)
   const resources = useResources();
   const pending = usePendingPayment();
   const cash = useCashStatus();
+  const express = useQuery({ queryKey: qk2.activeExpress, queryFn: listActiveExpress, staleTime: 15_000 });
+  const byTicket = useDraftStore((d) => d.byTicket);
   const level = useConnectionLevel();
   const offline = level === 'offline';
   const [refreshing, setRefreshing] = useState(false);
 
   const refresh = async () => {
     setRefreshing(true);
-    await Promise.allSettled([resources.refetch(), pending.refetch(), cash.refetch()]);
+    await Promise.allSettled([resources.refetch(), pending.refetch(), cash.refetch(), express.refetch()]);
     setRefreshing(false);
   };
 
   const model = resources.data ? deriveFloor(resources.data, pending.data ?? []) : null;
   // `open:false` only when the server said so; unknown (no data yet) never blocks.
+  const chips = expressChips(express.data ?? []);
+  const unsent = unsentSummary(byTicket);
+  // Where the unsent order lives: floor tile, a bill-requested ticket, or an express chip.
+  const unsentCode = !unsent
+    ? null
+    : (resources.data?.find((r) => r.active_ticket_id === unsent.ticketId)?.code ?? pending.data?.find((p) => p.id === unsent.ticketId)?.resource_code ?? null);
+  const unsentExpress = unsent ? chips.find((c) => c.id === unsent.ticketId) : undefined;
+  const unsentLabel = unsentExpress
+    ? (unsentExpress.name ?? t('waiter.floor.expressChip', { n: unsentExpress.n }))
+    : unsentCode
+      ? t('waiter.floor.unsentTable', { code: unsentCode })
+      : '—';
   const barClosed = cash.data?.open === false;
   const openTicket = (id: string) => (onOpenTicket ? onOpenTicket(id) : router.push(`/ticket/${id}`));
 
@@ -79,6 +99,21 @@ export function FloorScreen({ mode = 'waiter', onOpenTicket }: FloorScreenProps)
             </AppText>
           </View>
         </View>
+      )}
+      {!!unsent && (
+        <Pressable
+          testID="floor-unsent-bar"
+          accessibilityRole="button"
+          accessibilityLabel={t('waiter.floor.unsentA11y')}
+          onPress={() => router.push(`/ticket/${unsent.ticketId}/draft`)}
+          style={styles.unsent}
+        >
+          <MaterialCommunityIcons name="send-clock-outline" size={22} color={colors.warning} />
+          <AppText variant="body" bold color={colors.warning} style={styles.closedText}>
+            {t('waiter.floor.unsent', { count: unsent.count, code: unsentLabel })}
+          </AppText>
+          <MaterialCommunityIcons name="chevron-right" size={22} color={colors.warning} />
+        </Pressable>
       )}
       {resources.isError && !!model && (
         <Pressable testID="floor-refresh-failed" accessibilityRole="button" onPress={refresh} style={styles.errorBanner}>
@@ -130,6 +165,31 @@ export function FloorScreen({ mode = 'waiter', onOpenTicket }: FloorScreenProps)
             </ScrollView>
           </View>
         )}
+        {chips.length > 0 && (
+          <View testID="floor-express" style={styles.section}>
+            <SectionHeader title={t('waiter.floor.expressGroup')} right={<AppText variant="label" color={colors.textSecondary}>{chips.length}</AppText>} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+              {chips.map((c) => {
+                const label = c.name ?? t('waiter.floor.expressChip', { n: c.n });
+                return (
+                  <Pressable
+                    key={c.id}
+                    testID={`floor-express-${c.id}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={label}
+                    onPress={() => openTicket(c.id)}
+                    style={({ pressed }) => [styles.expressChip, { opacity: pressed ? 0.85 : 1 }]}
+                  >
+                    <MaterialCommunityIcons name="flash" size={18} color={colors.tableOccupiedFg} />
+                    <AppText variant="bodyLg" bold numberOfLines={1}>
+                      {label}
+                    </AppText>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
         {model.sections.map((sec) => {
           const cols = COLUMNS[sec.kind];
           const counts = [sec.occupied ? t('waiter.floor.occupiedCount', { n: sec.occupied }) : null, sec.bills ? t('waiter.floor.billCount', { n: sec.bills }) : null].filter(Boolean).join(' Â· ');
@@ -148,6 +208,7 @@ export function FloorScreen({ mode = 'waiter', onOpenTicket }: FloorScreenProps)
                       customerName={c.customerName}
                       timerStart={c.timerStart}
                       timerLabel={c.timerStart ? t('waiter.floor.estimated') : undefined}
+                      bell={c.state === 'BILL_REQUESTED'}
                       stale={offline}
                       onPress={() => onCard(c)}
                     />
@@ -169,7 +230,19 @@ export function FloorScreen({ mode = 'waiter', onOpenTicket }: FloorScreenProps)
       testID="screen-floor"
       edges={['top']}
       padded={false}
-      header={<ScreenHeader title={t('tabs.floor')} subtitle={user ? t('waiter.floor.subtitle', { name: user.name }) : undefined} right={<ConnectionPill />} />}
+      header={
+        <ScreenHeader
+          title={t('tabs.floor')}
+          subtitle={user ? t('waiter.floor.subtitle', { name: user.name }) : undefined}
+          leading={mode === 'waiter' ? <ExpressButton /> : undefined}
+          right={
+            <View style={styles.headRight}>
+              <WaitingButton />
+              <ConnectionPill />
+            </View>
+          }
+        />
+      }
       banner={banners}
     >
       {body}
@@ -196,6 +269,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.tableBillBg,
   },
   closed: { flexDirection: 'row', alignItems: 'center', gap: spacing.s3, paddingHorizontal: spacing.s4, paddingVertical: spacing.s3, backgroundColor: colors.warningTint },
+  headRight: { flexDirection: 'row', alignItems: 'center' },
+  expressChip: {
+    minHeight: touch.min,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+    paddingHorizontal: spacing.s3,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    borderColor: colors.tableOccupiedBorder,
+    backgroundColor: colors.tableOccupiedBg,
+  },
+  unsent: { minHeight: touch.min, flexDirection: 'row', alignItems: 'center', gap: spacing.s3, paddingHorizontal: spacing.s4, paddingVertical: spacing.s2, backgroundColor: colors.warningTint },
   closedText: { flex: 1 },
   errorBanner: { minHeight: 36, justifyContent: 'center', paddingHorizontal: spacing.s4, backgroundColor: colors.dangerTint },
 });

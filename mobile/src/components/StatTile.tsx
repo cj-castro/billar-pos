@@ -29,7 +29,7 @@ export function StatTile({ value, label, footnote, tone = 'neutral', onPress, te
       onPress={onPress}
       style={({ pressed }) => [styles.tile, { backgroundColor: c.bg, opacity: pressed && onPress ? 0.85 : 1 }]}
     >
-      <AppText variant="display" color={c.fg} style={styles.value}>
+      <AppText variant="display" color={c.fg} style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
         {shown}
       </AppText>
       <AppText variant="label" color={colors.textSecondary}>

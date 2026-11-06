@@ -30,13 +30,13 @@ function setup(script: Record<string, AddResult[]>, versions: (number | null)[] 
 const last = (patches: [string, LinePatch][], key: string) => [...patches].reverse().find(([k]) => k === key)?.[1];
 
 describe('sendDraft', () => {
-  it('201 with B1: posts sequentially with the draft key and chains the version from each response', async () => {
+  it('201: posts sequentially with the draft key and chains the version from each response', async () => {
     const s = setup({ a: [{ ticket_version: 8 }], b: [{ ticket_version: 9 }] });
     const r = await sendDraft({ ticketId: 't', lines: [L('a'), L('b', { quantity: 2, notes: 'sin hielo', modifiers: [{ id: 'm1' }] })], version: 7, deps: s.deps, onUpdate: s.onUpdate });
-    expect(r).toMatchObject({ sent: ['a', 'b'], failed: [], stopped: null, b1: true, version: 9 });
+    expect(r).toMatchObject({ sent: ['a', 'b'], failed: [], stopped: null, version: 9 });
     expect(s.calls.map((c) => [c.key, c.version])).toEqual([['a', 7], ['b', 8]]);
     expect(s.calls[1].body).toEqual({ menu_item_id: 'item-b', quantity: 2, modifiers: [{ modifier_id: 'm1' }], notes: 'sin hielo' });
-    expect(s.deps.fetchVersion).not.toHaveBeenCalled(); // no extra refetch when B1 answers
+    expect(s.deps.fetchVersion).not.toHaveBeenCalled(); // no extra refetch when the response carries the version
     expect(last(s.patches, 'a')).toEqual({ state: 'SENT' });
   });
 
@@ -48,37 +48,27 @@ describe('sendDraft', () => {
     expect(r.version).toBe(12);
   });
 
-  it('without B1 (no ticket_version) it refetches the version after every success', async () => {
+  it('a response without ticket_version refetches the version after every success', async () => {
     const s = setup({ a: [{}], b: [{}] }, [8, 9]);
-    const r = await sendDraft({ ticketId: 't', lines: [L('a'), L('b')], version: 7, deps: s.deps, onUpdate: s.onUpdate });
-    expect(r.b1).toBe(false);
+    await sendDraft({ ticketId: 't', lines: [L('a'), L('b')], version: 7, deps: s.deps, onUpdate: s.onUpdate });
     expect(s.calls.map((c) => c.version)).toEqual([7, 8]);
     expect(s.deps.fetchVersion).toHaveBeenCalledTimes(2);
   });
 
-  it('409 VERSION_CONFLICT with B1: refetches and retries ONCE with the same key', async () => {
+  it('409 VERSION_CONFLICT: refetches and retries ONCE with the same key', async () => {
     const s = setup({ a: [err(409, 'VERSION_CONFLICT'), { ticket_version: 11 }] }, [10]);
-    const r = await sendDraft({ ticketId: 't', lines: [L('a')], version: 7, b1Confirmed: true, deps: s.deps, onUpdate: s.onUpdate });
+    const r = await sendDraft({ ticketId: 't', lines: [L('a')], version: 7, deps: s.deps, onUpdate: s.onUpdate });
     expect(r.sent).toEqual(['a']);
     expect(s.calls.map((c) => [c.key, c.version])).toEqual([['a', 7], ['a', 10]]);
   });
 
-  it('409 VERSION_CONFLICT twice with B1: gives up as "verify", no third POST', async () => {
+  it('409 VERSION_CONFLICT twice: gives up as "verify", no third POST', async () => {
     const s = setup({ a: [err(409, 'VERSION_CONFLICT'), err(409, 'VERSION_CONFLICT')], b: [{}] }, [10]);
-    const r = await sendDraft({ ticketId: 't', lines: [L('a'), L('b')], version: 7, b1Confirmed: true, deps: s.deps, onUpdate: s.onUpdate });
+    const r = await sendDraft({ ticketId: 't', lines: [L('a'), L('b')], version: 7, deps: s.deps, onUpdate: s.onUpdate });
     expect(r.stopped).toBe('verify');
     expect(s.calls).toHaveLength(2);
     expect(last(s.patches, 'a')).toEqual({ state: 'FAILED', error: 'VERIFY' });
     expect(s.calls.some((c) => c.key === 'b')).toBe(false);
-  });
-
-  it('409 VERSION_CONFLICT without B1: marks "verify" and stops WITHOUT resending (no duplicate risk)', async () => {
-    const s = setup({ a: [err(409, 'VERSION_CONFLICT')], b: [{}] }, [10]);
-    const r = await sendDraft({ ticketId: 't', lines: [L('a'), L('b')], version: 7, deps: s.deps, onUpdate: s.onUpdate });
-    expect(r).toMatchObject({ sent: [], failed: ['a'], stopped: 'verify', version: 7 });
-    expect(s.deps.fetchVersion).not.toHaveBeenCalled(); // never refresh the version without B1
-    expect(s.calls).toHaveLength(1);
-    expect(last(s.patches, 'a')).toEqual({ state: 'FAILED', error: 'VERIFY' });
   });
 
   it('422 errors mark only that line and the others continue', async () => {
@@ -127,12 +117,12 @@ describe('sendDraft', () => {
     const remaining = lines.filter((l) => !first.sent.includes(l.key));
     expect(remaining.map((l) => l.key)).toEqual(['b', 'c']);
     const s2 = setup({ b: [{ ticket_version: 3 }], c: [{ ticket_version: 4 }] });
-    const second = await sendDraft({ ticketId: 't', lines: remaining, version: 2, b1Confirmed: first.b1, deps: s2.deps, onUpdate: s2.onUpdate });
+    const second = await sendDraft({ ticketId: 't', lines: remaining, version: 2, deps: s2.deps, onUpdate: s2.onUpdate });
     expect(second.sent).toEqual(['b', 'c']);
     expect(s2.calls.map((c) => c.key)).toEqual(['b', 'c']);
     const allKeys = [...s1.calls, ...s2.calls].map((c) => c.key);
     expect(allKeys.filter((k) => k === 'a')).toHaveLength(1); // never duplicated
-    expect(allKeys.filter((k) => k === 'b')).toHaveLength(2); // same key twice: server dedupes (B1)
+    expect(allKeys.filter((k) => k === 'b')).toHaveLength(2); // same key twice: server dedupes
   });
 
   it('timeout and 5xx are "outcome unknown": keep the key and stop', async () => {
@@ -168,7 +158,7 @@ describe('sendableLines', () => {
 });
 
 /** Fake POS: optionally "applies the request but loses the response" (the ambiguous case that causes duplicates). */
-function fakePos(opts: { b1: boolean; version?: number }) {
+function fakePos(opts: { version?: number } = {}) {
   const st = { version: opts.version ?? 7, adds: 0, byKey: new Map<string, number>(), loseNextResponse: false, dropNextRequest: false, headers: [] as (number | undefined)[] };
   const deps: SendDeps = {
     addItem: jest.fn(async (_t, _b, o) => {
@@ -177,7 +167,7 @@ function fakePos(opts: { b1: boolean; version?: number }) {
         st.dropNextRequest = false;
         throw netErr();
       }
-      if (opts.b1 && st.byKey.has(o.idempotencyKey)) return { ticket_version: st.version };
+      if (st.byKey.has(o.idempotencyKey)) return { ticket_version: st.version };
       if (o.ticketVersion != null && o.ticketVersion !== st.version) throw err(409, 'VERSION_CONFLICT');
       st.adds += 1;
       st.version += 1;
@@ -186,7 +176,7 @@ function fakePos(opts: { b1: boolean; version?: number }) {
         st.loseNextResponse = false;
         throw netErr(); // applied server side, client never sees the answer
       }
-      return opts.b1 ? { ticket_version: st.version } : {};
+      return { ticket_version: st.version };
     }),
     fetchVersion: jest.fn(async () => st.version),
   };
@@ -204,58 +194,23 @@ const apply = (line: SendLine & { state: string }) => (_k: string, p: LinePatch)
 };
 
 describe('H1: retry of an uncertain line', () => {
-  it('no B1, response lost: the retry re-sends the FIRST version, gets 409 -> verify; never a second add', async () => {
-    const pos = fakePos({ b1: false });
-    const line = draftOf('a');
-    pos.st.loseNextResponse = true;
-    const first = await sendDraft({ ticketId: 't', lines: [line], version: 7, deps: pos.deps, onUpdate: apply(line) });
-    expect(first.stopped).toBe('network');
-    expect(line.firstAttemptVersion).toBe(7); // persisted BEFORE the request left
-    expect(pos.st.adds).toBe(1);
-
-    const retry = await sendDraft({ ticketId: 't', lines: [line], version: pos.st.version, b1Confirmed: false, deps: pos.deps, onUpdate: apply(line) });
-    expect(retry).toMatchObject({ stopped: 'verify', sent: [] });
-    expect(pos.st.headers).toEqual([7, 7]); // same X-Ticket-Version both times, never the refreshed 8
-    expect(pos.deps.fetchVersion).not.toHaveBeenCalled(); // no refresh without B1
-    expect(pos.st.adds).toBe(1);
-    expect(line.state).toBe('FAILED');
-  });
-
-  it('no B1, request never arrived: the retry succeeds (version unchanged) with exactly one add', async () => {
-    const pos = fakePos({ b1: false });
-    const line = draftOf('a');
-    pos.st.dropNextRequest = true;
-    await sendDraft({ ticketId: 't', lines: [line], version: 7, deps: pos.deps, onUpdate: apply(line) });
-    const retry = await sendDraft({ ticketId: 't', lines: [line], version: 7, deps: pos.deps, onUpdate: apply(line) });
-    expect(retry.sent).toEqual(['a']);
-    expect(pos.st.adds).toBe(1);
-  });
-
-  it('no B1 and the first attempt had no version header: never re-posts (cannot be told from a duplicate)', async () => {
-    const pos = fakePos({ b1: false });
-    const line = { ...draftOf('a'), firstAttemptVersion: null as number | null };
-    const r = await sendDraft({ ticketId: 't', lines: [line], version: 7, deps: pos.deps, onUpdate: apply(line) });
-    expect(r.stopped).toBe('verify');
-    expect(pos.deps.addItem).not.toHaveBeenCalled();
-  });
-
-  it('B1 confirmed, response lost: same key, refreshed version, the server dedupes -> sent, one add', async () => {
-    const pos = fakePos({ b1: true });
+  it('response lost: same key, refreshed version, the server dedupes -> sent, one add', async () => {
+    const pos = fakePos();
     const line = draftOf('a');
     pos.st.loseNextResponse = true;
     await sendDraft({ ticketId: 't', lines: [line], version: 7, deps: pos.deps, onUpdate: apply(line) });
     expect(pos.st.adds).toBe(1);
     // a second waiter bumped the version meanwhile
     pos.st.version += 1;
-    const retry = await sendDraft({ ticketId: 't', lines: [line], version: pos.st.version, b1Confirmed: true, deps: pos.deps, onUpdate: apply(line) });
+    const retry = await sendDraft({ ticketId: 't', lines: [line], version: pos.st.version, deps: pos.deps, onUpdate: apply(line) });
     expect(retry).toMatchObject({ sent: ['a'], stopped: null });
     expect(pos.st.adds).toBe(1);
   });
 
-  it('B1 confirmed and a 409 on the retry: refreshes the version and retries ONCE with the same key', async () => {
-    const pos = fakePos({ b1: true });
+  it('a 409 on the retry: refreshes the version and retries ONCE with the same key', async () => {
+    const pos = fakePos();
     const line = { ...draftOf('a'), firstAttemptVersion: 3 as number | null }; // stale first version, key unknown to the server yet
-    const r = await sendDraft({ ticketId: 't', lines: [line], version: 7, b1Confirmed: true, deps: pos.deps, onUpdate: apply(line) });
+    const r = await sendDraft({ ticketId: 't', lines: [line], version: 7, deps: pos.deps, onUpdate: apply(line) });
     expect(r.sent).toEqual(['a']);
     expect(pos.st.adds).toBe(1);
   });

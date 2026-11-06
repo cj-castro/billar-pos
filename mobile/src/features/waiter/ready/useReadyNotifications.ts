@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
+import { AppState } from 'react-native';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { listTickets } from '../../../api/endpoints/tickets';
 import { useTranslation } from 'react-i18next';
@@ -9,6 +10,7 @@ import { joinRoom, leaveRoom, useRealtimeEvent } from '../../../realtime/socket'
 import { useAuthStore } from '../../../state/authStore';
 import { haptic } from '../../../utils/haptics';
 import { wqk } from '../queries';
+import { notifyReady, onNotificationTap, playChime, useAlertPrefs } from './readyAlerts';
 import { classifyReadyEvent, type ItemEvent } from './readyEvents';
 
 /**
@@ -45,6 +47,10 @@ export function useReadyNotifications() {
         void qc.invalidateQueries({ queryKey: [...qk.resources, 'open-tickets'] });
       } else if (d.action === 'notify') {
         haptic.success();
+        const prefs = useAlertPrefs.getState();
+        if (prefs.sound) void playChime();
+        // Background: a local notification (needs the JS runtime alive; a killed app misses it, no push server).
+        if (prefs.alerts && AppState.currentState !== 'active') void notifyReady(t('waiter.ready.notifTitle', { code: d.code, name: d.name }), d.ticketId);
         toast.show({
           tone: 'success',
           title: t('waiter.ready.toastTitle', { name: d.name, code: d.code }),
@@ -54,6 +60,8 @@ export function useReadyNotifications() {
     },
     [mine, qc, toast, t, router],
   );
+
+  useEffect(() => onNotificationTap((route) => router.push(route as never)), [router]);
 
   useRealtimeEvent('kitchen:item_update', onEvent);
   useRealtimeEvent('bar:item_update', onEvent);

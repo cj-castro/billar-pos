@@ -16,11 +16,11 @@ env:
     id: floor-card-T05
 - extendedWaitUntil:
     visible:
-      id: open-table-submit
+      id: open-table-only
     timeout: 10000
 - takeScreenshot: 03-open-table
 - tapOn:
-    id: open-table-submit
+    id: open-table-only
 - extendedWaitUntil:
     visible:
       id: ticket-add-products

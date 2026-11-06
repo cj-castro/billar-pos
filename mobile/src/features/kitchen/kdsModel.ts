@@ -85,3 +85,35 @@ export function newItemIds(prev: readonly { id: string }[], next: readonly { id:
 export function pendingCount(items: readonly { status: LineItemStatus }[]): number {
   return items.filter((i) => i.status === 'SENT' || i.status === 'IN_PROGRESS').length;
 }
+
+/** Ids of lines that are SENT now and were not in the previous snapshot at all (new orders -> chime). */
+export function newSentIds(prev: readonly { id: string }[], next: readonly { id: string; status: LineItemStatus }[]): string[] {
+  const seen = new Set(prev.map((i) => i.id));
+  return next.filter((i) => i.status === 'SENT' && !seen.has(i.id)).map((i) => i.id);
+}
+
+/** Header numbers: lines still to prepare (SENT/IN_PROGRESS) and the age in whole minutes of the oldest one. */
+export function queueSummary(items: readonly QueueItem[], nowMs: number): { count: number; oldestMin: number | null } {
+  const open = items.filter((i) => i.status === 'SENT' || i.status === 'IN_PROGRESS');
+  const oldest = Math.min(...open.map((i) => ts(i.sent_at)));
+  return { count: open.length, oldestMin: Number.isFinite(oldest) ? Math.max(0, Math.floor((nowMs - oldest) / 60000)) : null };
+}
+
+export interface KdsThresholds {
+  warnMin: number;
+  lateMin: number;
+}
+
+/** Server settings `kds_warn_min` / `kds_late_min` (strings); anything that is not a sane integer pair falls back to the tokens. */
+export function resolveThresholds(warnRaw: string | null | undefined, lateRaw: string | null | undefined, fallback: KdsThresholds): KdsThresholds {
+  const int = (s: string | null | undefined) => (s != null && /^\d+$/.test(s.trim()) && Number(s) > 0 ? Number(s) : null);
+  const warn = int(warnRaw) ?? fallback.warnMin;
+  const late = int(lateRaw) ?? fallback.lateMin;
+  return late > warn ? { warnMin: warn, lateMin: late } : fallback;
+}
+
+/** Same rule as tokens.kdsAgeLevel (< warn neutral, warn..late inclusive warn, > late alert) with custom thresholds. */
+export function ageLevelFor(minutes: number, th: KdsThresholds): 'neutral' | 'warn' | 'alert' {
+  if (!(minutes >= th.warnMin)) return 'neutral';
+  return minutes > th.lateMin ? 'alert' : 'warn';
+}

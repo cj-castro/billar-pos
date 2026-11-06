@@ -6,7 +6,7 @@ import type { LineItemStatus, QueueItem, Station } from '../../domain/types';
 import { allReadyPlan, canTransition } from './kdsModel';
 
 export interface KdsApi {
-  updateStatus: (itemId: string, status: QueueTargetStatus) => Promise<unknown>;
+  updateStatus: (itemId: string, status: QueueTargetStatus, expectedFrom?: string) => Promise<unknown>;
 }
 const defaultApi: KdsApi = { updateStatus };
 
@@ -68,4 +68,20 @@ export async function advanceAllReady(
       return last;
     }),
   );
+}
+
+/** Ids to send back to IN_PROGRESS after "Listo"/"Todo listo": only the ones whose steps all succeeded. `results` is aligned with `ids`. */
+export function revertSet(ids: readonly string[], results: readonly { ok: boolean }[]): string[] {
+  return ids.filter((_, i) => results[i]?.ok);
+}
+
+/** Undo: READY -> IN_PROGRESS (the client forbids going backwards, so this bypasses canTransition on purpose). Sends expected_from=READY; 409 STATUS_CHANGED = already served. Rolls back on failure. */
+export async function revertItems(qc: QueryClient, station: Station, ids: readonly string[], api: KdsApi = defaultApi): Promise<'ok' | 'served' | 'failed'> {
+  await qc.cancelQueries({ queryKey: qk.queue(station) });
+  ids.forEach((id) => patch(qc, station, id, 'IN_PROGRESS'));
+  const res = await Promise.allSettled(ids.map((id) => api.updateStatus(id, 'IN_PROGRESS', 'READY')));
+  res.forEach((r, i) => r.status === 'rejected' && patch(qc, station, ids[i], 'READY'));
+  if (res.every((r) => r.status === 'fulfilled')) return 'ok';
+  void qc.invalidateQueries({ queryKey: qk.queue(station) });
+  return res.some((r) => r.status === 'rejected' && toApiError(r.reason).code === 'STATUS_CHANGED') ? 'served' : 'failed';
 }

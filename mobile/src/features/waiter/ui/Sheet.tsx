@@ -7,11 +7,13 @@ export interface SheetProps {
   children: ReactNode;
   /** Scrim tap / hardware back. Omit to make the sheet non-dismissible (request in flight). */
   onClose?: () => void;
+  /** Fixed height (e.g. '90%') instead of fitting the content. */
+  height?: `${number}%`;
   testID?: string;
 }
 
 /** Bottom sheet body for `transparentModal` routes (open-table, configurator): scrim + rounded card. */
-export function Sheet({ children, onClose, testID = 'sheet' }: SheetProps) {
+export function Sheet({ children, onClose, height, testID = 'sheet' }: SheetProps) {
   const insets = useSafeAreaInsets();
   const root = useRef<React.ComponentRef<typeof View>>(null);
   // Edge-to-edge Android does not always resize the window, so lift the sheet by however much of the root the keyboard covers
@@ -30,7 +32,7 @@ export function Sheet({ children, onClose, testID = 'sheet' }: SheetProps) {
   return (
     <View ref={root} style={[styles.root, { paddingBottom: lift }]}>
       <Pressable testID={`${testID}-scrim`} accessible={false} style={styles.scrim} onPress={onClose} />
-      <View testID={testID} accessibilityViewIsModal style={[styles.sheet, { paddingBottom: lift ? spacing.s3 : Math.max(spacing.s4, insets.bottom) }]}>
+      <View testID={testID} accessibilityViewIsModal style={[styles.sheet, height ? { height } : null, { paddingBottom: lift ? spacing.s3 : Math.max(spacing.s4, insets.bottom) }]}>
         <View style={styles.grabber} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
         {children}
       </View>

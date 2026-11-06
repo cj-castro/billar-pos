@@ -38,7 +38,6 @@ export function DraftScreen({ ticketId }: { ticketId: string }) {
   const [discard, setDiscard] = useState(false);
   /** Uncertain line the waiter wants to drop: confirm they checked the ticket first (H2). */
   const [dropLine, setDropLine] = useState<DraftLine | null>(null);
-  const b1Confirmed = useDraftStore((s) => !!s.b1Confirmed[ticketId]);
 
   const sending = running || isSending(lines);
   const sendable = sendableLines(lines);
@@ -79,7 +78,7 @@ export function DraftScreen({ ticketId }: { ticketId: string }) {
   };
 
   const retryLine = (l: DraftLine) => {
-    // Same key (never regenerated): safe against duplicates (B1) and explicit for the waiter otherwise.
+    // Same key (never regenerated): the server replays it, so no duplicates.
     patchLine(ticketId, l.key, { state: 'PENDING', error: undefined, errorDetail: undefined });
     if (!offline) send();
   };
@@ -171,11 +170,11 @@ export function DraftScreen({ ticketId }: { ticketId: string }) {
               removeLabel={t('waiter.draft.removeLine', { name: l.name })}
               onQuantityChange={sending || isUncertain(l) ? undefined : (q) => setQuantity(ticketId, l.key, q)}
               onRemove={sending ? undefined : () => (isUncertain(l) ? setDropLine(l) : removeLine(ticketId, l.key))}
-              onRetry={sending || offline || (l.error === 'VERIFY' && !b1Confirmed) ? undefined : () => retryLine(l)}
+              onRetry={sending || offline ? undefined : () => retryLine(l)}
             />
           ))}
           {lines.length > 0 && !sending && (
-            <AppButton label={t('waiter.draft.discard')} variant="ghost" icon="trash-can-outline" onPress={() => setDiscard(true)} testID="draft-discard" />
+            <AppButton label={t('waiter.draft.discard')} variant="ghost" icon="close-circle" onPress={() => setDiscard(true)} testID="draft-discard" />
           )}
         </ScrollView>
       )}

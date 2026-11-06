@@ -35,6 +35,9 @@ export function ConfiguratorScreen({ ticketId, itemId }: { ticketId: string; ite
   const item = items.data?.find((i) => i.id === itemId);
   const groups = item ? groupsForItem(item) : [];
   const check = checkSelections(groups, selections);
+  // 2+ groups push the note below the fold: put it first. Any option group makes the sheet tall (90 %).
+  const notesFirst = groups.length >= 2;
+  const tall = groups.length > 0;
   const blockedMods = new Set(stock.data?.blocked_modifiers ?? []);
   const soldOut = !!item && !!stock.data?.blocked_items.includes(item.id);
 
@@ -50,9 +53,22 @@ export function ConfiguratorScreen({ ticketId, itemId }: { ticketId: string; ite
       haptic.light();
       close();
     };
+    const notesField = (
+      <AppTextField
+        label={t('waiter.configure.notes')}
+        placeholder={t('waiter.configure.notesPlaceholder')}
+        value={notes}
+        onChangeText={setNotes}
+        maxLength={NOTE_MAX}
+        autoCapitalize="sentences"
+        testID="configure-notes"
+        onFocus={notesFirst ? undefined : () => setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 300)}
+      />
+    );
     content = (
       <>
-        <ScrollView ref={scroll} style={styles.scroll} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView ref={scroll} style={tall ? styles.scrollTall : styles.scroll} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          {notesFirst && notesField}
           {groups.map((g) => (
             <ModifierGroup
               key={g.id}
@@ -71,16 +87,7 @@ export function ConfiguratorScreen({ ticketId, itemId }: { ticketId: string; ite
               }}
             />
           ))}
-          <AppTextField
-            label={t('waiter.configure.notes')}
-            placeholder={t('waiter.configure.notesPlaceholder')}
-            value={notes}
-            onChangeText={setNotes}
-            maxLength={NOTE_MAX}
-            autoCapitalize="sentences"
-            testID="configure-notes"
-            onFocus={() => setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 300)}
-          />
+          {!notesFirst && notesField}
         </ScrollView>
         <View style={styles.qtyRow}>
           <AppText variant="bodyLg" bold>
@@ -110,7 +117,7 @@ export function ConfiguratorScreen({ ticketId, itemId }: { ticketId: string; ite
   }
 
   return (
-    <Sheet testID="configure-sheet" onClose={close}>
+    <Sheet testID="configure-sheet" onClose={close} height={tall ? '90%' : undefined}>
       <View style={styles.head}>
         <View style={styles.titles}>
           <AppText variant="headline" numberOfLines={2} accessibilityRole="header">
@@ -133,6 +140,7 @@ const styles = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.s2 },
   titles: { flex: 1 },
   scroll: { flexGrow: 0 },
+  scrollTall: { flex: 1 },
   body: { gap: spacing.s4, paddingBottom: spacing.s2 },
   qtyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   center: { textAlign: 'center' },

@@ -22,7 +22,7 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   __setServerUrlForTests('http://192.168.1.50:8080');
   useAuthStore.setState({ user: null, accessToken: null, refreshToken: null });
-  useDraftStore.setState({ byTicket: {}, ownerId: null, b1Confirmed: {} });
+  useDraftStore.setState({ byTicket: {}, ownerId: null });
   jest.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: { status: 'ok' } });
 });
 afterEach(() => jest.restoreAllMocks());

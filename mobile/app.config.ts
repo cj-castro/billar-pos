@@ -1,9 +1,38 @@
 import type { ExpoConfig } from 'expo/config';
+import { withAppBuildGradle, type ConfigPlugin } from 'expo/config-plugins';
+// @ts-expect-error expo's config loader needs the explicit .ts extension
+import { APP_BUILD, APP_VERSION } from './src/config/version.ts';
+
+/**
+ * Release signing: `expo prebuild` regenerates android/, whose release buildType uses the PUBLIC debug keystore.
+ * Rewrite it to read the venue keystore from env at Gradle time (BOLA8_KEYSTORE / _KEYSTORE_PASS / _KEY_ALIAS / _KEY_PASS).
+ * Nothing secret is written to disk; scripts/mobile/build-android-release.ps1 refuses to run without them.
+ */
+const withReleaseSigning: ConfigPlugin = (cfg) =>
+  withAppBuildGradle(cfg, (c) => {
+    let g = c.modResults.contents;
+    if (g.includes('BOLA8_KEYSTORE')) return c;
+    g = g.replace(
+      /signingConfigs\s*\{/,
+      `signingConfigs {
+        release {
+            if (System.getenv('BOLA8_KEYSTORE')) {
+                storeFile file(System.getenv('BOLA8_KEYSTORE'))
+                storePassword System.getenv('BOLA8_KEYSTORE_PASS')
+                keyAlias System.getenv('BOLA8_KEY_ALIAS')
+                keyPassword System.getenv('BOLA8_KEY_PASS')
+            }
+        }`,
+    );
+    g = g.replace(/(release\s*\{[^}]*?)signingConfig signingConfigs\.debug/, '$1signingConfig signingConfigs.release');
+    c.modResults.contents = g;
+    return c;
+  });
 
 const config: ExpoConfig = {
   name: 'Bola 8 Staff',
   slug: 'bola8-staff',
-  version: '0.1.0',
+  version: APP_VERSION,
   orientation: 'default',
   icon: './assets/images/icon.png',
   scheme: 'bola8staff',
@@ -15,6 +44,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: 'com.bola8.staff',
+    versionCode: APP_BUILD,
     adaptiveIcon: {
       backgroundColor: '#0f172a',
       foregroundImage: './assets/images/android-icon-foreground.png',
@@ -28,6 +58,8 @@ const config: ExpoConfig = {
   plugins: [
     'expo-router',
     'expo-secure-store',
+    'expo-audio',
+    ['expo-notifications', { color: '#0f172a' }],
     [
       'expo-splash-screen',
       { backgroundColor: '#0f172a', image: './assets/images/splash-icon.png', imageWidth: 160 },
@@ -47,4 +79,4 @@ const config: ExpoConfig = {
   experiments: { reactCompiler: true },
 };
 
-export default config;
+export default withReleaseSigning(config);

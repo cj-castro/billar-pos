@@ -12,6 +12,8 @@ import { AppText } from '../../../components/AppText';
 import { AppTextField } from '../../../components/AppTextField';
 import { useConnectionLevel } from '../../../components/connection';
 import { IconButton } from '../../../components/IconButton';
+import { useToast } from '../../../components/Toast';
+import { useAuthStore } from '../../../state/authStore';
 import { colors, spacing } from '../../../theme/tokens';
 import { errorMessage } from '../../../utils/errorMessage';
 import { haptic } from '../../../utils/haptics';
@@ -19,14 +21,24 @@ import { useCashStatus, useResources } from '../queries';
 import { Sheet } from '../ui/Sheet';
 
 export const CUSTOMER_NAME_MAX = 40;
+/** Route param for the "Rápido" sheet: an EXPRESS ticket has no table. */
+export const EXPRESS_ID = 'express';
+
+type Dest = 'menu' | 'ticket';
 
 type Problem = { kind: 'closed' } | { kind: 'occupied'; ticketId: string | null } | { kind: 'unknown'; ticketId: string | null } | { kind: 'other'; error: unknown };
 
-/** SCR-W-07: confirm sheet to open a table (optional customer name). Double-tap safe, handles BAR_CLOSED / RESOURCE_OCCUPIED / network. */
+/**
+ * SCR-W-07: sheet to open a table (optional customer name): `Abrir y pedir` goes to the menu, `Solo abrir` to the ticket.
+ * `resourceId === 'express'` opens an EXPRESS ticket instead (menu only). Double-tap safe, handles BAR_CLOSED / RESOURCE_OCCUPIED / network.
+ */
 export function OpenTableScreen({ resourceId }: { resourceId: string }) {
   const { t } = useTranslation('mobile');
   const router = useRouter();
   const qc = useQueryClient();
+  const toast = useToast();
+  const role = useAuthStore((s) => s.user?.role);
+  const express = resourceId === EXPRESS_ID;
   const resources = useResources();
   const cash = useCashStatus();
   const offline = useConnectionLevel() === 'offline';
@@ -34,7 +46,7 @@ export function OpenTableScreen({ resourceId }: { resourceId: string }) {
   const [problem, setProblem] = useState<Problem | null>(null);
   const busy = useRef(false);
 
-  const resource = resources.data?.find((r) => r.id === resourceId);
+  const resource = express ? undefined : resources.data?.find((r) => r.id === resourceId);
   const code = resource?.code ?? '';
   const barClosed = cash.data?.open === false || problem?.kind === 'closed';
 
@@ -42,17 +54,22 @@ export function OpenTableScreen({ resourceId }: { resourceId: string }) {
 
   const mutation = useMutation({
     retry: 0,
-    mutationFn: () => openTicket({ resource_id: resourceId, ticket_type: 'TABLE', ...(name.trim() ? { customer_name: name.trim().slice(0, CUSTOMER_NAME_MAX) } : {}) }),
-    onSuccess: (ticket) => {
+    mutationFn: (_dest: Dest) =>
+      openTicket({
+        ...(express ? { ticket_type: 'EXPRESS' as const } : { resource_id: resourceId, ticket_type: 'TABLE' as const }),
+        ...(name.trim() ? { customer_name: name.trim().slice(0, CUSTOMER_NAME_MAX) } : {}),
+      }),
+    onSuccess: (ticket, dest) => {
       haptic.success();
       void qc.invalidateQueries({ queryKey: qk.resources });
-      router.replace(`/ticket/${ticket.id}`);
+      router.replace(dest === 'menu' ? `/ticket/${ticket.id}/menu` : `/ticket/${ticket.id}`);
     },
     onError: async (e) => {
       const err = e instanceof ApiError ? e : toApiError(e);
       // The floor may have changed (or the outcome is unknown after a network loss): resync and look for an existing ticket.
       let existing: string | null = null;
       try {
+        if (express) throw new Error('no table to resync');
         const fresh = await qc.fetchQuery({ queryKey: qk.resources, queryFn: () => listResources(), staleTime: 0 });
         existing = fresh.find((r) => r.id === resourceId)?.active_ticket_id ?? null;
       } catch {
@@ -60,6 +77,7 @@ export function OpenTableScreen({ resourceId }: { resourceId: string }) {
       }
       if (err.status === 403 && err.code === 'BAR_CLOSED') {
         void qc.invalidateQueries({ queryKey: qk.cash });
+        toast.show({ tone: 'warning', title: t('waiter.open.barClosedToast') });
         setProblem({ kind: 'closed' });
       } else if (err.status === 409 && err.code === 'RESOURCE_OCCUPIED') {
         haptic.warning();
@@ -75,11 +93,19 @@ export function OpenTableScreen({ resourceId }: { resourceId: string }) {
     },
   });
 
-  const submit = () => {
+  const submit = (dest: Dest) => {
     if (busy.current || mutation.isPending) return; // double tap: one request
     busy.current = true;
     setProblem(null);
-    mutation.mutate();
+    mutation.mutate(dest);
+  };
+  // MANAGER/ADMIN can open the register themselves (route may not exist yet: never crash).
+  const goCaja = () => {
+    try {
+      router.push('/(manager)/caja' as never);
+    } catch {
+      // ponytail: caja screen not built yet
+    }
   };
 
   const disabledReason = barClosed ? t('waiter.open.closed') : offline ? t('waiter.open.offline') : undefined;
@@ -101,7 +127,7 @@ export function OpenTableScreen({ resourceId }: { resourceId: string }) {
     <Sheet testID="open-table-sheet" onClose={mutation.isPending ? undefined : close}>
       <View style={styles.head}>
         <AppText variant="headline" accessibilityRole="header" style={styles.title}>
-          {t('waiter.open.title', { code })}
+          {express ? t('waiter.open.expressTitle') : t('waiter.open.title', { code })}
         </AppText>
         <IconButton icon="close" accessibilityLabel={t('waiter.open.close')} onPress={close} disabled={mutation.isPending} testID="open-table-close" />
       </View>
@@ -132,15 +158,27 @@ export function OpenTableScreen({ resourceId }: { resourceId: string }) {
           {disabledReason}
         </AppText>
       )}
+      {barClosed && (role === 'MANAGER' || role === 'ADMIN') && <AppButton label={t('waiter.open.goCaja')} variant="secondary" size="lg" onPress={goCaja} testID="open-table-caja" />}
       <AppButton
-        label={t('waiter.open.submit')}
+        label={t('waiter.open.submitOrder')}
         size="lg"
         fullWidth
         loading={mutation.isPending}
-        disabled={!!disabledReason || !resource}
-        onPress={submit}
+        disabled={!!disabledReason || (!express && !resource)}
+        onPress={() => submit('menu')}
         testID="open-table-submit"
       />
+      {!express && (
+        <AppButton
+          label={t('waiter.open.submitOnly')}
+          variant="secondary"
+          size="lg"
+          fullWidth
+          disabled={!!disabledReason || mutation.isPending || !resource}
+          onPress={() => submit('ticket')}
+          testID="open-table-only"
+        />
+      )}
     </Sheet>
   );
 }

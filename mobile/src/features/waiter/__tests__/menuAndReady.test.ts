@@ -85,6 +85,13 @@ describe('classifyReadyEvent', () => {
   it('falls back to a refetch when B2 fields are missing', () => {
     expect(classifyReadyEvent({ item_id: 'a', status: 'READY' }, mine, new Set())).toEqual({ action: 'refetch' });
   });
+  it('undo then re-ready alerts again (a non-READY event clears the seen key)', () => {
+    const seen = new Set<string>();
+    expect(classifyReadyEvent(ev, mine, seen).action).toBe('notify');
+    expect(classifyReadyEvent({ ...ev, status: 'IN_PROGRESS' }, mine, seen).action).toBe('ignore');
+    expect(classifyReadyEvent(ev, mine, seen).action).toBe('notify');
+  });
+
   it('dedupes the same item+status', () => {
     const seen = new Set<string>();
     expect(classifyReadyEvent(ev, mine, seen).action).toBe('notify');

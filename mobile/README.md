@@ -1,97 +1,77 @@
 # Bola 8 Staff (mobile companion)
 
-Android-first (iOS-ready) Expo + React Native + TypeScript companion to the Bola 8 POS.
-Android v1 (locally complete): server setup, login, role routing, waiter floor/ticket/menu/draft-send/ready flows, kitchen & bar KDS, manager overview/tickets/floor, admin diagnostics. Status, test evidence and limitations: `docs/mobile/FINAL_ENGINEERING_REPORT.md`.
+Android-first (iOS-ready) Expo SDK 58 / React Native 0.88 / React 19 app for Bola 8 POS staff: waiter, kitchen/bar KDS, manager, admin.
+TypeScript strict, Expo Router, TanStack Query, zustand, axios, socket.io-client, i18next (Spanish first).
+Package / bundle id: `com.bola8.staff`. Local builds only (no EAS, no stores). Design notes: `docs/mobile/PROJECT_STATE.md`, `docs/mobile/v2/DESIGN_SPEC_V2.md`.
 
-- Expo SDK **58** (React Native 0.88, React 19.3), Expo Router, TanStack Query 5, zustand 5, axios, socket.io-client 4, i18next.
-- Package `com.bola8.staff` (Android) / bundle id `com.bola8.staff` (iOS).
-- Local builds only (no EAS, no stores). Design decisions: `docs/mobile/PROJECT_STATE.md` (D1-D13).
+## Features by role
 
-## Prerequisites
+- **Waiter**: Mesas (billar / mesas / barra / rapidos, live pool timers, unsent-order bar), Lista de espera, open table or Rapido, menu with Frecuentes, draft and Enviar (idempotent), Listos, ticket actions (name, transfer, void and qty-decrease with manager PIN), **Cobrar** (efectivo, tarjeta, mixto, propina, print receipt).
+- **Kitchen / bar**: single KDS queue with undo, sound, keep-awake, account sheet (language, mute, station switch).
+- **Manager**: Resumen, Tickets (open / bills / closed, void, reopen, discount without PIN, edit payment), Piso, Caja (open, gastos, close), Mas; can also work as a waiter.
+- **Admin**: everything above plus Reportes (with CSV share) and Sistema (diagnostics, KDS thresholds, waiter-can-close, `min_mobile_version`).
 
-- Node 20+ and npm (tested Node 24 / npm 11).
-- JDK 21 (`JAVA_HOME`), Android SDK (`ANDROID_HOME`) with a platform 34+ and build-tools.
-- A device or emulator for `run:android`. Accept SDK licences once: `sdkmanager --licenses`.
-- If your `~/.npmrc` sets `allow-scripts`, `npx expo install` can fail with `EALLOWSCRIPTS`; run it with `npm_config_userconfig=<empty file>`.
+## Setup
 
-## Install / run
+- Node 22, npm, JDK 21 (`JAVA_HOME`), Android SDK (`ANDROID_HOME`, platform 34+). Check with `pwsh scripts/mobile/check-android-env.ps1`.
+- `cd mobile && npm ci`
 
-```bash
-cd mobile
-npm install
-npx expo start              # Metro dev server
-npx expo run:android        # prebuild + build + install on the connected device/emulator
-```
-
-`EXPO_NO_TELEMETRY=1` is recommended.
-
-## Test / lint / typecheck
+## Run
 
 ```bash
-npm test            # jest-expo + React Native Testing Library
-npm run typecheck   # tsc --noEmit
-npm run lint        # expo lint (eslint-config-expo)
+npx expo start          # Metro
+npx expo run:android    # prebuild + build + install on the connected device/emulator
 ```
 
-## Build a debug APK
+First launch asks for the POS address (`GET {base}/api/v1/health` must answer `{"status":"ok"}`). `192.168.1.22` becomes `http://192.168.1.22:8080`.
+Emulator -> local docker backend: `http://10.0.2.2:8090`. Phone -> dev machine: `http://<LAN-IP>:8090`. Production: `http://<pos-host>:8080` (nginx).
+
+## Test
+
+```bash
+npm test             # jest-expo + React Native Testing Library (CI runs this)
+npm run typecheck    # tsc --noEmit (CI runs this)
+npm run lint         # expo lint
+npm run test:contract  # against a local backend, not in CI
+```
+
+## Build
 
 ```powershell
-pwsh scripts/mobile/build-android-debug.ps1          # from the repo root; -Clean regenerates android/
-# -> mobile/dist/bola8-staff-debug.apk  (gitignored; default ABIs x86_64 + arm64-v8a, -Archs to change)
+pwsh scripts/mobile/build-android-debug.ps1     # -> mobile/dist/bola8-staff-debug.apk
+pwsh scripts/mobile/build-android-release.ps1   # signed release APK -> mobile/dist/bola8-staff-<version>-local.apk
 ```
 
-The script runs `npx expo prebuild --platform android` (only if `android/` is missing or with `-Clean`), writes
-`android/local.properties`, runs `gradlew.bat assembleDebug` and copies the APK. `android/` and `ios/` are **generated**
-(Expo CNG) and gitignored; native config lives in `app.config.ts`; never hand-edit the generated folders.
+`android/` and `ios/` are generated (Expo CNG) and gitignored: native config lives in `app.config.ts`, never hand-edit them.
+On Windows deep paths break CMake/ninja; the scripts point `android/local.properties` at a private CMake (`BOLA8_CMAKE_DIR`, default `E:\b8\cmake322`).
 
-**Windows path-length gotcha (CMake/ninja).** The native modules (gesture-handler, screens, worklets) fail with
-`ninja: error: mkdir(...): No such file or directory` on deep paths (this worktree lives under
-`D:\Projects\Codeillar-pos-worktrees\...`) because the SDK's ninja 1.10.2 is not long-path aware, even with `LongPathsEnabled=1`.
-The fix that is kept working: `android/local.properties` has `cmake.dir=E\:\\b8\\cmake322`, a private CMake 3.22 whose
-`bin
-inja.exe` is ninja 1.13.2 (`pip download ninja`, copy `ninja.exe` into the CMake `bin`). The build script rewrites
-that file on every run (prebuild `--clean` wipes `android/`); override the location with `-CmakeDir` or `$env:BOLA8_CMAKE_DIR`.
-If the directory does not exist the SDK CMake is used (fine on short paths). See the script header for the `subst` notes.
+## Release
 
-## Server URL
+1. Bump `APP_VERSION` and `APP_BUILD` in `src/config/version.ts` (single source: `app.config.ts` reads it for `version` and Android `versionCode`; keep `package.json` version equal). `APP_BUILD` must increase on every release.
+2. One time: `pwsh scripts/mobile/new-keystore.ps1` creates the venue keystore. Keep it outside the repo and back it up: losing it means phones can never be updated in place.
+3. Set `BOLA8_KEYSTORE` (path), `BOLA8_KEYSTORE_PASS`, `BOLA8_KEY_ALIAS`, `BOLA8_KEY_PASS`, then run `build-android-release.ps1`. It fails fast if any is missing. `app.config.ts` rewrites the generated release `signingConfig` to read them from the environment at Gradle time (nothing is written to disk).
+4. Copy the APK to the bar machine so nginx serves it at `/mobile/latest.apk`.
 
-On first launch the app asks for the POS address and checks `GET {base}/api/v1/health` (5 s timeout, expects `{"status":"ok"}`).
-Input is normalized: `192.168.1.22:8080` becomes `http://192.168.1.22:8080`. It is stored in AsyncStorage (change it from the login screen).
+## Update path
 
-| Where | URL |
-|---|---|
-| Bar network (production) | `http://<pos-host>:8080` (nginx; backend :5000 is not published) |
-| Android emulator -> local docker backend | `http://10.0.2.2:8090` |
-| Physical phone -> dev machine | `http://<dev-machine-LAN-IP>:8090` |
+- Yo (profile) and Sistema show `version (build)`.
+- `GET /api/v1/health` may return `server_version`, `min_mobile_version` and `features`. At boot (and on server setup) an app older than `min_mobile_version` is sent to the "Actualiza la app" screen, which opens `{server}/mobile/latest.apk`. Missing fields never block.
+- `features` containing `socket_handshake_auth` makes the app stop sending the JWT in the socket `join` payload (it is always sent in the handshake `auth`).
 
 ## Security notes
 
-- The LAN backend is plain `http://`, so `app.config.ts` enables Android cleartext traffic (`expo-build-properties` -> `usesCleartextTraffic: true`).
-  **This is LAN-only. HTTPS (TLS at nginx) is on the roadmap and the flag should then be removed.**
-- Tokens live in `expo-secure-store` (Keystore/Keychain), never AsyncStorage. Only the non-secret user profile is in AsyncStorage.
-- The API client never logs tokens, PINs or request bodies.
+- The LAN backend is plain `http://`, so `app.config.ts` enables Android cleartext traffic (`usesCleartextTraffic`). LAN-only: drop the flag once nginx terminates TLS.
+- Tokens live in `expo-secure-store`, never AsyncStorage. The API client never logs tokens, PINs or request bodies.
 
 ## Layout
 
 ```
-app/                 Expo Router: _layout (providers, ErrorBoundary), index (boot), setup, login, denied,
-                     (waiter) (kitchen) (manager) groups: see docs/mobile/implementation/SCREEN_TO_CODE_MAPPING.md
-src/components/      UI kit (AppButton, StatusChip, TableCard, PinPad, Toast, ...)  -- one design system
-src/features/        feature code per role (+ README = ownership contract); common/ProfileScreen
-src/config/          server URL store + health validation
-src/api/             axios client (Bearer, single-flight refresh, ApiError) + endpoints/*
-src/domain/types.ts  wire types from backend to_dict()
-src/state/           authStore (zustand), queryClient (+ AppState/NetInfo wiring)
-src/auth/            roleRouting (role -> group, canAccess guard), boot, loginErrors
-src/realtime/        socket.io manager, role rooms, event -> query invalidation, useRealtimeEvent
-src/i18n/            i18next; web/{es,en}.ts copied from frontend/src/i18n; mobile.ts = app-only `mobile` namespace
-src/theme/            tokens.json (copy of docs/mobile/design/tokens.json; `node scripts/sync-tokens.mjs`) + typed tokens.ts
-src/test/            render-with-providers + mock server config
+app/              Expo Router: _layout (providers), index (boot), setup, login, denied, update-required, role groups
+src/components/   UI kit (one design system)
+src/features/     per-role feature code (README = ownership contract); pure *Model.ts logic
+src/config/       server URL, server info (health), version + versionGate
+src/api/          axios client (Bearer, single-flight refresh) + endpoints/*
+src/realtime/     socket.io manager, role rooms, event -> query invalidation
+src/i18n/         web/{es,en}.ts (copied from frontend) + mobile.ts (app-only strings)
+src/theme/        design tokens
 ```
-
-Route names inside groups are distinct (`floor`, `queue`, `overview`, `diagnostics`) because group folders do not appear in the URL and several `index` screens would all map to `/`.
-
-## Known limitations
-
-- Launcher/splash icons use the Bola 8 logo (`assets/`).
-- Backend extensions B1-B4 (idempotency, richer socket payloads, manager room) are not required; the client sends `Idempotency-Key` and handles missing fields.

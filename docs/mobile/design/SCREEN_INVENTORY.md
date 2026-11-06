@@ -85,3 +85,17 @@ app/
   (manager)/_layout.tsx       # Tabs: overview, tickets, floor, kds, me, system(admin only)
     overview.tsx  tickets/index.tsx  tickets/[ticketId].tsx  floor.tsx  kds/[station].tsx  me.tsx  system.tsx
 ```
+
+## G. v2 additions (2026-11-06)
+
+Routes use the current `app/` tree (groups `(waiter)`, `(manager)`, `(kitchen)`). Spec: [../v2/DESIGN_SPEC_V2.md](../v2/DESIGN_SPEC_V2.md).
+
+| ID | Name | Route | Roles | Purpose | Data / API |
+|---|---|---|---|---|---|
+| SCR-W-08 | Cobrar (pay) | `/(waiter)/ticket/[ticketId]/pay` | W, M, A | Tip chips, Efectivo (pre-selected) / Tarjeta / Mixto, cash pad with exacto chip, confirm dialog, success with change due and print. Manager/admin return to Tickets, waiter to Mesas | `POST /tickets/{id}/close` (`Idempotency-Key`; 422 `INSUFFICIENT_PAYMENT`/`AMOUNT_MISMATCH`; 403 `PIN_REQUIRED` opens PinPad), `POST /tickets/{id}/print?unpaid=false` |
+| SCR-W-09 | Lista de espera | `/(waiter)/waiting` | W, M, A | Add, seat and remove waiting parties; badge on Mesas header | waiting-list endpoints, sockets `waiting:update`, `waiting_list:update` |
+| SCR-W-10 | Rapido / express open-table | `/(waiter)/open-table/[resourceId]` and Mesas header `Rapido` | W, M, A | Open an EXPRESS ticket (no table) or a table with optional customer name; `Abrir y pedir` goes straight to the menu | `POST /tickets` (EXPRESS or TABLE; 403 `BAR_CLOSED` links to Caja for managers) |
+| SCR-M-05 | Caja | `/(manager)/(tabs)/caja` | M, A | Open session with fund, live summary, expenses, session tickets, close with counted cash, history | `/cash/status`, `/cash/open`, `/cash/current/summary`, `/cash/current/tickets`, `/cash/current/expenses`, `/cash/close`, `/cash/sessions` |
+| SCR-M-06 | Mas | `/(manager)/(tabs)/mas` | M, A | Menu of Cocina/Barra, Lista de espera, Piso, Sistema (A), Yo | local navigation |
+| SCR-A-02 | Reportes | `/(manager)/(tabs)/reportes` | A | Date presets and range; sales, payments, pool time, promos, voids, staff, peak hours, earnings, safe, cash sessions; CSV share | `/reports/*`, `/earnings*`, `/safe`, `/cash/sessions`, `/cash/{id}/summary` |
+| OV-03 | KdsMeSheet | overlay on KDS (account icon in the header) | K, B | Name, language, mute, station switch, logout. Replaces the old `kds-me` route | local prefs, `POST /auth/logout` |

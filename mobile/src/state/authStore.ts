@@ -6,7 +6,7 @@ import * as authApi from '../api/endpoints/auth';
 import type { User } from '../domain/types';
 import { useDraftStore } from '../features/waiter/draft/draftStore';
 import { getServerUrl, onServerUrlChange } from '../config/serverConfig';
-import { disconnectSocket } from '../realtime/socket';
+import { disconnectSocket, reconnectSocket } from '../realtime/socket';
 import { queryClient } from './queryClient';
 
 export const ACCESS_KEY = 'bola8.accessToken';
@@ -86,6 +86,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setAccessToken: async (token) => {
     await SecureStore.setItemAsync(ACCESS_KEY, token);
     set({ accessToken: token });
+    reconnectSocket();
   },
 
   setUser: (user) => {

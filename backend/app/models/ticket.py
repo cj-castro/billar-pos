@@ -35,6 +35,7 @@ class Ticket(db.Model):
     pool_time_cents = db.Column(db.Integer, default=0)
     total_cents = db.Column(db.Integer, default=0)
     version = db.Column(db.Integer, default=1)
+    close_request_id = db.Column(db.String(64), nullable=True)  # Idempotency-Key of the close
     notes = db.Column(db.Text)
 
     opener = db.relationship('User', foreign_keys=[opened_by])

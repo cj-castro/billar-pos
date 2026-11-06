@@ -1,0 +1,89 @@
+# J16: manager opens the register with a float, adds an expense, counts the cash and closes it (not run in CI).
+# Precondition: no open tickets and the register closed (or it is closed first by the cleanup at the end).
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: manager
+  PASS: manager123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-overview
+    timeout: 20000
+- tapOn: Caja
+- extendedWaitUntil:
+    visible:
+      id: screen-cash
+    timeout: 10000
+# State A -> open with a $500 float
+- runFlow:
+    when:
+      visible:
+        id: cash-open-btn
+    commands:
+      - tapOn:
+          id: cash-open-btn
+      - tapOn:
+          id: fund-pad-5
+      - tapOn:
+          id: fund-pad-00
+      - assertVisible:
+          id: fund-pad-amount
+      - tapOn:
+          id: open-cash-confirm
+- extendedWaitUntil:
+    visible:
+      id: cash-summary
+    timeout: 10000
+- assertVisible:
+    id: line-expected
+# Expense
+- tapOn:
+    id: cash-add-expense
+- tapOn:
+    id: expense-description
+- inputText: Hielo
+- tapOn:
+    id: expense-payee
+- inputText: Proveedor
+- tapOn:
+    id: expense-amount
+- inputText: "50"
+- hideKeyboard
+- tapOn:
+    id: expense-save
+- extendedWaitUntil:
+    visible: Hielo
+    timeout: 10000
+- takeScreenshot: 16-cash-open
+# Close: count $450 (500 float - 50 expense) and read the difference
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: cash-close-btn
+    timeout: 5000
+- tapOn:
+    id: cash-close-btn
+- extendedWaitUntil:
+    visible:
+      id: count-pad-4
+    timeout: 5000
+- tapOn:
+    id: count-pad-4
+- tapOn:
+    id: count-pad-5
+- tapOn:
+    id: count-pad-0
+- assertVisible:
+    id: close-diff
+- takeScreenshot: 16-cash-close-sheet
+- tapOn:
+    id: close-cash-confirm
+- extendedWaitUntil:
+    visible:
+      id: cash-closed-summary
+    timeout: 10000
+- assertVisible:
+    id: cash-closed-diff
+- takeScreenshot: 16-cash-closed

@@ -2,13 +2,13 @@ import client from '../client';
 import type { Ticket, TicketLineItem } from '../../domain/types';
 import type { AddItemBody, AddItemOptions } from './tickets';
 
-/** Add-item response. `ticket_version` is present only with backend extension B1 (feature detection). */
+/** Add-item response. */
 export interface AddItemResult extends TicketLineItem {
   ticket_version?: number;
   client_request_id?: string | null;
 }
 
-/** POST /tickets/:id/items -> 201 (new) or 200 (B1 replay of the same Idempotency-Key). */
+/** POST /tickets/:id/items -> 201 (new) or 200 (replay of the same Idempotency-Key). */
 export async function addItemIdem(ticketId: string, body: AddItemBody, opts: AddItemOptions = {}): Promise<AddItemResult> {
   const headers: Record<string, string> = {};
   if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey;

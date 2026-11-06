@@ -24,7 +24,7 @@ describe('overview endpoints', () => {
   it('GET /health -> {status:"ok"} without auth', async () => {
     const res = await fetch(`${process.env.CONTRACT_BASE_URL ?? 'http://localhost:8090'}/api/v1/health`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: 'ok' });
+    expect(await res.json()).toMatchObject({ status: 'ok' }); // v2 adds server_version, min_mobile_version, features
   });
 
   it('GET /cash/status: open flag, session, open + ghost counters', async () => {

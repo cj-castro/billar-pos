@@ -1,18 +1,21 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { ApiError } from '../../../api/client';
-import { getCashStatus } from '../../../api/endpoints/cash';
+import { getCashStatus, getCashSummary } from '../../../api/endpoints/cash';
+import { listVoids } from '../../../api/endpoints/managerOps';
 import { listOpenAll, listPendingPayment } from '../../../api/endpoints/managerTickets';
 import { getCounts, getQueue } from '../../../api/endpoints/queue';
 import { useConnectionStore } from '../../../realtime/socket';
 import { useAuthStore } from '../../../state/authStore';
 import { renderWithProviders } from '../../../test/utils';
 import { qi } from '../../kitchen/testFixtures';
+import { formatClock } from '../../../utils/time';
 import { OverviewScreen } from '../OverviewScreen';
 import { usePrintFailures } from '../printFailures';
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
 jest.mock('../../../api/endpoints/cash');
+jest.mock('../../../api/endpoints/managerOps');
 jest.mock('../../../api/endpoints/managerTickets');
 jest.mock('../../../api/endpoints/queue');
 
@@ -34,6 +37,8 @@ beforeEach(() => {
   useAuthStore.setState({ user: { id: 'm', username: 'manager', name: 'Gerente', role: 'MANAGER' } });
   usePrintFailures.getState().clear();
   (getCashStatus as jest.Mock).mockResolvedValue(cash);
+  (getCashSummary as jest.Mock).mockResolvedValue({ session: cash.session, summary: { total_sales_cents: 250000, cash_sales_cents: 150000, card_sales_cents: 100000, total_tips_cents: 20000 } });
+  (listVoids as jest.Mock).mockResolvedValue([]);
   (listOpenAll as jest.Mock).mockResolvedValue(openAll);
   (listPendingPayment as jest.Mock).mockResolvedValue([{ id: 't1' }]);
   (getCounts as jest.Mock).mockResolvedValue({ kitchen: 5, bar: 3 });
@@ -67,6 +72,26 @@ describe('OverviewScreen', () => {
     expect(screen.getByTestId('oldest-item')).toBeTruthy();
   });
 
+  it('sales tiles show cash-session money; closed register shows 0 and Caja cerrada', async () => {
+    await show();
+    await waitFor(() => expect(label('tile-sales')).toBe(`Ventas de la sesión: $2,500.00, desde ${formatClock(new Date('2026-11-05T14:00:00+00:00'))} · Propinas $200.00`));
+    expect(label('tile-cash-sales')).toBe('Efectivo sesión: $1,500.00');
+    expect(label('tile-card-sales')).toBe('Tarjeta sesión: $1,000.00');
+  });
+
+  it('closed register (summary 404 -> null): tiles read $0.00', async () => {
+    (getCashSummary as jest.Mock).mockResolvedValue(null);
+    (getCashStatus as jest.Mock).mockResolvedValue({ open: false, session: null, open_tickets_count: 0, ghost_tickets_count: 0 });
+    await renderWithProviders(<OverviewScreen />);
+    await waitFor(() => expect(label('tile-sales')).toBe('Ventas de la sesión: $0.00, Caja cerrada'));
+  });
+
+  it('three voids today raise an alert', async () => {
+    (listVoids as jest.Mock).mockResolvedValue([{}, {}, {}]);
+    await show();
+    expect(await screen.findByText('3 anulaciones hoy')).toBeTruthy();
+  });
+
   it('derives alerts: old item (>20 min) and ghost ticket; no "no alerts" row', async () => {
     await show();
     expect(await screen.findByTestId('alert-old_items')).toBeTruthy();
@@ -78,7 +103,7 @@ describe('OverviewScreen', () => {
   it('closed cash -> warning card + alert', async () => {
     (getCashStatus as jest.Mock).mockResolvedValue({ open: false, session: null, open_tickets_count: 0, ghost_tickets_count: 0 });
     await renderWithProviders(<OverviewScreen />);
-    expect(await screen.findByText('Caja cerrada')).toBeTruthy();
+    expect((await screen.findAllByText('Caja cerrada')).length).toBeGreaterThan(0); // card title + sales tile footnote
     expect(screen.getByText('No hay turno abierto')).toBeTruthy();
     expect(await screen.findByText('Caja cerrada · nadie puede abrir mesas')).toBeTruthy();
   });
@@ -106,7 +131,7 @@ describe('OverviewScreen', () => {
 
   it('every endpoint failing -> ErrorState with retry', async () => {
     const boom = new ApiError({ code: 'NETWORK_ERROR', message: '', isNetwork: true });
-    for (const f of [getCashStatus, listOpenAll, listPendingPayment, getCounts, getQueue]) (f as jest.Mock).mockRejectedValue(boom);
+    for (const f of [getCashStatus, getCashSummary, listOpenAll, listPendingPayment, getCounts, getQueue]) (f as jest.Mock).mockRejectedValue(boom);
     await renderWithProviders(<OverviewScreen />);
     expect(await screen.findByTestId('error-state', undefined, { timeout: 5000 })).toBeTruthy();
   });

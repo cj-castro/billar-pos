@@ -3,7 +3,8 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useClockOffset } from '../api/clockSkew';
-import { ageStyle, colors, fontSizesKds, kdsAgeLevel, radii, spacing, touch } from '../theme/tokens';
+import { ageLevelFor, type KdsThresholds } from '../features/kitchen/kdsModel';
+import { ageStyle, colors, fontSizesKds, kds, radii, spacing, touch } from '../theme/tokens';
 import { useNow } from '../utils/useNow';
 import { AppButton } from './AppButton';
 import { AppText } from './AppText';
@@ -41,6 +42,8 @@ export interface KdsTicketCardProps {
   landscape?: boolean;
   /** M8: stale data (US-K-06): every action is disabled. */
   disabled?: boolean;
+  /** Server-configured warn/late minutes (defaults to the design tokens 10/20). */
+  thresholds?: KdsThresholds;
   /** Override "now" (tests). */
   now?: number;
   testID?: string;
@@ -97,13 +100,15 @@ export const KdsItemRow = memo(function KdsItemRow({ item, busy, disabled, onAdv
   );
 });
 
-export function KdsTicketCard({ ticket, onAdvanceItem, onAllReady, onServed, servedLabel, advancingIds = [], landscape, disabled, now, testID }: KdsTicketCardProps) {
+const TOKEN_TH: KdsThresholds = { warnMin: kds.warnAfterMin, lateMin: kds.alertAfterMin };
+
+export function KdsTicketCard({ ticket, onAdvanceItem, onAllReady, onServed, servedLabel, advancingIds = [], landscape, disabled, thresholds = TOKEN_TH, now, testID }: KdsTicketCardProps) {
   const { t } = useTranslation('mobile');
   const since = new Date(ticket.oldestSentAt).getTime();
   const clock = useNow(now, 15_000); // the border only changes at minute thresholds; the badge ticks its own second
   const offset = useClockOffset((s) => s.offsetMs);
   const minutes = (clock + offset - since) / 60000;
-  const border = ageStyle(kdsAgeLevel(Number.isNaN(minutes) ? 0 : minutes));
+  const border = ageStyle(ageLevelFor(Number.isNaN(minutes) ? 0 : minutes, thresholds));
   const allReady = ticket.items.length > 0 && ticket.items.every((i) => i.status === 'READY');
   return (
     <View testID={testID ?? `kds-card-${ticket.code}`} style={[styles.card, { borderColor: border.border, borderWidth: border.borderWidth }, landscape && styles.landscape]}>
@@ -118,7 +123,7 @@ export function KdsTicketCard({ ticket, onAdvanceItem, onAllReady, onServed, ser
             </AppText>
           )}
         </View>
-        <KdsAgeBadge since={ticket.oldestSentAt} now={now} clockOffsetMs={offset} />
+        <KdsAgeBadge since={ticket.oldestSentAt} now={now} clockOffsetMs={offset} thresholds={thresholds} />
       </View>
       {ticket.items.map((i) => (
         <KdsItemRow key={i.id} item={i} busy={advancingIds.includes(i.id)} disabled={disabled} onAdvance={() => onAdvanceItem(i.id)} />

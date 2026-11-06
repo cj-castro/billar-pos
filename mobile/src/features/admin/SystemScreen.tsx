@@ -1,4 +1,3 @@
-import Constants from 'expo-constants';
 import { Redirect } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { StyleSheet, Switch, View } from 'react-native';
@@ -14,12 +13,15 @@ import { SectionHeader } from '../../components/SectionHeader';
 import { useToast } from '../../components/Toast';
 import { useLastUpdated } from '../../components/connection';
 import { getServerUrl } from '../../config/serverConfig';
+import { getServerInfo } from '../../config/serverInfo';
+import { APP_BUILD, APP_VERSION } from '../../config/version';
 import { socketTransport, useConnectionStore } from '../../realtime/socket';
 import { useAuthStore } from '../../state/authStore';
 import { colors, radii, spacing } from '../../theme/tokens';
 import { errorMessage } from '../../utils/errorMessage';
 import { haptic } from '../../utils/haptics';
 import { formatClock } from '../../utils/time';
+import { SystemEditors } from './SystemEditors';
 import { useHealthProbe, useServerSetting, type SettingKey } from './useDiagnostics';
 
 function Row({ label, value, testID, tone }: { label: string; value: ReactNode; testID?: string; tone?: 'ok' | 'bad' }) {
@@ -85,8 +87,8 @@ function SystemContent() {
   const mutations = { kds_sound_enabled: kds.mutation, print_bar_tickets: bar.mutation };
   const active = pending ? mutations[pending.key] : null;
 
-  const version = Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? '—';
-  const build = Constants.nativeBuildVersion ?? '—';
+  const version = APP_VERSION;
+  const build = String(APP_BUILD);
   const transport = socketTransport() ?? t('admin.transportNone');
 
   const healthText =
@@ -137,7 +139,9 @@ function SystemContent() {
 
       <SectionHeader title={t('admin.account')} />
       <View style={styles.card}>
-        <Row label={t('admin.version')} value={build === '—' ? String(version) : `${version} (${build})`} testID="diag-version" />
+        <Row label={t('admin.version')} value={`${version} (${build})`} testID="diag-version" />
+        <Row label={t('reports.system.serverVersion')} value={getServerInfo().server_version ?? '—'} testID="diag-server-version" />
+        <Row label={t('reports.system.minMobile')} value={getServerInfo().min_mobile_version ?? '—'} testID="diag-min-version" />
         <Row label={t('admin.user')} value={user ? `${user.name} · ${t(`roles.${user.role}`, { defaultValue: user.role })}` : '—'} testID="diag-user" />
       </View>
 
@@ -145,6 +149,11 @@ function SystemContent() {
       <View style={styles.card}>
         <SettingToggle settingKey="kds_sound_enabled" s={kds} label={t('admin.kdsSound')} hint={t('admin.kdsSoundHint')} onToggle={(key, label, next) => setPending({ key, label, next })} />
         <SettingToggle settingKey="print_bar_tickets" s={bar} label={t('admin.printBar')} hint={t('admin.printBarHint')} onToggle={(key, label, next) => setPending({ key, label, next })} />
+      </View>
+
+      <SectionHeader title={t('reports.system.editors')} />
+      <View style={styles.card}>
+        <SystemEditors />
       </View>
 
       <ConfirmDialog

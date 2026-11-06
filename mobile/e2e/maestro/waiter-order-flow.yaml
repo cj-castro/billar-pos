@@ -48,10 +48,10 @@ env:
     id: floor-card-${TABLE}
 - extendedWaitUntil:
     visible:
-      id: open-table-submit
+      id: open-table-only
     timeout: 10000
 - tapOn:
-    id: open-table-submit
+    id: open-table-only
 - extendedWaitUntil:
     visible:
       id: ticket-add-products

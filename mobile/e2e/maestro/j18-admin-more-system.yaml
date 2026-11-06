@@ -1,0 +1,26 @@
+# J18: admin login -> Mas -> Sistema -> screen-system (regression for hidden-tab navigation).
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: admin
+  PASS: admin123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-overview
+    timeout: 20000
+- tapOn:
+    text: "Más"
+- extendedWaitUntil:
+    visible:
+      id: screen-more
+    timeout: 10000
+- tapOn:
+    id: more-system
+- extendedWaitUntil:
+    visible:
+      id: screen-system
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: sistema

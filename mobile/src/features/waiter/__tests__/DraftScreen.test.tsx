@@ -17,10 +17,10 @@ const lines = () => useDraftStore.getState().byTicket.t1 ?? [];
 beforeEach(() => {
   jest.clearAllMocks();
   online(true);
-  useDraftStore.setState({ byTicket: {}, b1Confirmed: {}, ownerId: null });
+  useDraftStore.setState({ byTicket: {}, ownerId: null });
 });
 
-/** Backend with B1: every add returns the bumped ticket_version. */
+/** Backend: every add returns the bumped ticket_version. */
 function b1Api(overrides: Record<string, never | object> = {}) {
   let version = 3;
   const m = mockApi({
@@ -202,13 +202,13 @@ describe('DraftScreen', () => {
     expect(posts(m)).toHaveLength(1);
   });
 
-  it('409 VERSION_CONFLICT with B1 known: silently refetches and retries once with the same key', async () => {
+  it('409 VERSION_CONFLICT: silently refetches and retries once with the same key', async () => {
     let version = 3;
     let conflictOnce = true;
     const m = mockApi({
       'GET /tickets/t1': () => ({ data: ticket({ version }) }),
       'POST /tickets/t1/items': (c) => {
-        // the first line succeeds (so B1 is detected); the second hits one conflict
+        // the first line succeeds; the second hits one conflict
         if ((c.data as { menu_item_id: string }).menu_item_id === 'id-Nachos' && conflictOnce) {
           conflictOnce = false;
           version = 10;
@@ -327,22 +327,25 @@ describe('DraftScreen', () => {
     });
   });
 
-  describe('H1 end to end without B1', () => {
-    it('timeout (request landed) then Reintentar: same key AND same X-Ticket-Version, 409 -> verify, exactly one add', async () => {
+  describe('H1 end to end', () => {
+    it('timeout (request landed) then Reintentar: same key, the server replays it, exactly one add', async () => {
       let version = 3;
       let adds = 0;
       let lose = true;
+      const seen = new Set<string>();
       const m = mockApi({
         'GET /tickets/t1': () => ({ data: ticket({ version }) }),
         'POST /tickets/t1/items': (c) => {
-          if (Number(c.headers['X-Ticket-Version']) !== version) return httpError(409, 'VERSION_CONFLICT');
+          const key = String(c.headers['Idempotency-Key']);
+          if (seen.has(key)) return { status: 200, data: { ...line({}), ticket_version: version } }; // replay
+          seen.add(key);
           adds += 1;
           version += 1;
           if (lose) {
             lose = false;
             return networkError(); // landed, answer lost
           }
-          return { status: 201, data: line({}) }; // no ticket_version: B1 absent
+          return { status: 201, data: { ...line({}), ticket_version: version } };
         },
       });
       const a = add('Alitas');
@@ -350,16 +353,9 @@ describe('DraftScreen', () => {
       await fireEvent.press(screen.getByTestId('draft-send'));
       await waitFor(() => expect(chipOf(a.key)).toBe('No se envió'));
       await fireEvent.press(screen.getByTestId(`draft-line-${a.key}-retry`));
-      await waitFor(() => expect(lines()[0]?.error).toBe('VERIFY'));
-      await waitFor(() => expect(screen.getByTestId('draft-verify-banner')).toBeTruthy(), { timeout: 4000 });
+      await waitFor(() => expect(lines()).toHaveLength(0));
       expect(adds).toBe(1);
-      const p = posts(m);
-      expect(p.map((x) => x.headers['Idempotency-Key'])).toEqual([a.key, a.key]);
-      expect(p.map((x) => x.headers['X-Ticket-Version'])).toEqual(['3', '3']);
-      expect(lines()[0]).toMatchObject({ state: 'FAILED', error: 'VERIFY' });
-      // no automatic resend from the global button, and no per-line Reintentar without B1
-      expect(screen.queryByTestId(`draft-line-${a.key}-retry`)).toBeNull();
-      expect(screen.getByTestId('draft-send').props.accessibilityState.disabled).toBe(true);
+      expect(posts(m).map((x) => x.headers['Idempotency-Key'])).toEqual([a.key, a.key]);
     });
   });
 });

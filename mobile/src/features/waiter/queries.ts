@@ -26,8 +26,8 @@ export const useResources = () => useQuery({ queryKey: qk.resources, queryFn: ()
 export const usePendingPayment = () => useQuery({ queryKey: wqk.pendingPayment, queryFn: listPendingPayment });
 export const useCashStatus = () => useQuery({ queryKey: qk.cash, queryFn: getCashStatus, staleTime: 15_000 });
 // A 404 is final (ticket gone): show "no encontrado" at once instead of retrying.
-export const useTicketQuery = (id: string) =>
-  useQuery({ queryKey: qk.ticket(id), queryFn: () => getTicket(id), staleTime: 5_000, retry: (n, e) => (e as { status?: number }).status !== 404 && n < 1 });
+export const useTicketQuery = (id: string, opts?: { refetchOnMount?: 'always' }) =>
+  useQuery({ queryKey: qk.ticket(id), queryFn: () => getTicket(id), staleTime: 5_000, ...opts, retry: (n, e) => (e as { status?: number }).status !== 404 && n < 1 });
 
 export const MENU_STALE_MS = 5 * 60_000;
 export const useMenuCategories = () => useQuery({ queryKey: wqk.menuCategories, queryFn: listCategories, staleTime: MENU_STALE_MS });
