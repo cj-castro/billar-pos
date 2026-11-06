@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Switch, View } from 'react-native';
+import { Platform, StyleSheet, Switch, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { AppButton } from '../../components/AppButton';
 import { AppText } from '../../components/AppText';
@@ -17,6 +17,7 @@ import { ensureNotificationPermission, useAlertPrefs } from '../waiter/ready/rea
 import { useDraftStore } from '../waiter/draft/draftStore';
 import { useAuthStore } from '../../state/authStore';
 import { colors, radii, spacing } from '../../theme/tokens';
+import { UpdateSheet, useUpdater } from '../../update/UpdateUi';
 
 function Row({ label, children, testID }: { label: string; children: React.ReactNode; testID?: string }) {
   return (
@@ -56,6 +57,7 @@ export function ProfileScreen({ tabs, back }: { tabs?: boolean; back?: boolean }
   const [confirm, setConfirm] = useState(false);
   const unsent = useDraftStore((d) => Object.values(d.byTicket).reduce((n, l) => n + l.length, 0)); // M9: logout deletes them
   const [busy, setBusy] = useState(false);
+  const upd = useUpdater();
   const prefs = useAlertPrefs();
   const [denied, setDenied] = useState(false);
   // The OS permission is asked the first time alerts are switched on.
@@ -103,6 +105,21 @@ export function ProfileScreen({ tabs, back }: { tabs?: boolean; back?: boolean }
           <ToggleRow testID="profile-alerts" label={t('profile.alerts')} hint={denied ? t('profile.alertsDenied') : t('profile.alertsHint')} value={prefs.alerts} onChange={onAlerts} />
           <ToggleRow testID="profile-sound" label={t('profile.sound')} hint={t('profile.soundHint')} value={prefs.sound} onChange={prefs.setSound} />
         </View>
+        </>
+      )}
+
+      {Platform.OS === 'android' && (
+        <>
+          <SectionHeader title={t('update.check')} />
+          <View style={styles.card}>
+            {upd.configured ? (
+              <AppButton label={t('update.check')} icon="update" variant="secondary" loading={upd.busy === 'check'} onPress={() => void upd.check(true)} testID="profile-check-update" />
+            ) : (
+              <AppText variant="body" color={colors.textSecondary} testID="profile-update-off">{t('update.notConfigured')}</AppText>
+            )}
+            {!!upd.msg && !upd.open && <AppText variant="label" color={colors.textSecondary}>{upd.msg}</AppText>}
+          </View>
+          <UpdateSheet u={upd} />
         </>
       )}
 

@@ -11,6 +11,7 @@ import { getServerUrl } from '../src/config/serverConfig';
 import { getServerInfo } from '../src/config/serverInfo';
 import { APP_VERSION } from '../src/config/version';
 import { colors, spacing } from '../src/theme/tokens';
+import { UpdateSheet, useUpdater } from '../src/update/UpdateUi';
 
 /** Full-screen block: the server's `min_mobile_version` is newer than this app. */
 export default function UpdateRequiredScreen() {
@@ -18,6 +19,7 @@ export default function UpdateRequiredScreen() {
   const router = useRouter();
   const info = getServerInfo();
   const base = getServerUrl();
+  const upd = useUpdater();
   return (
     <ScreenScaffold testID="screen-update-required" header={<ScreenHeader title={t('update.title')} />} padded={false}>
       <EmptyState icon="update" tone="warning" title={t('update.title')} message={t('update.body')} testID="update-required" />
@@ -27,9 +29,12 @@ export default function UpdateRequiredScreen() {
         <AppText variant="label" color={colors.textSecondary}>{t('update.appVersion', { v: APP_VERSION })}</AppText>
       </View>
       <View style={styles.actions}>
+        {upd.configured && <AppButton label={t('update.download')} icon="download" size="lg" fullWidth loading={upd.busy === 'check'} onPress={() => void upd.check(true)} testID="update-self" />}
+        {!!upd.msg && !upd.open && <AppText variant="label" color={colors.textSecondary}>{upd.msg}</AppText>}
         {!!base && <AppButton label={t('update.open')} icon="download" size="lg" fullWidth onPress={() => void Linking.openURL(`${base}/mobile/latest.apk`)} testID="update-open" />}
         <AppButton label={t('retry')} variant="secondary" size="lg" fullWidth onPress={async () => router.replace(await boot())} testID="update-retry" />
       </View>
+      <UpdateSheet u={upd} />
     </ScreenScaffold>
   );
 }

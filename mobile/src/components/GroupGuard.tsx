@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { canAccess, type RouteGroup } from '../auth/roleRouting';
 import { useAuthStore } from '../state/authStore';
 import { colors } from '../theme/tokens';
+import { AutoUpdate } from '../update/UpdateUi';
 
 /**
  * Used by every role group's `_layout.tsx`: not signed in -> /login, wrong role -> /denied.
@@ -13,5 +14,5 @@ export function GroupGuard({ group, children }: { group: RouteGroup; children?: 
   const user = useAuthStore((s) => s.user);
   if (!user) return <Redirect href="/login" />;
   if (!canAccess(user.role, group)) return <Redirect href="/denied" />;
-  return <>{children ?? <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }} />}</>;
+  return <><AutoUpdate />{children ?? <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }} />}</>;
 }
