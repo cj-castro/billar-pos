@@ -18,9 +18,8 @@ const config: ExpoConfig = {
     adaptiveIcon: {
       backgroundColor: '#0f172a',
       foregroundImage: './assets/images/android-icon-foreground.png',
-      backgroundImage: './assets/images/android-icon-background.png',
-      monochromeImage: './assets/images/android-icon-monochrome.png',
     },
+    softwareKeyboardLayoutMode: 'resize',
     predictiveBackGestureEnabled: false,
     allowBackup: false, // SEC-15
     // SEC-13: Expo template defaults this app never uses
@@ -31,7 +30,7 @@ const config: ExpoConfig = {
     'expo-secure-store',
     [
       'expo-splash-screen',
-      { backgroundColor: '#0f172a', image: './assets/images/splash-icon.png', imageWidth: 76 },
+      { backgroundColor: '#0f172a', image: './assets/images/splash-icon.png', imageWidth: 160 },
     ],
     [
       'expo-build-properties',

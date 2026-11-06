@@ -39,6 +39,6 @@ export function LanguageToggle({ testID = 'lang-toggle' }: { testID?: string }) 
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignSelf: 'center', backgroundColor: colors.surfaceRaised, borderRadius: radii.md, padding: 4, gap: 4 },
-  seg: { minWidth: 64, minHeight: touch.min - 8, paddingHorizontal: spacing.s4, borderRadius: radii.md - 4, alignItems: 'center', justifyContent: 'center' },
+  seg: { minWidth: 64, minHeight: touch.min, paddingHorizontal: spacing.s4, borderRadius: radii.md - 4, alignItems: 'center', justifyContent: 'center' },
   on: { backgroundColor: colors.primary },
 });

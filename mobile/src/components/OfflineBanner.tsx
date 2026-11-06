@@ -25,10 +25,12 @@ export function OfflineBanner({ kind, level, lastUpdated }: OfflineBannerProps) 
 
   const [recovered, setRecovered] = useState(false);
   const prev = useRef<ConnLevel>(current);
+  const wasOnline = useRef(current === 'online'); // only a real online -> down -> online round trip counts as recovered
   useEffect(() => {
     const was = prev.current;
     prev.current = current;
-    const justRecovered = current === 'online' && was !== 'online';
+    const justRecovered = current === 'online' && was !== 'online' && wasOnline.current;
+    if (current === 'online') wasOnline.current = true;
     const show = setTimeout(() => setRecovered(justRecovered), 0);
     const hide = justRecovered ? setTimeout(() => setRecovered(false), 2000) : undefined;
     return () => {

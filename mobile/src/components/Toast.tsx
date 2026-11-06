@@ -81,7 +81,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           pointerEvents="box-none"
           style={[
             styles.host,
-            { top: insets.top + layout.topBarHeight, opacity: anim, transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [-16, 0] }) }] },
+            { bottom: insets.bottom + layout.actionBarHeight + spacing.s2, opacity: anim, transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] },
           ]}
         >
           <View

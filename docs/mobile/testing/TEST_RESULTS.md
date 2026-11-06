@@ -92,3 +92,20 @@ No functional defects were found in the seven mandatory journeys.
 - Bar-staff (`barstaff`) station flow and the manager Cocina/Barra toggle behaviour beyond opening the tab.
 - Accessibility (TalkBack), font scaling, dark/light theme variants, Spanish/English switch.
 - In-app splash "Restaurando tu sesión" and prototype `14-error` list-error screen.
+
+## 8. Defect fixes and re-test (final-QA fix round)
+
+New release APK: `mobile/dist/bola8-staff-0.1.0-local.apk` (56,078,743 bytes, 53.5 MB; x86_64 + arm64-v8a; prebuild --clean, then a second incremental build for the KDS tweak). Installed on emulator-5554, no Metro. Gates: `npm test` 34 suites / 443 tests passed, `npx tsc --noEmit` clean, `npx expo lint` clean. New screenshots are in `screenshots/final/fixed/`.
+
+| # | Defect | Status | Evidence / change |
+|---|---|---|---|
+| 1 | High: configurator notes + Add hidden by keyboard | **Fixed** | `Sheet.tsx` lifts the sheet by the covered keyboard height (measured, so it also works if the window resizes), notes field scrolls into view on focus, `android.softwareKeyboardLayoutMode: 'resize'`. `fixed/20-notes-keyboard-open.png`: notes field, Cantidad and "Agregar al pedido" all visible above the keyboard. Note: the notes box bottom border is slightly clipped by the scroll area (cosmetic). Setup/login/open-table share the same patterns and were fine/covered by Sheet. |
+| 2 | Medium: splash shows Expo logo | **Fixed** | Bola 8 logo (from `logo.jpg`, upscaled from 199 px, so slightly soft) rendered to `splash-icon.png` (rounded square), `icon.png`, adaptive foreground, favicon via System.Drawing; adaptive background = solid `#0f172a`; template background/monochrome images removed. `fixed/17-splash-cold-fixed.png`; launcher icon also shows the logo. |
+| 3a | Low: spurious "Conectado de nuevo" | **Fixed** | `OfflineBanner` only shows it after the connection was previously online and went down. KDS/Floor screenshots after fresh login show no banner. (Unit tests unchanged and pass; no new dedicated test.) |
+| 3b | Low: ES/EN toggle 40 dp | **Fixed** | `minHeight: touch.min` (48). Not re-measured via hierarchy on device. |
+| 3c | Low: KDS landscape single column | **Fixed** | Threshold 3 columns at >= 840 dp plus 1 px floor so the third column does not wrap. `fixed/10-kds-landscape.png` shows 3 cards in a row (T01-T03). |
+| 3d | Low: PIN pad clear key | **Fixed / already present in source** | Backspace key is in `PinPad.tsx` and appears in `fixed/15-manager-pin.png`. (It may have been missing from the QA build.) Bottom-sheet vs dialog remains an accepted difference. |
+| 3e | Low: toast covers ticket total | **Fixed** | Toast moved from under the header to just above the bottom action bar. `fixed/04b-ticket-sent-toast.png` (shown on the draft screen after send; total not covered). The ticket screen was not captured with a toast. |
+| 3f | Low: "Marcar servido" flush to card | Still open | Not in this round's scope. |
+
+Re-run: Maestro `waiter-order-flow.yaml` (TABLE=T02, plus one extra screenshot step) against the first rebuilt APK: all steps COMPLETED (login, open table, Soda, send, toast "Pedido enviado a cocina y barra", "Enviado"). The final APK differs only by the KDS card-width line; the kitchen login flow and KDS landscape capture were run on it. Test tickets were force-closed afterwards.

@@ -67,8 +67,8 @@ function KdsStation({ station, tabs, header }: { station: Station; tabs?: boolea
   const [confirmTicket, setConfirmTicket] = useState<string | null>(null);
 
   // Portrait phone: one column list. Landscape / tablet: 2-3 column grid.
-  const cols = width >= 1100 ? 3 : width >= 560 ? 2 : 1;
-  const cardWidth = cols === 1 ? undefined : (width - spacing.s4 * 2 - GAP * (cols - 1)) / cols;
+  const cols = width >= 840 ? 3 : width >= 560 ? 2 : 1;
+  const cardWidth = cols === 1 ? undefined : Math.floor((width - spacing.s4 * 2 - GAP * (cols - 1)) / cols) - 1; // -1: pixel snapping must not wrap the last column
 
   const onAllReady = (ticketId: string) => {
     if (actions.notStarted(ticketId) > 0) setConfirmTicket(ticketId);

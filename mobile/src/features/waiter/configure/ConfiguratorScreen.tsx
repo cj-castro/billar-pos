@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { AppButton } from '../../../components/AppButton';
@@ -29,6 +29,7 @@ export function ConfiguratorScreen({ ticketId, itemId }: { ticketId: string; ite
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [notes, setNotes] = useState('');
   const [qty, setQty] = useState(1);
+  const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
 
   const close = () => (router.canGoBack() ? router.back() : router.replace(`/ticket/${ticketId}`));
   const item = items.data?.find((i) => i.id === itemId);
@@ -51,7 +52,7 @@ export function ConfiguratorScreen({ ticketId, itemId }: { ticketId: string; ite
     };
     content = (
       <>
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView ref={scroll} style={styles.scroll} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {groups.map((g) => (
             <ModifierGroup
               key={g.id}
@@ -78,6 +79,7 @@ export function ConfiguratorScreen({ ticketId, itemId }: { ticketId: string; ite
             maxLength={NOTE_MAX}
             autoCapitalize="sentences"
             testID="configure-notes"
+            onFocus={() => setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 300)}
           />
         </ScrollView>
         <View style={styles.qtyRow}>
