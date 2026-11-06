@@ -8,6 +8,9 @@ import { IconButton } from './IconButton';
 export interface ScreenHeaderProps {
   title: string;
   subtitle?: string;
+  subtitleTestID?: string;
+  /** Fixed-size element between back and title (e.g. <Logo size={40}/>). Never shrinks. */
+  leading?: ReactNode;
   onBack?: () => void;
   /** e.g. <ConnectionPill />. */
   right?: ReactNode;
@@ -15,17 +18,18 @@ export interface ScreenHeaderProps {
 }
 
 /** 56 dp top bar (surface bg). Safe-area top inset is handled by ScreenScaffold. */
-export function ScreenHeader({ title, subtitle, onBack, right, testID = 'screen-header' }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, subtitleTestID, leading, onBack, right, testID = 'screen-header' }: ScreenHeaderProps) {
   const { t } = useTranslation('mobile');
   return (
     <View testID={testID} style={styles.bar}>
       {onBack && <IconButton icon="arrow-left" accessibilityLabel={t('back')} onPress={onBack} testID="header-back" />}
+      {leading && <View style={styles.fixed}>{leading}</View>}
       <View style={styles.titles}>
         <AppText variant="title" numberOfLines={1} accessibilityRole="header">
           {title}
         </AppText>
         {!!subtitle && (
-          <AppText variant="label" color={colors.textSecondary} numberOfLines={1}>
+          <AppText variant="label" color={colors.textSecondary} numberOfLines={1} testID={subtitleTestID}>
             {subtitle}
           </AppText>
         )}
@@ -37,6 +41,7 @@ export function ScreenHeader({ title, subtitle, onBack, right, testID = 'screen-
 
 const styles = StyleSheet.create({
   bar: { minHeight: layout.topBarHeight, flexDirection: 'row', alignItems: 'center', gap: spacing.s2, paddingHorizontal: spacing.s4, backgroundColor: colors.surface },
-  right: { alignSelf: 'center' },
-  titles: { flex: 1, justifyContent: 'center' },
+  right: { alignSelf: 'center', flexShrink: 0 },
+  fixed: { flexShrink: 0 },
+  titles: { flex: 1, minWidth: 0, justifyContent: 'center' }, // minWidth 0: long title ellipsizes instead of being crushed
 });

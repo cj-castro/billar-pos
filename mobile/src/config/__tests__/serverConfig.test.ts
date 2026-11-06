@@ -58,6 +58,12 @@ describe('SEC-03 URL guard', () => {
     expect(serverUrlProblem('https://8.8.8.8')).toBeNull();
     expect(serverUrlProblem('')).toBe('invalid');
   });
+  it.each(['100.64.0.1', '100.78.80.83', '100.127.255.254', 'http://100.78.80.83:8080', 'bola8pos.tail1234.ts.net', 'BOLA8POS.TAIL1234.TS.NET', 'http://bola8pos.tail1234.ts.net:8080'])('allows http to Tailscale %s', (u) => {
+    expect(serverUrlProblem(u)).toBeNull();
+  });
+  it.each(['100.63.255.255', '100.128.0.1', '8.8.8.8', 'evilts.net', 'ts.net.evil.com', 'http://evilts.net:8080'])('rejects http to non-Tailscale %s as insecure', (u) => {
+    expect(serverUrlProblem(u)).toBe('insecure');
+  });
   it('isPrivateHost rejects out-of-range octets', () => {
     expect(isPrivateHost('10.300.1.1')).toBe(false);
   });

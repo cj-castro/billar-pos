@@ -8,7 +8,7 @@ import { renderWithProviders } from '../../../test/utils';
 import { KdsScreen } from '../KdsScreen';
 import { qi } from '../testFixtures';
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn() }) }));
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn(), canGoBack: () => false }) }));
 jest.mock('../../../api/endpoints/queue');
 jest.mock('../../../utils/haptics', () => ({
   haptic: { selection: jest.fn(), light: jest.fn(), medium: jest.fn(), success: jest.fn(), warning: jest.fn(), error: jest.fn() },

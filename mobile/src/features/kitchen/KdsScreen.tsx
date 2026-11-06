@@ -15,6 +15,7 @@ import { OfflineBanner } from '../../components/OfflineBanner';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { ScreenScaffold } from '../../components/ScreenScaffold';
 import type { Station } from '../../domain/types';
+import { useCanGoBack } from '../../utils/useCanGoBack';
 import { colors, layout, radii, spacing } from '../../theme/tokens';
 import { formatClock } from '../../utils/time';
 import { useNow } from '../../utils/useNow';
@@ -162,6 +163,7 @@ function KdsStation({ station, tabs, header }: { station: Station; tabs?: boolea
 export function KdsScreen({ fixedStation, tabs }: KdsScreenProps) {
   const { t } = useTranslation('mobile');
   const router = useRouter();
+  const canBack = useCanGoBack();
   const [picked, setPicked] = useState<Station>('KITCHEN');
   const station = fixedStation ?? picked;
   const q = useKdsQueue(station); // same query as KdsStation (shared cache): only feeds the header counter
@@ -169,37 +171,46 @@ export function KdsScreen({ fixedStation, tabs }: KdsScreenProps) {
 
   const right = (
     <View style={styles.right}>
-      {switchable && <StationSwitch value={station} onChange={setPicked} />}
       <ConnectionPill />
       {!tabs && <IconButton icon="account-outline" accessibilityLabel={t('kitchen.menu')} onPress={() => router.push('/kds-me')} testID="kds-menu" />}
     </View>
   );
-  const header = tabs ? (
+  const bar = tabs ? (
     <ScreenHeader title={t(`kitchen.station.${station}`)} subtitle={t('kitchen.pending', { n: q.pending })} right={right} />
   ) : (
-    <View testID="screen-header" style={styles.bar}>
-      <Pressable testID="kds-logo" accessibilityRole="button" accessibilityLabel={t('kitchen.menu')} delayLongPress={600} onLongPress={() => router.push('/kds-me')}>
-        <Logo size={40} />
-      </Pressable>
-      <View style={styles.titles}>
-        <AppText variant="title" numberOfLines={1} accessibilityRole="header">
-          {t(`kitchen.station.${station}`)}
-        </AppText>
-        <AppText variant="label" color={colors.textSecondary} testID="kds-pending">
-          {t('kitchen.pending', { n: q.pending })}
-        </AppText>
+    <ScreenHeader
+      // Back only when pushed (admin/manager from Overview); the kiosk root (kitchen/bar login) has nothing to go back to.
+      onBack={canBack ? () => router.back() : undefined}
+      leading={
+        <Pressable testID="kds-logo" accessibilityRole="button" accessibilityLabel={t('kitchen.menu')} delayLongPress={600} onLongPress={() => router.push('/kds-me')}>
+          <Logo size={40} />
+        </Pressable>
+      }
+      title={t(`kitchen.station.${station}`)}
+      subtitle={t('kitchen.pending', { n: q.pending })}
+      subtitleTestID="kds-pending"
+      right={right}
+    />
+  );
+
+  // Station switch lives on its own row: next to back + logo + pill it left the title ~60 px (crushed to "C...").
+  const header = switchable ? (
+    <View>
+      {bar}
+      <View style={styles.switchRow}>
+        <StationSwitch value={station} onChange={setPicked} />
       </View>
-      {right}
     </View>
+  ) : (
+    bar
   );
 
   return <KdsStation key={station} station={station} tabs={tabs} header={header} />;
 }
 
 const styles = StyleSheet.create({
-  bar: { minHeight: layout.topBarHeight, flexDirection: 'row', alignItems: 'center', gap: spacing.s3, paddingHorizontal: spacing.s4, backgroundColor: colors.surface },
-  titles: { flex: 1 },
   right: { flexDirection: 'row', alignItems: 'center', gap: spacing.s2 },
+  switchRow: { paddingHorizontal: spacing.s4, paddingBottom: spacing.s2, backgroundColor: colors.surface, alignItems: 'flex-start' },
   switch: { flexDirection: 'row', backgroundColor: colors.surfaceRaised, borderRadius: radii.pill, padding: 2 },
   seg: { minHeight: 40, paddingHorizontal: spacing.s3, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: colors.primary },
