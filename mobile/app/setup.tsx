@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -28,9 +28,10 @@ const ERR_KEY = {
 export default function SetupScreen() {
   const { t } = useTranslation('mobile');
   const router = useRouter();
+  const { notFound } = useLocalSearchParams<{ notFound?: string }>();
   const [value, setValue] = useState(getServerUrl() ?? '');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(notFound ? t('setup.notFound') : null);
   const [okMs, setOkMs] = useState<number | null>(null);
   const hasSession = useAuthStore((st) => !!st.user);
   const [confirmSwitch, setConfirmSwitch] = useState(false);

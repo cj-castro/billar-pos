@@ -30,6 +30,7 @@ export const mobileEs = {
     errUnreachable: 'No se pudo conectar con el servidor. Revisa la dirección y el Wi-Fi.',
     errNotPos: 'Ese servidor no parece ser el POS de Bola 8.',
     change: 'Cambiar',
+    notFound: 'No se encontró el servidor en esta red. Ingresa la dirección.',
   },
   login: {
     title: 'Hola, inicia sesión',
@@ -49,6 +50,7 @@ export const mobileEs = {
   },
   splash: {
     restoring: 'Restaurando tu sesión…',
+    searching: 'Buscando servidor…',
   },
   denied: {
     title: 'Esta sección no es para tu rol',
@@ -935,6 +937,7 @@ export const mobileEn: typeof mobileEs = {
     errUnreachable: 'Could not reach the server. Check the address and Wi-Fi.',
     errNotPos: 'That server does not look like the Bola 8 POS.',
     change: 'Change',
+    notFound: 'The server was not found on this network. Enter the address.',
   },
   login: {
     title: 'Hi, log in',
@@ -954,6 +957,7 @@ export const mobileEn: typeof mobileEs = {
   },
   splash: {
     restoring: 'Restoring your session…',
+    searching: 'Looking for the server…',
   },
   denied: {
     title: 'This section is not for your role',

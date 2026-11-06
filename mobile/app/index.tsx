@@ -33,11 +33,12 @@ export default function Index() {
   const router = useRouter();
   const [target, setTarget] = useState<BootTarget | null>(null);
   const [slow, setSlow] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const id = setTimeout(() => setSlow(true), SLOW_MS);
-    boot()
+    boot(() => setSearching(true))
       .then(setTarget)
       .catch(() => setTarget('/setup'))
       .finally(() => clearTimeout(id));
@@ -57,7 +58,7 @@ export default function Index() {
           Bola 8 Pool Club
         </AppText>
         <AppText variant="body" color={colors.textSecondary}>
-          {t('splash.restoring')}
+          {t(searching ? 'splash.searching' : 'splash.restoring')}
         </AppText>
         <ProgressBar />
         {slow && (

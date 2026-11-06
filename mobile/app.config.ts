@@ -88,6 +88,8 @@ const config: ExpoConfig = {
     ],
   ],
   experiments: { reactCompiler: true },
+  // Auto-discovery (src/net/discovery.ts): probed in order before the LAN scan. DHCP may move the bar PC; Tailscale is the fallback.
+  extra: { serverCandidates: ['http://192.168.1.24:8080', 'http://100.78.80.83:8080'] },
 };
 
 export default withReleaseSigning(config);
