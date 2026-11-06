@@ -1,7 +1,7 @@
 # Bola 8 Staff (mobile companion)
 
 Android-first (iOS-ready) Expo + React Native + TypeScript companion to the Bola 8 POS.
-Foundation + UI kit + app shell: server setup, login, role routing, API client, realtime, i18n, design-system components, navigation. P0 feature screens are placeholders ("Pendiente") until the feature agents fill them.
+Android v1 (locally complete): server setup, login, role routing, waiter floor/ticket/menu/draft-send/ready flows, kitchen & bar KDS, manager overview/tickets/floor, admin diagnostics. Status, test evidence and limitations: `docs/mobile/FINAL_ENGINEERING_REPORT.md`.
 
 - Expo SDK **58** (React Native 0.88, React 19.3), Expo Router, TanStack Query 5, zustand 5, axios, socket.io-client 4, i18next.
 - Package `com.bola8.staff` (Android) / bundle id `com.bola8.staff` (iOS).
@@ -93,5 +93,5 @@ Route names inside groups are distinct (`floor`, `queue`, `overview`, `diagnosti
 
 ## Known limitations
 
-- Launcher/splash icons are the Expo template placeholders.
+- Launcher/splash icons use the Bola 8 logo (`assets/`).
 - Backend extensions B1-B4 (idempotency, richer socket payloads, manager room) are not required; the client sends `Idempotency-Key` and handles missing fields.

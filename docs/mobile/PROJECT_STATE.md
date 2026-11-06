@@ -8,7 +8,9 @@ Source of truth for progress. Recoverable without chat history.
 
 ## Current phase
 
-Phase 1 — Product / Architecture / Design / Environment (parallel). Phase 0 discovery DONE.
+**Android v1 locally complete; awaiting bar-machine validation.**
+
+All workstreams are finished and committed (HEAD `35ba5b3c`). Everything was verified only against the local Docker backend (`billarmobile`, :8090) and an Android 15 emulator. Nothing ran on the real bar machine, a real network, a physical phone or iOS. Full detail: [FINAL_ENGINEERING_REPORT.md](FINAL_ENGINEERING_REPORT.md).
 
 ## Locked decisions (orchestrator)
 
@@ -28,60 +30,58 @@ Phase 1 — Product / Architecture / Design / Environment (parallel). Phase 0 di
 | D12 | Tests: Jest (jest-expo) + React Native Testing Library for unit/integration; contract tests against the **real local backend** (docker project `billarmobile`, port 8090); E2E with **Maestro** on emulator if it runs on this Windows host, else documented fallback. | Prefer real backend over mocks. |
 | D13 | Mock adapter exists only for unit tests / offline demo, clearly labelled ("DEMO DATA" banner); never selected silently. | Mandate §7. |
 
-## Backend extensions (worktree only, local; must be deployed to bar machine to take effect)
+## Backend extensions (worktree only, local; must be deployed to the bar machine to take effect)
 
 | ID | Change | Status |
 |---|---|---|
-| B1 | `POST /tickets/<id>/items` honours `Idempotency-Key` header: nullable `ticket_line_items.client_request_id` + partial unique index (new SQL migration); duplicate key → 200 with existing line. Response adds `ticket_version`. | planned |
-| B2 | `kitchen:item_update` / `bar:item_update` / `ticket:item_status` payloads additionally carry `ticket_id, resource_code, menu_item_name, quantity, opened_by` (additive). | planned |
-| B3 | `PATCH /queue/<item>/status` rejects items that are VOIDED (409 `ITEM_VOIDED`) — no other behaviour change. | planned |
-| B4 | Socket `join` actually joins `manager` room after token check (G2 fix). | planned |
+| B1 | `Idempotency-Key` on `POST /tickets/<id>/items` (migration 002), response adds `ticket_version` | DONE, verified locally, NOT deployed |
+| B2 | Socket payloads add `ticket_id, resource_code, menu_item_name, quantity` (`opened_by` removed per SEC-05) | DONE, verified locally, NOT deployed |
+| B3 | Queue PATCH rejects VOIDED items (409 `ITEM_VOIDED`) | DONE, verified locally, NOT deployed |
+| B4 | Socket `join` actually joins `manager` room | DONE, verified locally, NOT deployed |
+| 003 | Migration restoring reference data dropped by baseline squash 2b72b157 | DONE, verified on a clean local DB, NOT deployed |
 
-Mobile must degrade gracefully if B1/B2 absent (feature-detect: missing `ticket_version` → refetch ticket after send).
+## Workstreams (final status)
 
-## Workstreams
+| WS | Output | Status |
+|---|---|---|
+| Discovery | `docs/mobile/discovery/*` | DONE |
+| Env | `scripts/mobile/*`, LOCAL_DEV_ENVIRONMENT.md, emulator `billar_mobile_api35` | DONE |
+| Product | `docs/mobile/product/*` | DONE |
+| Architecture | `docs/mobile/architecture/*` + ADR | DONE |
+| Design | `docs/mobile/design/**` (17 HTML prototypes, local; Claude Design not used) | DONE |
+| Backend ext | B1-B4 + migration 003 + `backend/tests/test_mobile_extensions_live.py` | DONE (local only) |
+| Mobile foundation, UI kit, shell | `mobile/` Expo SDK 58 / RN 0.88 | DONE |
+| Waiter, KDS, Manager/Admin slices | `mobile/src/features/*`, `mobile/app/*` | DONE |
+| Code + security review and fix pass | `testing/reviews/*` | DONE; deferred findings remain (see report section 11) |
+| Release APK | `mobile/dist/bola8-staff-0.1.0-local.apk` (debug-keystore signed, gitignored) | DONE (local/emulator use only) |
+| E2E + visual QA + UI fixes | `testing/TEST_RESULTS.md`, Maestro `j*.yaml` | DONE |
+| iOS | `docs/mobile/ios/*` handoff only | NOT STARTED (no Mac) |
 
-| WS | Owner persona | Output | Status |
-|---|---|---|---|
-| Discovery | Explore (haiku) | `docs/mobile/discovery/*` | DONE (DEPENDENCIES_AND_GAPS pending in Product WS) |
-| Env | DevOps Automator | `scripts/mobile/*`, `docs/mobile/architecture/LOCAL_DEV_ENVIRONMENT.md`, emulator `billar_mobile_api35` (emulator-5554, AVD in `D:\android-avd`), backend http://localhost:8090 (emulator: http://10.0.2.2:8090) | DONE |
-| Product | Product Manager | `docs/mobile/product/*`, `discovery/DEPENDENCIES_AND_GAPS.md` | DONE (accepted PM changes: English toggle P1, cancel-empty-ticket P0, request-bill confirm, floor merges `/tickets/pending-payment`) |
-| Architecture | Software Architect | `docs/mobile/architecture/*` (+ ADR/) | DONE |
-| Design | UI Designer | `docs/mobile/design/**` (tokens.json, 17 prototypes + screenshots) | DONE |
-| Backend ext | Backend Architect | B1–B4 + `backend/tests/test_mobile_extensions_live.py` (29/29 PASS), `docs/mobile/integration/BACKEND_EXTENSIONS.md` | DONE |
-| Mobile foundation | Mobile App Builder | `mobile/` Expo SDK 58 / RN 0.88; 68 tests pass; debug APK built (long-path ninja workaround) | DONE |
-| UI kit + shell | Mobile App Builder | components, nav shell, SCREEN_TO_CODE_MAPPING, `scripts/mobile/build-android-debug.ps1` | running |
-| Waiter slice | Mobile App Builder | `src/features/waiter`, `app/(waiter)` | next |
-| KDS/Manager/Admin slice | Mobile App Builder | `src/features/{kitchen,manager,admin}` | next |
+## Test status (as recorded 2026-11-05; local backend + emulator)
 
-## Implementation notes (orchestrator)
-
-- Send = per-line `POST /tickets/<id>/items` with BOTH `Idempotency-Key` (B1) and `X-Ticket-Version`. With B1: retry → 200 same line. Without B1: retry → 409 → refetch, mark line "verificar" — never duplicates.
-- TanStack mutations `networkMode: 'always'` (fail fast offline, no silent queue).
-- One chit per item accepted (web POS does same). Batch endpoint = P2.
-
-## Fix-pass queue (after feature slices)
-
-| # | Sev | Issue | Source |
-|---|---|---|---|
-| F1 | HIGH | NetInfo uses internet reachability → bar LAN without internet shows offline. Configure reachability to POS `/api/v1/health` (or rely on health/socket). | REAL_BACKEND_VALIDATION §0 |
-| F2 | HIGH | Debug APK needs Metro → produce standalone APK (release variant signed with debug keystore, never production creds). | same |
-| F3 | MED | Server URL without port should default `:8080`. | same |
-| F4 | MED | Mutations must use `networkMode: 'always'` (verify after slices). | same |
-| F5 | LOW | NETWORKING_AND_SYNC.md says no `X-Ticket-Version` on add — update doc to match decision (send both). INTEGRATION_STRATEGY says 400/VARCHAR(36) for idempotency — actual 422/VARCHAR(64). | same |
-| F6 | LOW | Verify KDS 15 s poll + `test:contract` script exist after slices. | same |
+| Layer | Result |
+|---|---|
+| Unit/component (`npm test`) | 34 suites, 443/443 pass |
+| `tsc --noEmit`, `expo lint` | clean |
+| Contract vs real local backend (`npm run test:contract`) | 3 suites, 56/56 pass |
+| Backend live (B1-B4) | ALL PASSED (31/31 per fix-pass note; QA counted 30 PASS lines) |
+| Maestro E2E on release APK | Journeys J1-J8 pass; after the last UI fix round only the waiter order, kitchen login and KDS landscape flows were re-run |
+| NOT verified | real bar network/data, physical phones, iOS, print agent, multi-device realtime, in-flight send failure, manager PIN success paths, TalkBack, bar-staff station |
 
 ## Blockers / external dependencies
 
-- Bar machine access (real data, real network, print agent) — not available. Local docker backend substitutes.
-- Mac for iOS — not available.
-- Windows Firewall inbound TCP 8090 (Private profile) unverified for real phones; opening needs admin — documented, not changed.
-- Login rate limit 10/min shared bucket — tests must reuse tokens.
+- Bar machine access (real data, network, print agent): not available.
+- Windows Firewall inbound TCP 8080 (Private profile) needs admin; not changed.
+- Mac for iOS: not available.
+- Venue signing keystore: not created.
+- Cleartext LAN HTTP, public debug keystore, refresh token not revoked server-side, unauthenticated socket rooms: accepted residual risks (SECURITY_MODEL section 10).
 
-## Test status
+## Next executable tasks (ordered)
 
-None yet.
+1. **Bar-machine deployment checklist** (`integration/BAR_MACHINE_REQUIREMENTS.md`): backup, deploy backend with B1-B4 + migrations 002/003, check `SELECT count(*) FROM movement_event_types;` returns 14, firewall rule TCP 8080 Private, DHCP reservation, Wi-Fi client isolation off, per-staff accounts/PINs, ProxyFix for per-client rate limits.
+2. **Real-network validation** (`integration/REAL_BACKEND_VALIDATION.md`): physical phones, repeat J1-J8, multi-device realtime, in-flight send failure, LAN without internet, manager PIN paths, bar-staff station, print.
+3. **Re-sign the APK with a venue-owned keystore** kept outside the repo; do not put the current APK on staff phones.
+4. **Deferred review findings**: server-side forward-only queue transitions (M7), socket authentication, server PIN rate limit, HTTPS at nginx (SEC-01), screenshot protection, AppState handling, remaining low items (report section 11).
+5. **iOS on a Mac** (`ios/MAC_SETUP.md`, `ios/IOS_READINESS.md`).
 
-## Next executable tasks
-
-See Workstreams table.
+Housekeeping: delete the stray empty file `d:	mp_ready.cjs` manually; `mobile/README.md` still describes placeholders and needs a refresh.
