@@ -112,6 +112,7 @@ export function ProfileScreen({ tabs, back }: { tabs?: boolean; back?: boolean }
         <>
           <SectionHeader title={t('update.check')} />
           <View style={styles.card}>
+            {upd.ready && !upd.open && <AppButton label={t('update.downloaded')} icon="download" onPress={upd.reopen} testID="profile-update-ready" />}
             {upd.configured ? (
               <AppButton label={t('update.check')} icon="update" variant="secondary" loading={upd.busy === 'check'} onPress={() => void upd.check(true)} testID="profile-check-update" />
             ) : (

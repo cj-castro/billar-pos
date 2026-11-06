@@ -5,7 +5,8 @@ import { AppButton } from '../components/AppButton';
 import { AppText } from '../components/AppText';
 import { SheetModal } from '../features/common/SheetModal';
 import { colors, radii } from '../theme/tokens';
-import { checkForUpdate, downloadAndInstall, updatesConfigured, type FoundUpdate } from './updater';
+import { useToast } from '../components/Toast';
+import { checkForUpdate, downloadUpdate, launchInstaller, updatesConfigured, type FoundUpdate } from './updater';
 
 /** Local state only (no store): one instance per surface (auto-check, Profile row, update-required screen). */
 export function useUpdater() {
@@ -15,6 +16,8 @@ export function useUpdater() {
   const [busy, setBusy] = useState<'check' | 'download' | null>(null);
   const [pct, setPct] = useState(0);
   const [msg, setMsg] = useState('');
+  const [ready, setReady] = useState(false);
+  const toast = useToast();
 
   const check = useCallback(
     async (force: boolean) => {
@@ -24,6 +27,7 @@ export function useUpdater() {
         const f = await checkForUpdate(force);
         if (f) {
           setFound(f);
+          setReady(false);
           setOpen(true);
         } else if (force) setMsg(t('update.upToDate'));
       } catch {
@@ -35,14 +39,21 @@ export function useUpdater() {
     [t],
   );
 
+  const launch = (f: FoundUpdate) => {
+    // Not awaited for UI state: the promise does not settle when the user leaves the installer (Cancel / Settings detour).
+    launchInstaller(f).catch(() => toast.show({ tone: 'error', title: t('update.failed') }));
+  };
+
   const install = async () => {
     if (!found) return;
+    if (ready) return launch(found);
     setBusy('download');
     setPct(0);
     setMsg('');
     try {
-      await downloadAndInstall(found, setPct);
-      setOpen(false);
+      await downloadUpdate(found, setPct);
+      setReady(true);
+      launch(found);
     } catch {
       setMsg(t('update.failed'));
     } finally {
@@ -50,7 +61,7 @@ export function useUpdater() {
     }
   };
 
-  return { found, open, busy, pct, msg, check, install, close: () => setOpen(false), configured: updatesConfigured() };
+  return { found, open, ready, busy, pct, msg, check, install, reopen: () => setOpen(true), close: () => setOpen(false), configured: updatesConfigured() };
 }
 
 export type Updater = ReturnType<typeof useUpdater>;
@@ -61,7 +72,7 @@ export function UpdateSheet({ u }: { u: Updater }) {
   const dl = u.busy === 'download';
   return (
     <SheetModal visible={u.open && !!u.found} onClose={dl ? undefined : u.close} testID="update-sheet">
-      <AppText variant="title">{t('update.available', { v: u.found?.version })}</AppText>
+      <AppText variant="title">{u.ready ? t('update.ready') : t('update.available', { v: u.found?.version })}</AppText>
       {!!u.found?.notes && (
         <ScrollView style={styles.notes}>
           <AppText variant="body" color={colors.textSecondary}>{u.found.notes}</AppText>
@@ -73,8 +84,8 @@ export function UpdateSheet({ u }: { u: Updater }) {
         </View>
       )}
       {!!u.msg && <AppText variant="label" color={colors.dangerText}>{u.msg}</AppText>}
-      <AppButton label={dl ? t('update.downloading', { pct: Math.round(u.pct * 100) }) : t('update.install')} icon="download" size="lg" fullWidth loading={dl} onPress={() => void u.install()} testID="update-install" />
-      <AppButton label={t('update.later')} variant="ghost" size="lg" fullWidth disabled={dl} onPress={u.close} testID="update-later" />
+      <AppButton label={dl ? t('update.downloading', { pct: Math.round(u.pct * 100) }) : u.ready ? t('update.installNow') : t('update.install')} icon="download" size="lg" fullWidth loading={dl} onPress={() => void u.install()} testID="update-install" />
+      <AppButton label={u.ready ? t('update.closeSheet') : t('update.later')} variant="ghost" size="lg" fullWidth disabled={dl} onPress={u.close} testID="update-later" />
     </SheetModal>
   );
 }

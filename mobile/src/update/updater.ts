@@ -77,26 +77,35 @@ export async function checkForUpdate(force: boolean): Promise<FoundUpdate | null
 const FLAG_GRANT_READ_URI_PERMISSION = 1;
 const FLAG_ACTIVITY_NEW_TASK = 0x10000000;
 
-/** Download (with progress 0..1), verify md5, hand the APK to the system installer. Throws on any failure. */
-export async function downloadAndInstall(u: FoundUpdate, onProgress: (p: number) => void): Promise<void> {
+const destOf = (FS: typeof import('expo-file-system/legacy'), u: FoundUpdate) => `${FS.cacheDirectory}bola8-staff-${u.version}-${u.build}.apk`; // never derived from latest.json's apk string
+
+/** Download (with progress 0..1) and verify md5; reuses an already-downloaded file whose md5 still matches. Throws on any failure. */
+export async function downloadUpdate(u: FoundUpdate, onProgress: (p: number) => void): Promise<void> {
   const FS = await import('expo-file-system/legacy');
-  const IL = await import('expo-intent-launcher');
-  const dest = `${FS.cacheDirectory}bola8-staff-${u.version}-${u.build}.apk`; // never derived from latest.json's apk string
+  const dest = destOf(FS, u);
+  // ponytail: expo-crypto cannot hash files, so the device verifies md5 (FileSystem.getInfoAsync); sha256 in latest.json is for humans/audit.
+  // Integrity vs. accidental corruption only: authenticity comes from Android's APK signature check (same keystore) at install time.
+  const cached = await FS.getInfoAsync(dest, { md5: true });
+  if (cached.exists && cached.md5?.toLowerCase() === u.md5) return onProgress(1);
   await FS.deleteAsync(dest, { idempotent: true });
   const dl = FS.createDownloadResumable(u.apkUrl, dest, { headers: authHeaders(u.apkUrl, 'application/octet-stream') }, (p) =>
     onProgress(p.totalBytesExpectedToWrite > 0 ? p.totalBytesWritten / p.totalBytesExpectedToWrite : 0),
   );
   const res = await dl.downloadAsync();
   if (res?.status !== 200) throw new Error(`download HTTP ${res?.status}`);
-  // ponytail: expo-crypto cannot hash files, so the device verifies md5 (FileSystem.getInfoAsync); sha256 in latest.json is for humans/audit.
-  // Integrity vs. accidental corruption only: authenticity comes from Android's APK signature check (same keystore) at install time.
   const info = await FS.getInfoAsync(dest, { md5: true });
   if (!info.exists || info.md5?.toLowerCase() !== u.md5) {
     await FS.deleteAsync(dest, { idempotent: true });
     throw new Error('md5 mismatch');
   }
+}
+
+/** Hands the downloaded APK to the system installer. The promise may never settle if the user leaves the installer: callers must not block UI state on it. */
+export async function launchInstaller(u: FoundUpdate): Promise<void> {
+  const FS = await import('expo-file-system/legacy');
+  const IL = await import('expo-intent-launcher');
   await IL.startActivityAsync('android.intent.action.VIEW', {
-    data: await FS.getContentUriAsync(dest),
+    data: await FS.getContentUriAsync(destOf(FS, u)),
     type: 'application/vnd.android.package-archive',
     flags: FLAG_GRANT_READ_URI_PERMISSION | FLAG_ACTIVITY_NEW_TASK,
   });
