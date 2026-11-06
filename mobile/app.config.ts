@@ -40,7 +40,18 @@ const config: ExpoConfig = {
   backgroundColor: '#0f172a',
   ios: {
     bundleIdentifier: 'com.bola8.staff',
+    buildNumber: String(APP_BUILD), // CFBundleVersion; mirrors Android versionCode
     supportsTablet: false,
+    infoPlist: {
+      // Internal staff app distributed outside the App Store (TestFlight / Ad Hoc). It talks plain HTTP to the
+      // venue's LAN / Tailscale IP, which has no stable hostname, so ATS is relaxed globally (no per-domain
+      // exceptions). Same trade-off as Android's usesCleartextTraffic below; ROADMAP: terminate TLS at nginx.
+      NSAppTransportSecurity: {
+        NSAllowsArbitraryLoads: true,
+        NSAllowsLocalNetworking: true,
+      },
+      NSLocalNetworkUsageDescription: 'La app se conecta al servidor del bar en la red local.',
+    },
   },
   android: {
     package: 'com.bola8.staff',
