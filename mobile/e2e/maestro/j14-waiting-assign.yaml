@@ -22,12 +22,24 @@ env:
 - tapOn:
     id: waiting-name
 - inputText: Familia Ruiz
-- hideKeyboard
+- runFlow: _hide-keyboard.yaml
 - tapOn:
     id: waiting-save
-- extendedWaitUntil:
-    visible: "Familia Ruiz"
-    timeout: 10000
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - extendedWaitUntil:
+          visible: "Familia Ruiz"
+          timeout: 10000
+# iOS merges the card texts into one accessibility element ("Familia Ruiz, 2 personas, ..."), so match by substring
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - extendedWaitUntil:
+          visible: ".*Familia Ruiz.*"
+          timeout: 10000
 - takeScreenshot: j14-waiting-list
 - tapOn: "Asignar"
 - extendedWaitUntil:

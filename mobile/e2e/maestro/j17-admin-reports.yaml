@@ -10,7 +10,17 @@ env:
     visible:
       id: screen-overview
     timeout: 20000
-- tapOn: "Reportes"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn: "Reportes"
+# iOS labels bottom tabs as one accessibility element ("Reportes, tab, 5 of 9"), so match by prefix (hidden tabs count too)
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Reportes, tab.*"
 - extendedWaitUntil:
     visible:
       id: screen-reportes

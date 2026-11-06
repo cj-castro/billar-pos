@@ -11,7 +11,17 @@ env:
     visible:
       id: screen-overview
     timeout: 20000
-- tapOn: Caja
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn: Caja
+# iOS labels bottom tabs as one accessibility element ("Caja, tab, 4 of 9"), so match by prefix (hidden tabs count too)
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Caja, tab.*"
 - extendedWaitUntil:
     visible:
       id: screen-cash
@@ -24,10 +34,11 @@ env:
     commands:
       - tapOn:
           id: cash-open-btn
+      # the amount "pad" is a decimal text field in the current app (was a keypad: fund-pad-5, fund-pad-00)
       - tapOn:
-          id: fund-pad-5
-      - tapOn:
-          id: fund-pad-00
+          id: fund-pad
+      - inputText: "500"
+      - runFlow: _hide-keyboard.yaml
       - assertVisible:
           id: fund-pad-amount
       - tapOn:
@@ -50,7 +61,7 @@ env:
 - tapOn:
     id: expense-amount
 - inputText: "50"
-- hideKeyboard
+- runFlow: _hide-keyboard.yaml
 - tapOn:
     id: expense-save
 - extendedWaitUntil:
@@ -63,18 +74,27 @@ env:
     visible:
       id: cash-close-btn
     timeout: 5000
+# iOS: the close button sits under the translucent tab bar after scrollUntilVisible's default stop, so a plain tap
+# lands on a tab; centre it first
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: cash-close-btn
+          centerElement: true
 - tapOn:
     id: cash-close-btn
 - extendedWaitUntil:
     visible:
-      id: count-pad-4
+      id: count-pad
     timeout: 5000
+# the amount "pad" is a decimal text field in the current app (was a keypad: count-pad-4, -5, -0)
 - tapOn:
-    id: count-pad-4
-- tapOn:
-    id: count-pad-5
-- tapOn:
-    id: count-pad-0
+    id: count-pad
+- inputText: "450"
+- runFlow: _hide-keyboard.yaml
 - assertVisible:
     id: close-diff
 - takeScreenshot: 16-cash-close-sheet
