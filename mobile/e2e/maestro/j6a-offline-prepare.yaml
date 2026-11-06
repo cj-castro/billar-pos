@@ -1,0 +1,38 @@
+# J6a: waiter login -> open T06 -> add Soda -> stop on draft screen (host then enables airplane mode).
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- tapOn:
+    id: floor-card-T06
+- extendedWaitUntil:
+    visible:
+      id: open-table-submit
+    timeout: 10000
+- tapOn:
+    id: open-table-submit
+- extendedWaitUntil:
+    visible:
+      id: ticket-add-products
+    timeout: 15000
+- tapOn:
+    id: ticket-add-products
+- extendedWaitUntil:
+    visible:
+      id: menu-search
+    timeout: 10000
+- tapOn:
+    id: menu-item-c3e595db-04a6-4767-b4a8-dca352325c30
+- tapOn:
+    id: menu-review-order
+- extendedWaitUntil:
+    visible:
+      id: draft-send
+    timeout: 10000

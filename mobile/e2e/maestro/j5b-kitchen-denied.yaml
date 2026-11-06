@@ -1,0 +1,21 @@
+# J5b: kitchen user deep-links into the waiter floor / ready tab / manager overview -> denied.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: kitchen
+  PASS: kitchen123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-kds
+    timeout: 20000
+- openLink: bola8staff:///floor
+- assertVisible: Esta sección no es para tu rol
+- takeScreenshot: 16b-kitchen-denied-floor
+- assertNotVisible:
+    id: screen-floor
+- openLink: bola8staff:///ready
+- assertVisible: Esta sección no es para tu rol
+- openLink: bola8staff:///overview
+- assertVisible: Esta sección no es para tu rol

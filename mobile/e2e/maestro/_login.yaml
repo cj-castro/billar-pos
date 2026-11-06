@@ -1,4 +1,6 @@
 # Subflow: first-launch server setup (only if shown) + login. Env: SERVER, USER_NAME, PASS.
+appId: com.bola8.staff
+---
 - launchApp:
     clearState: true
 - runFlow:
@@ -9,6 +11,7 @@
       - tapOn:
           id: server-input
       - inputText: ${SERVER}
+      - hideKeyboard
       - tapOn:
           id: server-connect
       - extendedWaitUntil:

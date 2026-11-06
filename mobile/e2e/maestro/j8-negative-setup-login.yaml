@@ -1,0 +1,58 @@
+# J8: unreachable server message on setup (10.0.2.2:9999), then valid server + invalid credentials message.
+appId: com.bola8.staff
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: server-input
+    timeout: 15000
+- takeScreenshot: 01-server-setup
+- tapOn:
+    id: server-input
+- inputText: 10.0.2.2:9999
+- hideKeyboard
+- tapOn:
+    id: server-connect
+- waitForAnimationToEnd:
+    timeout: 8000
+- extendedWaitUntil:
+    visible: ".*(alcanzar|conectar|No se pudo|servidor).*"
+    timeout: 20000
+- assertNotVisible:
+    id: server-ok
+- takeScreenshot: 14-setup-unreachable
+- tapOn:
+    id: server-input
+- eraseText: 40
+- inputText: 10.0.2.2:8090
+- hideKeyboard
+- tapOn:
+    id: server-connect
+- extendedWaitUntil:
+    visible:
+      id: server-ok
+    timeout: 15000
+- tapOn:
+    id: server-continue
+- extendedWaitUntil:
+    visible:
+      id: login-username
+    timeout: 15000
+- takeScreenshot: 02-login
+- tapOn:
+    id: login-username
+- inputText: waiter1
+- tapOn:
+    id: login-password
+- inputText: wrongpass
+- hideKeyboard
+- tapOn:
+    id: login-submit
+- extendedWaitUntil:
+    visible:
+      id: login-error
+    timeout: 15000
+- takeScreenshot: 02c-login-invalid-credentials
+- assertNotVisible:
+    id: screen-floor
