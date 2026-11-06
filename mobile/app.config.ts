@@ -63,6 +63,7 @@ const config: ExpoConfig = {
     softwareKeyboardLayoutMode: 'resize',
     predictiveBackGestureEnabled: false,
     allowBackup: false, // SEC-15
+    permissions: ['android.permission.REQUEST_INSTALL_PACKAGES'], // in-app APK self-update (src/update)
     // SEC-13: Expo template defaults this app never uses
     blockedPermissions: ['android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE'],
   },
@@ -89,7 +90,11 @@ const config: ExpoConfig = {
   ],
   experiments: { reactCompiler: true },
   // Auto-discovery (src/net/discovery.ts): probed in order before the LAN scan. DHCP may move the bar PC; Tailscale is the fallback.
-  extra: { serverCandidates: ['http://192.168.1.24:8080', 'http://100.78.80.83:8080'] },
+  // updates: private GitHub releases repo + read-only fine-grained PAT injected at build time (token optional: empty => anonymous checks, works once the repo is public; latestUrl overrides the GitHub API for a self-hosted latest.json / emulator tests). See docs/mobile/release/UPDATES_GITHUB.md.
+  extra: {
+    serverCandidates: ['http://192.168.1.24:8080', 'http://100.78.80.83:8080'],
+    updates: { owner: 'zedfauji', repo: 'bola8-staff-releases', token: process.env.BOLA8_UPDATES_TOKEN ?? '', latestUrl: process.env.BOLA8_UPDATES_LATEST_URL ?? '' },
+  },
 };
 
 export default withReleaseSigning(config);
