@@ -1,0 +1,54 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { qk } from '../../../api/queryKeys';
+import { useToast } from '../../../components/Toast';
+import { joinRoom, leaveRoom, useRealtimeEvent } from '../../../realtime/socket';
+import { useAuthStore } from '../../../state/authStore';
+import { haptic } from '../../../utils/haptics';
+import { classifyReadyEvent, type ItemEvent } from './readyEvents';
+
+/**
+ * Mounted once for the whole waiter group (any screen): joins the public `kitchen` and `bar` rooms (WAITER does
+ * not get them from `roomsForRole`) and turns READY events of MY tickets into a toast + haptic (OV-02).
+ */
+export function useReadyNotifications() {
+  const { t } = useTranslation('mobile');
+  const router = useRouter();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const userId = useAuthStore((s) => s.user?.id);
+  const seen = useRef(new Set<string>());
+
+  useEffect(() => {
+    joinRoom('kitchen');
+    joinRoom('bar');
+    return () => {
+      leaveRoom('kitchen');
+      leaveRoom('bar');
+    };
+  }, []);
+
+  const onEvent = useCallback(
+    (payload: Record<string, unknown> | undefined) => {
+      const d = classifyReadyEvent(payload as ItemEvent | undefined, userId, seen.current);
+      if (d.action === 'refetch') {
+        // B2 absent: ownership unknown, so just refresh the lists (badge + Listos tab follow).
+        void qc.invalidateQueries({ queryKey: ['queue'] });
+        void qc.invalidateQueries({ queryKey: [...qk.resources, 'open-tickets'] });
+      } else if (d.action === 'notify') {
+        haptic.success();
+        toast.show({
+          tone: 'success',
+          title: t('waiter.ready.toastTitle', { name: d.name, code: d.code }),
+          action: { label: t('waiter.ready.toastView'), onPress: () => router.push(`/ticket/${d.ticketId}`) },
+        });
+      }
+    },
+    [userId, qc, toast, t, router],
+  );
+
+  useRealtimeEvent('kitchen:item_update', onEvent);
+  useRealtimeEvent('bar:item_update', onEvent);
+}

@@ -85,6 +85,8 @@ export interface ConnectOptions {
 let socket: Socket | null = null;
 let opts: ConnectOptions | null = null;
 const ticketRooms = new Set<string>();
+/** Extra public rooms a feature wants regardless of role (e.g. WAITER -> kitchen + bar for READY events). */
+const extraRooms = new Set<string>();
 
 /** Rooms a role subscribes to on connect (web useSocket.joinRooms). */
 export function roomsForRole(role: string): { room: string; withToken?: boolean }[] {
@@ -100,6 +102,7 @@ function joinAll() {
   for (const { room, withToken } of roomsForRole(opts.role))
     socket.emit('join', withToken ? { room, token: opts.getToken() } : { room });
   ticketRooms.forEach((id) => socket!.emit('join', { room: `ticket:${id}` }));
+  extraRooms.forEach((room) => socket!.emit('join', { room }));
 }
 
 export function connectSocket(o: ConnectOptions) {
@@ -138,7 +141,13 @@ export function disconnectSocket() {
   socket = null;
   opts = null;
   ticketRooms.clear();
+  extraRooms.clear();
   setConn('disconnected');
+}
+
+/** Name of the active Socket.IO transport ('websocket' | 'polling'), null when not connected. */
+export function socketTransport(): string | null {
+  return socket?.connected ? (socket.io.engine?.transport?.name ?? null) : null;
 }
 
 export function joinTicket(id: string) {
@@ -149,6 +158,17 @@ export function joinTicket(id: string) {
 export function leaveTicket(id: string) {
   ticketRooms.delete(id);
   if (socket?.connected) socket.emit('leave', { room: `ticket:${id}` });
+}
+
+/** Join a public room (floor/kitchen/bar...); re-joined on every reconnect. Pair with `leaveRoom`. */
+export function joinRoom(room: string) {
+  extraRooms.add(room);
+  if (socket?.connected) socket.emit('join', { room });
+}
+
+export function leaveRoom(room: string) {
+  extraRooms.delete(room);
+  if (socket?.connected && !(opts && roomsForRole(opts.role).some((r) => r.room === room))) socket.emit('leave', { room });
 }
 
 /** Hook for ticket screens: joins on mount, leaves on unmount. */

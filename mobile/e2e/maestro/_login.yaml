@@ -1,0 +1,32 @@
+# Subflow: first-launch server setup (only if shown) + login. Env: SERVER, USER_NAME, PASS.
+- launchApp:
+    clearState: true
+- runFlow:
+    when:
+      visible:
+        id: server-input
+    commands:
+      - tapOn:
+          id: server-input
+      - inputText: ${SERVER}
+      - tapOn:
+          id: server-connect
+      - extendedWaitUntil:
+          visible:
+            id: server-ok
+          timeout: 15000
+      - tapOn:
+          id: server-continue
+- extendedWaitUntil:
+    visible:
+      id: login-username
+    timeout: 15000
+- tapOn:
+    id: login-username
+- inputText: ${USER_NAME}
+- tapOn:
+    id: login-password
+- inputText: ${PASS}
+- hideKeyboard
+- tapOn:
+    id: login-submit

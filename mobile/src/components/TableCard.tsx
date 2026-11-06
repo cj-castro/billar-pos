@@ -13,6 +13,8 @@ export interface TableCardProps {
   /** ISO start of the pool timer. */
   timerStart?: string | null;
   timerStopped?: boolean;
+  /** Small caption next to the timer (e.g. "estimado": amounts/time are server-final only on close). */
+  timerLabel?: string;
   onPress?: () => void;
   /** Offline: dimmed, timer frozen with "~". */
   stale?: boolean;
@@ -20,7 +22,7 @@ export interface TableCardProps {
   testID?: string;
 }
 
-export function TableCard({ code, kind, state, customerName, timerStart, timerStopped, onPress, stale, disabled, testID }: TableCardProps) {
+export function TableCard({ code, kind, state, customerName, timerStart, timerStopped, timerLabel, onPress, stale, disabled, testID }: TableCardProps) {
   const { t } = useTranslation('mobile');
   const st = tableStatusStyle(state);
   const pool = kind === 'POOL';
@@ -65,9 +67,16 @@ export function TableCard({ code, kind, state, customerName, timerStart, timerSt
         </AppText>
       )}
       {!!timer && (
-        <AppText variant="bodyLg" bold style={styles.timer}>
-          {timer}
-        </AppText>
+        <View style={styles.row}>
+          <AppText variant="bodyLg" bold style={styles.timer}>
+            {timer}
+          </AppText>
+          {!!timerLabel && (
+            <AppText variant="caption" color={st.fg}>
+              {timerLabel}
+            </AppText>
+          )}
+        </View>
       )}
     </Pressable>
   );

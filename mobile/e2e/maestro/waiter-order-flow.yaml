@@ -1,0 +1,85 @@
+# Waiter: login -> pick a free table -> open it -> add items -> send -> lines show "Enviado".
+# Prereq: backend on :8090 with an OPEN cash session (manager: POST /cash/open) and Metro/app installed.
+# Run:  maestro --device emulator-5554 test e2e/maestro/waiter-order-flow.yaml        (env TABLE=T04 to pick another free table)
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+  TABLE: T05
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    when:
+      visible:
+        id: server-input
+    commands:
+      - tapOn:
+          id: server-input
+      - inputText: ${SERVER}
+      - hideKeyboard
+      - tapOn:
+          id: server-connect
+      - extendedWaitUntil:
+          visible:
+            id: server-ok
+          timeout: 15000
+      - tapOn:
+          id: server-continue
+- extendedWaitUntil:
+    visible:
+      id: login-username
+    timeout: 15000
+- tapOn:
+    id: login-username
+- inputText: ${USER_NAME}
+- tapOn:
+    id: login-password
+- inputText: ${PASS}
+- hideKeyboard
+- tapOn:
+    id: login-submit
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- tapOn:
+    id: floor-card-${TABLE}
+- extendedWaitUntil:
+    visible:
+      id: open-table-submit
+    timeout: 10000
+- tapOn:
+    id: open-table-submit
+- extendedWaitUntil:
+    visible:
+      id: ticket-add-products
+    timeout: 15000
+- tapOn:
+    id: ticket-add-products
+- extendedWaitUntil:
+    visible:
+      id: menu-search
+    timeout: 10000
+- inputText: soda
+- hideKeyboard
+- tapOn: "Soda.*"
+- tapOn:
+    id: menu-review-order
+- extendedWaitUntil:
+    visible:
+      id: draft-send
+    timeout: 10000
+- assertVisible: "Por enviar"
+- tapOn:
+    id: draft-send
+- extendedWaitUntil:
+    visible: "Pedido enviado a cocina y barra"
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      id: ticket-lines
+    timeout: 15000
+- assertVisible: "Enviado"
+# cleanup is done by the host (cancel/force-close the ticket): the table stays IN_USE until then

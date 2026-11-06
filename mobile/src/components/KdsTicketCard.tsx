@@ -31,6 +31,9 @@ export interface KdsTicketCardProps {
   /** Advances exactly one step (SENT -> IN_PROGRESS -> READY); the client enforces the order. */
   onAdvanceItem: (itemId: string) => void;
   onAllReady: () => void;
+  /** Optional explicit READY -> SERVED action, shown only when every item is READY. */
+  onServed?: () => void;
+  servedLabel?: string;
   /** Item ids with a request in flight. */
   advancingIds?: readonly string[];
   landscape?: boolean;
@@ -90,7 +93,7 @@ export function KdsItemRow({ item, busy, onAdvance }: { item: KdsItem; busy?: bo
   );
 }
 
-export function KdsTicketCard({ ticket, onAdvanceItem, onAllReady, advancingIds = [], landscape, now, testID }: KdsTicketCardProps) {
+export function KdsTicketCard({ ticket, onAdvanceItem, onAllReady, onServed, servedLabel, advancingIds = [], landscape, now, testID }: KdsTicketCardProps) {
   const { t } = useTranslation('mobile');
   const since = new Date(ticket.oldestSentAt).getTime();
   const clock = useNow(now);
@@ -117,9 +120,12 @@ export function KdsTicketCard({ ticket, onAdvanceItem, onAllReady, advancingIds 
       ))}
       <View style={styles.footer}>
         {allReady ? (
-          <AppText variant="body" bold color={colors.textMuted} style={styles.waiting}>
-            {t('kds.waiting')}
-          </AppText>
+          <>
+            <AppText variant="body" bold color={colors.textMuted} style={styles.waiting}>
+              {t('kds.waiting')}
+            </AppText>
+            {onServed && <AppButton label={servedLabel ?? 'OK'} variant="success" size="lg" fullWidth onPress={onServed} testID={`kds-served-${ticket.code}`} />}
+          </>
         ) : (
           <AppButton label={t('kds.allReady')} variant="secondary" size="lg" fullWidth onPress={onAllReady} testID={`kds-all-ready-${ticket.code}`} />
         )}

@@ -1,0 +1,16 @@
+# A waiter that deep-links into the manager (or kitchen) group is denied.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- openLink: bola8staff:///overview
+- assertVisible: Esta sección no es para tu rol
+- openLink: bola8staff:///queue
+- assertVisible: Esta sección no es para tu rol

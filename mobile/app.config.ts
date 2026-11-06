@@ -4,7 +4,7 @@ const config: ExpoConfig = {
   name: 'Bola 8 Staff',
   slug: 'bola8-staff',
   version: '0.1.0',
-  orientation: 'portrait',
+  orientation: 'default',
   icon: './assets/images/icon.png',
   scheme: 'bola8staff',
   userInterfaceStyle: 'dark',

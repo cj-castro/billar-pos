@@ -60,6 +60,17 @@ Mobile must degrade gracefully if B1/B2 absent (feature-detect: missing `ticket_
 - TanStack mutations `networkMode: 'always'` (fail fast offline, no silent queue).
 - One chit per item accepted (web POS does same). Batch endpoint = P2.
 
+## Fix-pass queue (after feature slices)
+
+| # | Sev | Issue | Source |
+|---|---|---|---|
+| F1 | HIGH | NetInfo uses internet reachability → bar LAN without internet shows offline. Configure reachability to POS `/api/v1/health` (or rely on health/socket). | REAL_BACKEND_VALIDATION §0 |
+| F2 | HIGH | Debug APK needs Metro → produce standalone APK (release variant signed with debug keystore, never production creds). | same |
+| F3 | MED | Server URL without port should default `:8080`. | same |
+| F4 | MED | Mutations must use `networkMode: 'always'` (verify after slices). | same |
+| F5 | LOW | NETWORKING_AND_SYNC.md says no `X-Ticket-Version` on add — update doc to match decision (send both). INTEGRATION_STRATEGY says 400/VARCHAR(36) for idempotency — actual 422/VARCHAR(64). | same |
+| F6 | LOW | Verify KDS 15 s poll + `test:contract` script exist after slices. | same |
+
 ## Blockers / external dependencies
 
 - Bar machine access (real data, real network, print agent) — not available. Local docker backend substitutes.
