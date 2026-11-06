@@ -16,3 +16,14 @@
 - [ ] `/reports/payments`: split tickets report tendered (tip + overpayment inclusive) in `total_cents` and tip twice; mobile Reportes "por método" inflated for Mixto. Fix server SQL (use allocated share of total) — web affected too, so do it in a web-safe way.
 - [ ] Web frontend: handle 403 `PIN_REQUIRED` on close if `waiter_can_close_ticket` ever enforced for web.
 - [ ] Pool estimate: confirm `rate_cents` unit (billing.py comment says $86/hr while value 8600).
+
+## iOS open items
+
+- [ ] Truncated headers on iPhone: "Lista d…" on Waiting, and the floor subtitle "Alice Waiter · Mes…". The header layout is shared across platforms, so this needs a cross-platform decision.
+- [ ] iOS "Save Password?" sheet appears after every login on shared staff phones. Product decision needed (keep, or suppress the save prompt).
+- [ ] "Bar cerrado" banner does not refresh when a cash session is opened through the API (no socket push). Pull-to-refresh is needed.
+- [ ] Local-network permission prompt not yet verified. Needs a physical iPhone on the LAN.
+- [ ] Keep-awake, haptics and the silent-mode chime cannot be verified on the simulator. Needs a device.
+- [ ] Maestro j12 touch-target audit uses a host-side `uiautomator dump`, which has no iOS equivalent. Not replaced.
+- [ ] Maestro j16 keypad steps changed for Android too (the keypad became a text field: `fund-pad` / `count-pad`). Re-verify on the Android emulator.
+- [ ] Physical iPhone build is pending (simulator only so far).
