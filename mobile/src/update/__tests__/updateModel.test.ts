@@ -12,6 +12,10 @@ describe('updateModel', () => {
       expect(parseLatest(bad)).toBeNull();
     }
   });
+  it('accepts an absolute http(s) apk URL (self-hosted latest.json) but not other paths', () => {
+    expect(parseLatest({ ...ok, apk: 'http://10.0.2.2:8765/x.apk' })?.apk).toBe('http://10.0.2.2:8765/x.apk');
+    expect(parseLatest({ ...ok, apk: 'file:///x.apk' })).toBeNull();
+  });
   it('compares builds as integers, not strings', () => {
     const l = parseLatest({ ...ok, build: 10 })!;
     expect(isNewerBuild(l, 9)).toBe(true);

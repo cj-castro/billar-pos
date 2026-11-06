@@ -16,3 +16,6 @@
 - [ ] `/reports/payments`: split tickets report tendered (tip + overpayment inclusive) in `total_cents` and tip twice; mobile Reportes "por método" inflated for Mixto. Fix server SQL (use allocated share of total) — web affected too, so do it in a web-safe way.
 - [ ] Web frontend: handle 403 `PIN_REQUIRED` on close if `waiter_can_close_ticket` ever enforced for web.
 - [ ] Pool estimate: confirm `rate_cents` unit (billing.py comment says $86/hr while value 8600).
+- [ ] Discovery scan assumes /24; make it netmask-aware (expo-network has no subnet mask API; derive from a candidate hit or accept /24).
+- [ ] Android API 37 (Android 17) introduces ACCESS_LOCAL_NETWORK runtime permission; when Expo targets SDK 37, request it before the LAN scan and candidate probes.
+- [ ] mDNS candidate (http://bola8pos.local:8080) on iOS only, if the bar PC ever runs a zeroconf responder; see Obsidian "Bar Network Access Plan 2026-11-06" §6c.

@@ -15,8 +15,8 @@ export function parseLatest(raw: unknown): LatestInfo | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
   const build = Number(o.build);
-  // apk must be a bare asset name: it is matched against the release's asset list, never used as a path/URL.
-  if (!Number.isInteger(build) || build < 1 || typeof o.version !== 'string' || typeof o.apk !== 'string' || /[\/]/.test(o.apk) || !o.apk) return null;
+  // apk is a bare asset name (matched against the release's asset list) or, for a self-hosted latest.json, an absolute http(s) URL.
+  if (!Number.isInteger(build) || build < 1 || typeof o.version !== 'string' || typeof o.apk !== 'string' || (/[\/]/.test(o.apk) && !/^https?:\/\/[^\s]+$/.test(o.apk)) || !o.apk) return null;
   if (typeof o.md5 !== 'string' || !/^[0-9a-f]{32}$/i.test(o.md5)) return null;
   return {
     version: o.version,
