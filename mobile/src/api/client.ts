@@ -107,6 +107,7 @@ function refreshOnce(): Promise<string> {
 
 async function doRefresh(): Promise<string> {
   const refresh = bridge?.getRefreshToken();
+  const base = getServerUrl();
   if (!refresh) {
     await bridge?.onSessionExpired();
     throw new ApiError({ status: 401, code: 'NO_REFRESH_TOKEN', message: 'Session expired' });
@@ -118,7 +119,7 @@ async function doRefresh(): Promise<string> {
     } as ClientRequestConfig);
     const token = res.data.access_token;
     // SEC-10: the session ended (logout / user switch) while the refresh was in flight: drop the result.
-    if (bridge?.getRefreshToken() !== refresh) throw new ApiError({ status: null, code: 'SESSION_ENDED', message: 'Session ended' });
+    if (bridge?.getRefreshToken() !== refresh || getServerUrl() !== base) throw new ApiError({ status: null, code: 'SESSION_ENDED', message: 'Session ended' });
     await bridge?.setAccessToken(token);
     return token;
   } catch (e) {
@@ -139,6 +140,8 @@ client.interceptors.response.use(
     // M3/SEC-08: an app-level 401 (INVALID_PIN, INVALID_CREDENTIALS...) carries `error`; an expired JWT has flask-jwt's `{msg}` shape.
     const appCode = (error as AxiosError<{ error?: unknown }>)?.response?.data?.error;
     if (axios.isAxiosError(error) && error.response?.status === 401 && typeof appCode !== 'string' && cfg && !cfg._retry && !cfg._isRefresh && !cfg._noAuth) {
+      // A 401 from a host we have since left must not trigger a refresh (or a retry) against the new one.
+      if (cfg.baseURL !== `${getServerUrl()}/api/v1`) throw toApiError(error);
       cfg._retry = true;
       const token = await refreshOnce(); // throws ApiError on failure
       cfg.headers.Authorization = `Bearer ${token}`;

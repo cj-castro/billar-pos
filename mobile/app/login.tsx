@@ -63,7 +63,7 @@ export default function LoginScreen() {
           <AppText variant="label" color={colors.textSecondary} numberOfLines={1} style={styles.host}>
             {host}
           </AppText>
-          <AppButton label={t('setup.change')} variant="ghost" onPress={() => router.push('/setup')} testID="change-server" style={styles.change} />
+          <AppButton label={t('setup.change')} variant="ghost" onPress={() => router.push('/setup')} testID="change-server" disabled={busy} style={styles.change} />
         </View>
       </View>
 

@@ -1,10 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
-import { setAuthBridge } from '../api/client';
+import { ApiError, setAuthBridge } from '../api/client';
 import * as authApi from '../api/endpoints/auth';
 import type { User } from '../domain/types';
 import { useDraftStore } from '../features/waiter/draft/draftStore';
+import { getServerUrl, onServerUrlChange } from '../config/serverConfig';
 import { disconnectSocket } from '../realtime/socket';
 import { queryClient } from './queryClient';
 
@@ -23,6 +24,16 @@ interface AuthState {
   setUser: (user: User) => void;
   logout: () => Promise<void>;
 }
+
+/**
+ * Session generation. Bumped on logout, session expiry and server change; a login response that
+ * started under an older generation (or another host) is discarded, never persisted.
+ */
+let authEpoch = 0;
+export const getAuthEpoch = () => authEpoch;
+onServerUrlChange(() => {
+  authEpoch++;
+});
 
 async function clearPersisted() {
   await Promise.all([
@@ -55,7 +66,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   login: async (username, password) => {
+    const base = getServerUrl();
+    const epoch = ++authEpoch; // a newer login supersedes any older one still in flight
     const res = await authApi.login(username.trim(), password);
+    if (epoch !== authEpoch || getServerUrl() !== base) {
+      throw new ApiError({ status: null, code: 'SESSION_ENDED', message: 'Login superseded' });
+    }
     await Promise.all([
       SecureStore.setItemAsync(ACCESS_KEY, res.access_token),
       SecureStore.setItemAsync(REFRESH_KEY, res.refresh_token),
@@ -78,6 +94,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    authEpoch++; // discard any login still in flight
     const hadToken = !!get().accessToken;
     // Best effort server-side revoke of the access jti; never block local logout on it.
     if (hadToken) await authApi.logout().catch(() => {});
@@ -97,6 +114,7 @@ setAuthBridge({
   setAccessToken: (t) => useAuthStore.getState().setAccessToken(t),
   onSessionExpired: async () => {
     // Already rejected by the server: skip the logout round-trip.
+    if (useAuthStore.getState().refreshToken) authEpoch++; // not when idle: a stale 401 must not kill a fresh login
     useAuthStore.setState({ user: null, accessToken: null, refreshToken: null });
     await clearPersisted();
     queryClient.clear();

@@ -3,8 +3,11 @@ import { useRef, useState } from 'react';
 import { addItemIdem } from '../../../api/endpoints/ticketOps';
 import { qk } from '../../../api/queryKeys';
 import { haptic } from '../../../utils/haptics';
-import { useFetchTicketVersion } from '../queries';
-import { useDraftStore, type DraftLine } from './draftStore';
+import { toApiError } from '../../../api/client';
+import { getServerUrl } from '../../../config/serverConfig';
+import { useAuthStore } from '../../../state/authStore';
+import { fetchTicketVersion } from '../queries';
+import { getDraftEpoch, useDraftStore, type DraftLine } from './draftStore';
 import { sendDraft, sendableLines, type SendResult } from './sendOrchestrator';
 
 /** Tickets with a send in flight (survives screen unmounts): a second tap is a no-op. */
@@ -17,7 +20,6 @@ const inFlight = new Set<string>();
  */
 export function useSendDraft(ticketId: string) {
   const qc = useQueryClient();
-  const fetchVersion = useFetchTicketVersion();
   const guard = useRef(false);
   /** Lines confirmed in the current run, kept for the "Enviado" flash (they are already gone from the store). */
   const [sentView, setSentView] = useState<DraftLine[]>([]);
@@ -30,6 +32,10 @@ export function useSendDraft(ticketId: string) {
       inFlight.add(ticketId);
       try {
         const store = useDraftStore.getState();
+        // Run binding: this run may only act for the session + server + draft generation it started in.
+        const bound = { epoch: getDraftEpoch(), userId: useAuthStore.getState().user?.id ?? null, server: getServerUrl() };
+        const bindingHolds = () => getDraftEpoch() === bound.epoch && (useAuthStore.getState().user?.id ?? null) === bound.userId && getServerUrl() === bound.server;
+        const isLive = (key: string) => bindingHolds() && (useDraftStore.getState().byTicket[ticketId] ?? []).some((l) => l.key === key);
         const lines = sendableLines(store.byTicket[ticketId] ?? []);
         if (!lines.length) return null;
         const byKey = new Map(lines.map((l) => [l.key, l]));
@@ -37,10 +43,19 @@ export function useSendDraft(ticketId: string) {
 
         let version: number | null = null;
         try {
-          version = await fetchVersion(ticketId);
-        } catch {
-          // unreadable (offline?): the first POST reports the real failure on its own line
+          version = await fetchTicketVersion(ticketId);
+        } catch (e) {
+          if (!bindingHolds()) return null;
+          const err = toApiError(e);
+          if (err.isNetwork || err.isTimeout) {
+            // Offline: nothing was posted. Show the lines as retryable; the waiter must tap Enviar again (nothing resumes on reconnect).
+            const s = useDraftStore.getState();
+            for (const l of lines) s.patchLine(ticketId, l.key, { state: 'FAILED', error: 'NETWORK', errorDetail: undefined });
+            return { sent: [], failed: lines.map((l) => l.key), stopped: 'network', b1: !!store.b1Confirmed[ticketId], version: null };
+          }
+          // other read failures: the first POST reports the real failure on its own line
         }
+        if (!bindingHolds()) return null;
 
         const result = await sendDraft({
           ticketId,
@@ -48,7 +63,8 @@ export function useSendDraft(ticketId: string) {
           version,
           b1Confirmed: !!store.b1Confirmed[ticketId],
           onB1: () => useDraftStore.getState().markB1(ticketId),
-          deps: { addItem: addItemIdem, fetchVersion },
+          isLive,
+          deps: { addItem: addItemIdem, fetchVersion: fetchTicketVersion },
           onUpdate: (key, patch) => {
             const s = useDraftStore.getState();
             if (patch.state === 'SENT') {
@@ -74,6 +90,7 @@ export function useSendDraft(ticketId: string) {
             }
           },
         });
+        if (result.stopped === 'aborted') return null;
         if (result.sent.length) haptic.light();
         return result;
       } finally {

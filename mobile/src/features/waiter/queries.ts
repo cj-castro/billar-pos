@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { getCashStatus } from '../../api/endpoints/cash';
 import { stockCheck } from '../../api/endpoints/inventory';
@@ -59,11 +59,11 @@ export function useReady() {
   };
 }
 
-/** Fresh ticket version for the send orchestrator (bypasses staleTime). */
-export function useFetchTicketVersion() {
-  const qc = useQueryClient();
-  return async (ticketId: string): Promise<number | null> => {
-    const t = await qc.fetchQuery({ queryKey: qk.ticket(ticketId), queryFn: () => getTicket(ticketId), staleTime: 0 });
-    return typeof t.version === 'number' ? t.version : null;
-  };
+/**
+ * Fresh ticket version for the send orchestrator. Direct call, not a query: a mutation prerequisite must fail fast
+ * offline (no networkMode 'offlineFirst' pause, no retry) so reconnecting can never silently resume a send (D7).
+ */
+export async function fetchTicketVersion(ticketId: string): Promise<number | null> {
+  const t = await getTicket(ticketId);
+  return typeof t.version === 'number' ? t.version : null;
 }

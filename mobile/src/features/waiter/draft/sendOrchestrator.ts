@@ -43,7 +43,7 @@ export type LinePatch =
   /** Definitive server rejection: the line was NOT created, so it is a fresh line again (`resetAttempt`). */
   | { state: 'FAILED'; error: DraftErrorCode; errorDetail?: string; resetAttempt?: boolean };
 
-export type StopReason = 'closed' | 'unauthorized' | 'network' | 'verify';
+export type StopReason = 'closed' | 'unauthorized' | 'network' | 'verify' | 'aborted';
 
 export interface SendResult {
   sent: string[];
@@ -66,16 +66,41 @@ export interface SendParams {
   onUpdate: (key: string, patch: LinePatch) => void;
   /** Called the first time a response carries `ticket_version`, so the caller can persist the flag. */
   onB1?: () => void;
+  /**
+   * Run binding (session/server/draft still the same, line still exists). Checked before every POST and after every
+   * await, before any callback: once false the run ends silently (no POST, no onUpdate/onB1).
+   */
+  isLive?: (key: string) => boolean;
 }
+
+const ABORT = Symbol('send-aborted');
 
 /** Server text is only a detail when it says something (toApiError's generic fallback is not). */
 const detailOf = (message: string) => (!message || /^Request failed \(\d+\)$/.test(message) ? undefined : message);
 
-export async function sendDraft({ ticketId, lines, version: initial, b1Confirmed = false, deps, onUpdate, onB1 }: SendParams): Promise<SendResult> {
+export async function sendDraft(params: SendParams): Promise<SendResult> {
+  const state = { sent: [] as string[], failed: [] as string[], b1: params.b1Confirmed ?? false, version: params.version };
+  try {
+    return await run(params, state);
+  } catch (e) {
+    if (e !== ABORT) throw e;
+    return { sent: state.sent, failed: state.failed, stopped: 'aborted', b1: state.b1, version: state.version };
+  }
+}
+
+async function run(
+  { ticketId, lines, version: initial, deps, onUpdate: rawUpdate, onB1: rawB1, isLive }: SendParams,
+  state: { sent: string[]; failed: string[]; b1: boolean; version: number | null },
+): Promise<SendResult> {
+  const check = (key: string) => {
+    if (isLive && !isLive(key)) throw ABORT;
+  };
+  let curKey = '';
+  const onUpdate: SendParams['onUpdate'] = (k, p) => (check(k), rawUpdate(k, p));
+  const onB1 = rawB1 ? () => (check(curKey), rawB1()) : undefined;
   let version = initial;
-  let b1 = b1Confirmed;
-  const sent: string[] = [];
-  const failed: string[] = [];
+  let b1 = state.b1;
+  const { sent, failed } = state;
 
   const refresh = async () => {
     try {
@@ -83,9 +108,12 @@ export async function sendDraft({ ticketId, lines, version: initial, b1Confirmed
     } catch {
       version = null; // no lock header; the server still protects stock/ticket state
     }
+    check(curKey);
   };
 
   for (const line of lines) {
+    curKey = line.key;
+    check(line.key);
     // Earlier attempt of unknown outcome? Then only the original version may be re-sent (H1).
     const retryOfUncertain = line.firstAttemptVersion !== undefined;
     if (retryOfUncertain && !b1 && line.firstAttemptVersion === null) {
@@ -99,6 +127,7 @@ export async function sendDraft({ ticketId, lines, version: initial, b1Confirmed
     let conflictRetried = false;
     let currentVersion = attemptVersion;
     for (;;) {
+      check(line.key); // before EVERY POST (incl. the VERSION_CONFLICT retry)
       try {
         const res = await deps.addItem(
           ticketId,
@@ -110,6 +139,7 @@ export async function sendDraft({ ticketId, lines, version: initial, b1Confirmed
           },
           { idempotencyKey: line.key, ...(currentVersion != null ? { ticketVersion: currentVersion } : {}) },
         );
+        check(line.key); // response after invalidation: nothing may touch the store
         if (typeof res?.ticket_version === 'number') {
           if (!b1) onB1?.();
           b1 = true;
@@ -121,6 +151,8 @@ export async function sendDraft({ ticketId, lines, version: initial, b1Confirmed
         onUpdate(line.key, { state: 'SENT' });
         break;
       } catch (e) {
+        if (e === ABORT) throw e;
+        check(line.key);
         const err = toApiError(e);
 
         if (err.status === 409 && err.code === 'VERSION_CONFLICT') {

@@ -71,6 +71,13 @@ const sameConfig = (a: DraftLine, b: NewDraftLine) =>
   a.notes.trim() === b.notes.trim() &&
   a.modifiers.map((m) => m.id).sort().join(',') === b.modifiers.map((m) => m.id).sort().join(',');
 
+/**
+ * Bumped whenever drafts are wiped for another session (logout / different user). In-flight send runs capture it at
+ * start and abort silently when it moves, so a late response never writes to, or posts for, the next user.
+ */
+let draftEpoch = 0;
+export const getDraftEpoch = () => draftEpoch;
+
 export const useDraftStore = create<DraftState>()(
   persist(
     (set, get) => ({
@@ -79,8 +86,10 @@ export const useDraftStore = create<DraftState>()(
       ownerId: null,
       claimDrafts: (userId) => {
         const { ownerId } = get();
-        if (ownerId && ownerId !== userId) set({ byTicket: {}, b1Confirmed: {}, ownerId: userId });
-        else if (ownerId !== userId) set({ ownerId: userId });
+        if (ownerId && ownerId !== userId) {
+          draftEpoch++;
+          set({ byTicket: {}, b1Confirmed: {}, ownerId: userId });
+        } else if (ownerId !== userId) set({ ownerId: userId });
       },
       markB1: (ticketId) => set((s) => (s.b1Confirmed[ticketId] ? s : { b1Confirmed: { ...s.b1Confirmed, [ticketId]: true } })),
 
@@ -125,7 +134,10 @@ export const useDraftStore = create<DraftState>()(
           return { byTicket };
         }),
 
-      clearAll: () => set({ byTicket: {}, b1Confirmed: {}, ownerId: null }),
+      clearAll: () => {
+        draftEpoch++;
+        set({ byTicket: {}, b1Confirmed: {}, ownerId: null });
+      },
     }),
     {
       name: 'bola8.waiter.drafts',
