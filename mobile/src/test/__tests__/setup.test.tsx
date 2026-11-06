@@ -11,7 +11,7 @@ import * as socket from '../../realtime/socket';
 import { renderWithProviders } from '../utils';
 
 const mockReplace = jest.fn();
-jest.mock('expo-router', () => ({ useRouter: () => ({ replace: mockReplace, push: jest.fn() }) }));
+jest.mock('expo-router', () => ({ useLocalSearchParams: () => ({}), useRouter: () => ({ replace: mockReplace, push: jest.fn() }) }));
 
 const store = (SecureStore as unknown as { __store: Map<string, string> }).__store;
 const user = { id: 'u1', username: 'ana', name: 'Ana', role: 'WAITER' as const, is_active: true };
