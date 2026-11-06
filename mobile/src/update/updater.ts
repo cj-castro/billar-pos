@@ -43,7 +43,7 @@ async function getJson(url: string, accept: string): Promise<unknown> {
 
 /** Returns the newer release, or null (up to date / 404 / rate limit / not configured / throttled when !force). Throws on network/parse errors. */
 export async function checkForUpdate(force: boolean): Promise<FoundUpdate | null> {
-  if (!updatesConfigured()) return null;
+  if (Platform.OS !== 'android' || !updatesConfigured()) return null;
   const last = Number(await AsyncStorage.getItem(LAST_CHECK_KEY)) || null;
   if (!force && !dueForCheck(last, Date.now())) return null;
   const { owner, repo, token, latestUrl } = cfg()!;
@@ -81,6 +81,7 @@ const destOf = (FS: typeof import('expo-file-system/legacy'), u: FoundUpdate) =>
 
 /** Download (with progress 0..1) and verify md5; reuses an already-downloaded file whose md5 still matches. Throws on any failure. */
 export async function downloadUpdate(u: FoundUpdate, onProgress: (p: number) => void): Promise<void> {
+  if (Platform.OS !== 'android') return;
   const FS = await import('expo-file-system/legacy');
   const dest = destOf(FS, u);
   // ponytail: expo-crypto cannot hash files, so the device verifies md5 (FileSystem.getInfoAsync); sha256 in latest.json is for humans/audit.
@@ -102,6 +103,7 @@ export async function downloadUpdate(u: FoundUpdate, onProgress: (p: number) => 
 
 /** Hands the downloaded APK to the system installer. The promise may never settle if the user leaves the installer: callers must not block UI state on it. */
 export async function launchInstaller(u: FoundUpdate): Promise<void> {
+  if (Platform.OS !== 'android') return; // APK installer intent only exists on Android; never touch expo-intent-launcher on iOS
   const FS = await import('expo-file-system/legacy');
   const IL = await import('expo-intent-launcher');
   await IL.startActivityAsync('android.intent.action.VIEW', {

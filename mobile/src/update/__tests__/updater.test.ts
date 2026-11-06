@@ -1,9 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { checkForUpdate } from '../updater';
+import { Platform } from 'react-native';
+import { checkForUpdate, downloadUpdate, launchInstaller, updatesConfigured } from '../updater';
 
 let mockUpdates: Record<string, string> = {};
 jest.mock('expo-constants', () => ({ __esModule: true, default: { get expoConfig() { return { extra: { updates: mockUpdates } }; } } }));
 jest.mock('react-native', () => ({ Platform: { OS: 'android' } }));
+const setOS = (os: string) => { (Platform as { OS: string }).OS = os; };
+const mockLauncher = jest.fn();
+jest.mock('expo-intent-launcher', () => ({ startActivityAsync: (...a: unknown[]) => mockLauncher(...a) }));
 jest.mock('../../config/version', () => ({ APP_BUILD: 4 }));
 
 const latest = { version: '1.2.0', build: 5, apk: 'bola8-staff-1.2.0-5.apk', notes: 'n', sha256: '', md5: 'a'.repeat(32) };
@@ -17,6 +21,8 @@ const res = (status: number, body: unknown = {}) => ({ ok: status >= 200 && stat
 const fetchMock = jest.fn();
 
 beforeEach(async () => {
+  setOS('android');
+  mockLauncher.mockReset();
   await AsyncStorage.clear();
   fetchMock.mockReset();
   (global as unknown as { fetch: unknown }).fetch = fetchMock;
@@ -69,5 +75,18 @@ describe('checkForUpdate', () => {
     mockUpdates = { owner: '', repo: '', token: 'tok', latestUrl: '' };
     await expect(checkForUpdate(true)).resolves.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('iOS: updater is inert', () => {
+  const upd = { ...latest, apkUrl: 'http://h/x.apk' };
+  it('never configured, never fetches, never launches the installer', async () => {
+    setOS('ios');
+    expect(updatesConfigured()).toBe(false);
+    await expect(checkForUpdate(true)).resolves.toBeNull();
+    await downloadUpdate(upd, () => {});
+    await launchInstaller(upd);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockLauncher).not.toHaveBeenCalled();
   });
 });

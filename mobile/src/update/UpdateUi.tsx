@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { AppButton } from '../components/AppButton';
 import { AppText } from '../components/AppText';
@@ -61,7 +61,7 @@ export function useUpdater() {
     }
   };
 
-  return { found, open, ready, busy, pct, msg, check, install, reopen: () => setOpen(true), close: () => setOpen(false), configured: updatesConfigured() };
+  return { found, open, ready, busy, pct, msg, check, install, reopen: () => setOpen(true), close: () => setOpen(false), configured: Platform.OS === 'android' && updatesConfigured() }; // Android-only: iOS never shows or runs the updater
 }
 
 export type Updater = ReturnType<typeof useUpdater>;
