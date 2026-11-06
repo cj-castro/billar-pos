@@ -116,7 +116,7 @@ describe('status PATCH', () => {
 });
 
 describe('socket: kitchen room (B2 payload)', () => {
-  it('kitchen:item_update carries ticket_id, resource_code, menu_item_name, quantity, opened_by', async () => {
+  it('kitchen:item_update carries ticket_id, resource_code, menu_item_name, quantity and no opened_by (SEC-05)', async () => {
     const id = order.kitchenLineIds[0]; // READY already; SERVED -> emits the event again
     const socket = io(BASE, { path: '/socket.io', transports: ['websocket'], reconnection: false, timeout: 6000 });
     try {
@@ -139,8 +139,9 @@ describe('socket: kitchen room (B2 payload)', () => {
         });
       });
       expect(payload).toEqual(
-        expect.objectContaining({ item_id: id, status: 'SERVED', ticket_id: order.ticketId, resource_code: order.resourceCode, menu_item_name: expect.any(String), quantity: 1, opened_by: expect.any(String) }),
+        expect.objectContaining({ item_id: id, status: 'SERVED', ticket_id: order.ticketId, resource_code: order.resourceCode, menu_item_name: expect.any(String), quantity: 1 }),
       );
+      expect(payload).not.toHaveProperty('opened_by');
     } finally {
       socket.close();
     }

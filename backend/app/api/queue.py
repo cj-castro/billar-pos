@@ -111,7 +111,8 @@ def update_status(item_id):
         'resource_code': ticket.resource.code if ticket and ticket.resource else None,
         'menu_item_name': item.menu_item.name if item.menu_item else item.item_name,
         'quantity': item.quantity,
-        'opened_by': ticket.opened_by if ticket else None,
+        # SEC-05: no staff ids here. kitchen/bar/ticket:* rooms are joinable without a token (G1),
+        # so the opener is NOT broadcast; clients match "my tickets" via GET /tickets?status=OPEN.
     }
     socketio.emit(f'{routing}:item_update', payload, room=routing)
     socketio.emit('ticket:item_status', payload, room=f'ticket:{item.ticket_id}')

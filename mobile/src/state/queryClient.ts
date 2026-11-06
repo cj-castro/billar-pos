@@ -1,6 +1,6 @@
 import { AppState, Platform, type AppStateStatus } from 'react-native';
-import NetInfo from '@react-native-community/netinfo';
-import { focusManager, onlineManager, QueryClient, keepPreviousData } from '@tanstack/react-query';
+import { startConnectivity } from '../realtime/connectivity';
+import { focusManager, QueryClient, keepPreviousData } from '@tanstack/react-query';
 
 /** Defaults mirror frontend/src/main.tsx. */
 export function createQueryClient(): QueryClient {
@@ -15,7 +15,8 @@ export function createQueryClient(): QueryClient {
         networkMode: 'offlineFirst',
       },
       // D7: no mutation is ever retried or queued offline.
-      mutations: { retry: 0, networkMode: 'online' },
+      // F4: 'always' = fail fast (-> "No se envió"); 'online' would park the call in a hidden queue.
+      mutations: { retry: 0, networkMode: 'always' },
     },
   });
 }
@@ -28,10 +29,9 @@ export function setupQueryClientListeners(): () => void {
     if (Platform.OS !== 'web') focusManager.setFocused(status === 'active');
   };
   const appSub = AppState.addEventListener('change', onAppState);
-  onlineManager.setEventListener((setOnline) =>
-    NetInfo.addEventListener((s) => setOnline(s.isConnected !== false && s.isInternetReachable !== false)),
-  );
+  const stopConnectivity = startConnectivity(); // online = POS health OR socket, never internet reachability (C1)
   return () => {
     appSub.remove();
+    stopConnectivity();
   };
 }

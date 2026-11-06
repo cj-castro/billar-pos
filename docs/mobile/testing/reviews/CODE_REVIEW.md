@@ -244,3 +244,40 @@ The kitchen and the bill now have 2 while the waiter believes 3 were sent, and n
 - **US-K-05:** an item voided at the POS disappears within 15 s through the poll.
 - **US-K-06:** stale banner and disabled buttons after the threshold (M8).
 - **US-A-01:** diagnostics and copy contain no secrets; joined rooms and last error code are shown.
+
+---
+
+## Resolution (fix pass)
+
+Status: **Fixed** (file / test), **Won't fix** (reason), **Deferred** (reason). Gate after the pass: `npm test` 443/443, `tsc --noEmit` clean, `expo lint` clean, `npm run test:contract` 56/56, backend live test 31/31.
+
+| ID | Resolution |
+|---|---|
+| C1 | **Fixed.** `src/realtime/connectivity.ts` (NetInfo.configure to POS `/api/v1/health`, re-configured on URL change via `onServerUrlChange`; own health probe; online = health OR socket; `onlineManager.setOnline`), `components/connection.ts`. Tests: `realtime/__tests__/connectivity.test.tsx` (isInternetReachable=false + health OK -> online, Enviar enabled; health down -> offline). |
+| H1 | **Fixed.** `firstAttemptVersion` per draft line + per-ticket `b1Confirmed` (`draftStore.ts`, `sendOrchestrator.ts`, `useSendDraft.ts`). Same key always; no B1 -> resend first version, 409 -> verify, never refresh. Tests: `sendOrchestrator.test.ts` "H1" (fake POS that applies the request and loses the response), `DraftScreen.test.tsx` "H1 end to end without B1". |
+| H2 | **Fixed.** Uncertain lines have no stepper, store refuses `setQuantity`, remove asks "Ya verifiqué, descartar" (`DraftScreen.tsx`, `draftStore.isUncertain`). Tests: `DraftScreen.test.tsx` "H2". |
+| M1 | **Won't fix** (orchestrator decision): the version header is kept because it is the no-B1 duplicate guard (H1); with B1 a 409 refreshes the version and retries once with the same key. The residual false "verify" stop needs two concurrent edits in one send. |
+| M2 | **Fixed.** Global `mutations.networkMode: 'always'`, per-call overrides removed, README corrected. Test: `authStore.test.ts` "F4". |
+| M3 | **Fixed.** `api/client.ts`: no refresh when the 401 body has an app `error` code. Test: `client.test.ts` "M3". |
+| M4 | **Fixed.** `serverConfig.ts` default `:8080` for http, https keeps 443; tests updated. |
+| M5 | **Fixed (core).** Ownership via OPEN tickets set (`ready/readyEvents.ts`, `useReadyNotifications.ts`, `menuAndReady.test.ts`, `ConfiguratorAndReady.test.tsx`). **Deferred:** foreground "x items ready" summary (UX addition). |
+| M6 | **Fixed.** `api/clockSkew.ts` (median of `Date` header offsets), used by `KdsTicketCard`/`KdsAgeBadge`. Test: `KdsTicketCard.test.tsx`. |
+| M7 | **Deferred.** Proper fix is a server-side forward-only transition guard (backend contract change, `409 INVALID_TRANSITION`). |
+| M8 | **Fixed.** `KdsTicketCard` `disabled`; `KdsScreen` locks when disconnected and no successful poll for 45 s. Test: `KdsTicketCard.test.tsx`. |
+| M9 | **Fixed.** Server change = confirm + full logout (SEC-02); logout wipes drafts, login as another user wipes them (`claimDrafts`); logout dialog warns about unsent lines (`ProfileScreen.tsx`). Tests: `setup.test.tsx`, `authStore.test.ts`, `draftStore.test.ts`. |
+| M10 | **Fixed.** Card ticks every 15 s (badge keeps its own 1 s), `KdsItemRow` memoised. |
+| M11 | **Fixed.** The assertion was wrong, the code is right (the hint bar renders "1 producto por enviar"): `TicketDetailScreen.test.tsx` now expects it. **Deferred:** the Jest "worker failed to exit gracefully" warning still appears (not traced to one suite). |
+| L1 | **Deferred** (refactor, no behaviour bug). |
+| L2 | **Fixed.** `resyncAll` also invalidates cash, stock, tickets. |
+| L3 | **Fixed.** `onError(billErr)`. |
+| L4 | **Fixed.** `send()` returns early while a run is in flight. |
+| L5 | **Fixed (guard).** Synchronous `submitting` ref in `app/login.tsx`. **Deferred:** 429 countdown. |
+| L6 | **Deferred** (AppState background disconnect / proactive refresh: new behaviour). |
+| L7 | **Fixed.** `forceNew: true` on the socket. |
+| L8 | **Fixed.** Only `INVALID_PIN`/`MANAGER_REQUIRED` show "PIN incorrecto"; `verifyPin` maps 400 to `INVALID_PIN`. |
+| L9 | **Deferred** (needs a product decision on 5/10 vs 10/20 min; tests assert 10/20). |
+| L10 | **Deferred** (dead code removal; `clockOffsetMs` is now wired). |
+
+P0 test gaps closed in this pass: US-X-01 (normalisation + setup flow), US-X-02 (server change), US-X-06 (LAN without internet), US-X-07 (logout clears drafts), US-W-05/08 (H1/H2), US-W-09 (ownership fallback), US-K-02 skew, US-K-06. Still open: boot() cold start, AppState foreground refetch, double-tap on Servido, 429 login countdown.
+
+F1-F6: F1 fixed (C1), F2 fixed (`scripts/mobile/build-android-release.ps1`), F3 fixed, F4 fixed, F5 fixed (NETWORKING_AND_SYNC.md, INTEGRATION_STRATEGY.md), F6 already resolved.

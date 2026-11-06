@@ -270,7 +270,7 @@ describe('add item: Idempotency-Key + X-Ticket-Version (B1)', () => {
     expect(ticketNow.line_items!.map((l) => l.status)).toEqual(['SENT', 'SENT']);
 
     // simulate "no response received" for line 2: the app retries BOTH with the same keys and a stale version
-    const again = await sendDraft({ ticketId: t.id, lines, version: t.version, b1Known: true, deps, onUpdate: () => {} });
+    const again = await sendDraft({ ticketId: t.id, lines, version: t.version, b1Confirmed: true, deps, onUpdate: () => {} });
     expect(again.sent).toEqual(lines.map((l) => l.key));
     ticketNow = await getTicket(t.id);
     expect(ticketNow.line_items).toHaveLength(2); // still two: the server replayed, never duplicated
@@ -374,7 +374,7 @@ describe('manager-gated actions (P1)', () => {
 });
 
 describe('ready flow (kitchen -> waiter) and realtime payload (B2)', () => {
-  it('READY event carries ticket_id/resource_code/menu_item_name/opened_by; Listos data shows it; waiter marks it SERVED', async () => {
+  it('READY event carries ticket_id/resource_code/menu_item_name; Listos data shows it; waiter marks it SERVED', async () => {
     const { ticket, table } = await openOnFreeTable('contract-ready');
     const line = await addItemIdem(ticket.id, { menu_item_id: simpleItem('KITCHEN').id, quantity: 1 }, { idempotencyKey: newKey() });
     expect(line.routing_dest).toBe('KITCHEN');
@@ -405,7 +405,8 @@ describe('ready flow (kitchen -> waiter) and realtime payload (B2)', () => {
       expect((await call('kitchen', 'PATCH', `/queue/${line.id}/status`, { status: 'IN_PROGRESS' })).status).toBe(200);
       expect((await call('kitchen', 'PATCH', `/queue/${line.id}/status`, { status: 'READY' })).status).toBe(200);
       const p = await readyEvent;
-      expect(p).toEqual(expect.objectContaining({ item_id: line.id, status: 'READY', ticket_id: ticket.id, resource_code: table.code, menu_item_name: line.menu_item_name, quantity: 1, opened_by: waiterId }));
+      expect(p).toEqual(expect.objectContaining({ item_id: line.id, status: 'READY', ticket_id: ticket.id, resource_code: table.code, menu_item_name: line.menu_item_name, quantity: 1}));
+      expect(p).not.toHaveProperty('opened_by');
     } finally {
       socket.close();
     }

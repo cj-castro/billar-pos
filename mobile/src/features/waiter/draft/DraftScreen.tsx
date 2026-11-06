@@ -19,7 +19,7 @@ import { colors, spacing } from '../../../theme/tokens';
 import { haptic } from '../../../utils/haptics';
 import { formatMXN } from '../../../utils/money';
 import { useTicketQuery } from '../queries';
-import { draftSubtotalCents, lineEstimateCents, selectLines, useDraftStore, type DraftLine } from './draftStore';
+import { draftSubtotalCents, isUncertain, lineEstimateCents, selectLines, useDraftStore, type DraftLine } from './draftStore';
 import { failedLines, isSending, sendableLines } from './sendOrchestrator';
 import { useSendDraft } from './useSendDraft';
 
@@ -36,6 +36,9 @@ export function DraftScreen({ ticketId }: { ticketId: string }) {
   const { setQuantity, removeLine, patchLine, clearTicket } = useDraftStore.getState();
   const { send, isSending: running, result, sentView } = useSendDraft(ticketId);
   const [discard, setDiscard] = useState(false);
+  /** Uncertain line the waiter wants to drop: confirm they checked the ticket first (H2). */
+  const [dropLine, setDropLine] = useState<DraftLine | null>(null);
+  const b1Confirmed = useDraftStore((s) => !!s.b1Confirmed[ticketId]);
 
   const sending = running || isSending(lines);
   const sendable = sendableLines(lines);
@@ -166,9 +169,9 @@ export function DraftScreen({ ticketId }: { ticketId: string }) {
               estimateCents={lineEstimateCents(l)}
               retryLabel={t('waiter.draft.lineRetry', { name: l.name })}
               removeLabel={t('waiter.draft.removeLine', { name: l.name })}
-              onQuantityChange={sending ? undefined : (q) => setQuantity(ticketId, l.key, q)}
-              onRemove={sending ? undefined : () => removeLine(ticketId, l.key)}
-              onRetry={sending || offline ? undefined : () => retryLine(l)}
+              onQuantityChange={sending || isUncertain(l) ? undefined : (q) => setQuantity(ticketId, l.key, q)}
+              onRemove={sending ? undefined : () => (isUncertain(l) ? setDropLine(l) : removeLine(ticketId, l.key))}
+              onRetry={sending || offline || (l.error === 'VERIFY' && !b1Confirmed) ? undefined : () => retryLine(l)}
             />
           ))}
           {lines.length > 0 && !sending && (
@@ -177,8 +180,23 @@ export function DraftScreen({ ticketId }: { ticketId: string }) {
         </ScrollView>
       )}
       <ConfirmDialog
+        visible={!!dropLine}
+        title={t('waiter.draft.dropTitle', { name: dropLine?.name ?? '' })}
+        message={t('waiter.draft.dropBody')}
+        confirmLabel={t('waiter.draft.dropConfirm')}
+        cancelLabel={t('cancel')}
+        destructive
+        onCancel={() => setDropLine(null)}
+        onConfirm={() => {
+          if (dropLine) removeLine(ticketId, dropLine.key);
+          setDropLine(null);
+        }}
+        testID="drop-dialog"
+      />
+      <ConfirmDialog
         visible={discard}
         title={t('waiter.draft.discardTitle', { n: lines.length })}
+        message={lines.some(isUncertain) ? t('waiter.draft.dropBody') : undefined}
         confirmLabel={t('waiter.draft.discardConfirm')}
         cancelLabel={t('cancel')}
         destructive

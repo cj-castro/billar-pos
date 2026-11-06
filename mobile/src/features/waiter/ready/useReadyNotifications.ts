@@ -1,12 +1,14 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { listTickets } from '../../../api/endpoints/tickets';
 import { useTranslation } from 'react-i18next';
 import { qk } from '../../../api/queryKeys';
 import { useToast } from '../../../components/Toast';
 import { joinRoom, leaveRoom, useRealtimeEvent } from '../../../realtime/socket';
 import { useAuthStore } from '../../../state/authStore';
 import { haptic } from '../../../utils/haptics';
+import { wqk } from '../queries';
 import { classifyReadyEvent, type ItemEvent } from './readyEvents';
 
 /**
@@ -20,6 +22,10 @@ export function useReadyNotifications() {
   const qc = useQueryClient();
   const userId = useAuthStore((s) => s.user?.id);
   const seen = useRef(new Set<string>());
+  // SEC-05: ownership is NOT in the (public) socket payload: "mine" = ticket in my OPEN tickets. The list sits under
+  // qk.resources, so every floor:update refreshes it.
+  const open = useQuery({ queryKey: wqk.openTickets, queryFn: () => listTickets({ status: 'OPEN' }), staleTime: 10_000 });
+  const mine = useMemo(() => (open.data && userId ? new Set(open.data.filter((tk) => tk.opened_by === userId).map((tk) => tk.id)) : null), [open.data, userId]);
 
   useEffect(() => {
     joinRoom('kitchen');
@@ -32,9 +38,9 @@ export function useReadyNotifications() {
 
   const onEvent = useCallback(
     (payload: Record<string, unknown> | undefined) => {
-      const d = classifyReadyEvent(payload as ItemEvent | undefined, userId, seen.current);
+      const d = classifyReadyEvent(payload as ItemEvent | undefined, mine, seen.current);
       if (d.action === 'refetch') {
-        // B2 absent: ownership unknown, so just refresh the lists (badge + Listos tab follow).
+        // B2 absent or my tickets not loaded yet: refresh the lists (badge + Listos tab follow).
         void qc.invalidateQueries({ queryKey: ['queue'] });
         void qc.invalidateQueries({ queryKey: [...qk.resources, 'open-tickets'] });
       } else if (d.action === 'notify') {
@@ -46,7 +52,7 @@ export function useReadyNotifications() {
         });
       }
     },
-    [userId, qc, toast, t, router],
+    [mine, qc, toast, t, router],
   );
 
   useRealtimeEvent('kitchen:item_update', onEvent);

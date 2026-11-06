@@ -53,9 +53,9 @@ Roll the backend image back first (older code never touches the column).
 **Change.** `backend/app/api/queue.py` `update_status`: both `<routing>:item_update` (rooms `kitchen`/`bar`) and `ticket:item_status` (room `ticket:<id>`) emit the same payload:
 ```json
 {"item_id": "...", "status": "READY", "ticket_id": "...", "resource_code": "M1",
- "menu_item_name": "...", "quantity": 1, "opened_by": "<user id of ticket opener>"}
+ "menu_item_name": "...", "quantity": 1}
 ```
-`item_id`, `status` unchanged. `resource_code` is `null` for resource-less tickets (express/delivery). The HTTP response body is unchanged. Detection: `ticket_id` present in the event.
+**`opened_by` is deliberately NOT included (SEC-05).** The `kitchen`/`bar`/`ticket:*` rooms can be joined without a token (G1) and `reprint_ticket` accepts a manager UUID as its only factor (G4), so broadcasting the ticket opener's user id would leak a staff identifier to any LAN client. The mobile app decides "is this ready item mine?" by checking `ticket_id` against the set of its own OPEN tickets (`GET /tickets?status=OPEN`, filtered on `opened_by` == current user, cached and refreshed on `floor:update`). `item_id`, `status` unchanged. `resource_code` is `null` for resource-less tickets (express/delivery). The HTTP response body is unchanged. Detection: `ticket_id` present in the event.
 
 ## B3 - Voided items reject status changes
 

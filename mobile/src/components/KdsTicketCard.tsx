@@ -1,6 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useClockOffset } from '../api/clockSkew';
 import { ageStyle, colors, fontSizesKds, kdsAgeLevel, radii, spacing, touch } from '../theme/tokens';
 import { useNow } from '../utils/useNow';
 import { AppButton } from './AppButton';
@@ -37,6 +39,8 @@ export interface KdsTicketCardProps {
   /** Item ids with a request in flight. */
   advancingIds?: readonly string[];
   landscape?: boolean;
+  /** M8: stale data (US-K-06): every action is disabled. */
+  disabled?: boolean;
   /** Override "now" (tests). */
   now?: number;
   testID?: string;
@@ -44,7 +48,7 @@ export interface KdsTicketCardProps {
 
 const STRIPE = { SENT: colors.surfaceOverlay, IN_PROGRESS: colors.warning, READY: colors.success } as const;
 
-export function KdsItemRow({ item, busy, onAdvance }: { item: KdsItem; busy?: boolean; onAdvance: () => void }) {
+export const KdsItemRow = memo(function KdsItemRow({ item, busy, disabled, onAdvance }: { item: KdsItem; busy?: boolean; disabled?: boolean; onAdvance: () => void }) {
   const { t } = useTranslation('mobile');
   const done = item.status === 'READY';
   const actionLabel = item.status === 'SENT' ? t('kds.start') : item.status === 'IN_PROGRESS' ? t('kds.ready') : t('kds.done');
@@ -54,8 +58,8 @@ export function KdsItemRow({ item, busy, onAdvance }: { item: KdsItem; busy?: bo
       testID={`kds-item-${item.id}`}
       accessibilityRole="button"
       accessibilityLabel={a11y}
-      accessibilityState={{ disabled: done || !!busy, busy: !!busy }}
-      onPress={done || busy ? undefined : onAdvance}
+      accessibilityState={{ disabled: done || !!busy || !!disabled, busy: !!busy }}
+      onPress={done || busy || disabled ? undefined : onAdvance}
       style={({ pressed }) => [styles.row, { opacity: pressed ? 0.85 : done ? 0.7 : 1 }]}
     >
       <View style={[styles.stripe, { backgroundColor: STRIPE[item.status] }]} />
@@ -91,13 +95,14 @@ export function KdsItemRow({ item, busy, onAdvance }: { item: KdsItem; busy?: bo
       </View>
     </Pressable>
   );
-}
+});
 
-export function KdsTicketCard({ ticket, onAdvanceItem, onAllReady, onServed, servedLabel, advancingIds = [], landscape, now, testID }: KdsTicketCardProps) {
+export function KdsTicketCard({ ticket, onAdvanceItem, onAllReady, onServed, servedLabel, advancingIds = [], landscape, disabled, now, testID }: KdsTicketCardProps) {
   const { t } = useTranslation('mobile');
   const since = new Date(ticket.oldestSentAt).getTime();
-  const clock = useNow(now);
-  const minutes = (clock - since) / 60000;
+  const clock = useNow(now, 15_000); // the border only changes at minute thresholds; the badge ticks its own second
+  const offset = useClockOffset((s) => s.offsetMs);
+  const minutes = (clock + offset - since) / 60000;
   const border = ageStyle(kdsAgeLevel(Number.isNaN(minutes) ? 0 : minutes));
   const allReady = ticket.items.length > 0 && ticket.items.every((i) => i.status === 'READY');
   return (
@@ -113,10 +118,10 @@ export function KdsTicketCard({ ticket, onAdvanceItem, onAllReady, onServed, ser
             </AppText>
           )}
         </View>
-        <KdsAgeBadge since={ticket.oldestSentAt} now={now} />
+        <KdsAgeBadge since={ticket.oldestSentAt} now={now} clockOffsetMs={offset} />
       </View>
       {ticket.items.map((i) => (
-        <KdsItemRow key={i.id} item={i} busy={advancingIds.includes(i.id)} onAdvance={() => onAdvanceItem(i.id)} />
+        <KdsItemRow key={i.id} item={i} busy={advancingIds.includes(i.id)} disabled={disabled} onAdvance={() => onAdvanceItem(i.id)} />
       ))}
       <View style={styles.footer}>
         {allReady ? (
@@ -124,10 +129,10 @@ export function KdsTicketCard({ ticket, onAdvanceItem, onAllReady, onServed, ser
             <AppText variant="body" bold color={colors.textMuted} style={styles.waiting}>
               {t('kds.waiting')}
             </AppText>
-            {onServed && <AppButton label={servedLabel ?? 'OK'} variant="success" size="lg" fullWidth onPress={onServed} testID={`kds-served-${ticket.code}`} />}
+            {onServed && <AppButton label={servedLabel ?? 'OK'} variant="success" size="lg" fullWidth disabled={disabled} onPress={onServed} testID={`kds-served-${ticket.code}`} />}
           </>
         ) : (
-          <AppButton label={t('kds.allReady')} variant="secondary" size="lg" fullWidth onPress={onAllReady} testID={`kds-all-ready-${ticket.code}`} />
+          <AppButton label={t('kds.allReady')} variant="secondary" size="lg" fullWidth disabled={disabled} onPress={onAllReady} testID={`kds-all-ready-${ticket.code}`} />
         )}
       </View>
     </View>

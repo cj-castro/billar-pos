@@ -7,7 +7,7 @@ Principle: **REST is the truth, the socket is a hint.** Socket payloads (mostly 
 ## 1. Server URL configuration and health validation (D8)
 
 1. First launch (or after "Cambiar servidor"): the user types host[:port]. Normalise: add `http://` if no scheme, default port `8080` when none is given, strip trailing `/`, strip a pasted `/api/v1`.
-2. Policy check (see TECH_STACK_DECISION section 6): `http://` only for private/LAN/loopback hosts.
+2. Policy check (implemented, `serverUrlProblem` in `serverConfig.ts`): `https://` is accepted for any host; `http://` only for private/LAN hosts: 10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, `localhost`, `*.local` and the emulator alias `10.0.2.2`. Anything else is rejected with a Spanish validation message and no request is made. A bare host defaults to `:8080` for http; `https://` without a port stays 443; explicit ports are kept.
 3. Validate with `GET {base}/api/v1/health`, 4 s timeout, no auth, no retry. Accept only HTTP 200 with JSON `status === "ok"`. Anything else gets a specific message: DNS/unreachable (check Wi-Fi, same network, firewall), timeout, non-JSON (wrong host, captive portal), JSON without `status` (not a POS).
 4. If the health body contains `api_features` (proposed additive field, see INTEGRATION_STRATEGY P2), store it as the capability set, for example `idempotency-key`, `socket-payload-v2`, `manager-room`. Absent means "assume none".
 5. Persist `serverUrl` in AsyncStorage (non-secret). Changing the server clears tokens, the query cache and drafts after confirmation.
@@ -42,11 +42,13 @@ Layers of protection (all of them, not either/or):
 5. **State-based server guards for the rest:** open-table is protected by `uq_tickets_open_per_resource` (409 `RESOURCE_OCCUPIED`). After an ambiguous failure the app GETs `/tickets?status=OPEN&resource_id=X`; if the open ticket's `opened_by` is the current user, adopt it instead of showing an error. `request-payment` and `clear-payment-request` are state-based and safe to repeat. EXPRESS/DELIVERY creation has no guard (G13); it is out of scope for v1 waiter flows.
 
 Draft line states (persisted in zustand + AsyncStorage): `draft` -> `sending` -> `sent`, or `failed`. Rules:
-- Lines in `sending` or `failed` are **locked** (no edit, no delete) until resolved by Retry or by "Verify on ticket then discard". Editing would reuse a key with different content.
+- Lines whose outcome is **uncertain** (`sending`, or `failed` with network / timeout / 5xx / verify, or any line that was attempted at least once and not definitively rejected) are **locked**: no quantity, notes, modifier or delete action. Only "Reintentar" is offered, or "Descartar" after a dialog in which the waiter confirms they checked the ticket. A line that was never attempted, or that the server definitively rejected (422 `OUT_OF_STOCK`, `FLAVOR_REQUIRED`, `INVALID_QUANTITY`), stays editable and keeps its key. Editing an uncertain line would reuse a key with different content, and a B1 replay ignores the body (SEC-12).
 - Sending is sequential, in draft order, one line at a time. Stop at the first non-retryable failure and report `n of m sent`; sent lines are not rolled back (v1 sends per line, D5/D6).
-- Retry policy for a line: up to 3 attempts, backoff 1 s / 2 s / 4 s, only on `network`, `timeout`, 502/503/504, only **when the server advertises `idempotency-key`**. Without B1 there is no safe automatic retry: after an ambiguous failure the line becomes `failed (unverified)` and the UI refetches the ticket and asks the waiter to confirm whether the item appears (D6 degradation).
-- On app restart, any `sending` line is treated as ambiguous and handled by the same rule.
-- Do **not** send `X-Ticket-Version` on item adds: adds are commutative, and a stale version would 409 against a second waiter or a previous line's `ticket_version` race for no benefit. Use the returned `ticket_version` only to decide whether a refetch is needed.
+- **Both headers are sent on every add**: `Idempotency-Key` (the draft line key, never regenerated) and `X-Ticket-Version`. Each draft line persists `firstAttemptVersion`, the `X-Ticket-Version` of its first POST (written before the request leaves, so an app kill keeps it); each ticket persists `b1Confirmed`, set the first time any add response contains `ticket_version`.
+- **Retry of an uncertain line, B1 confirmed:** same key; the version may be refreshed. On 409 `VERSION_CONFLICT` refresh once and retry once with the same key (the server decides replay before the version check, so this cannot duplicate); a second 409 marks the line "Verifica en la cuenta" and stops.
+- **Retry of an uncertain line, B1 not confirmed:** same key AND the line's `firstAttemptVersion`, never a refreshed one. If the first attempt landed, the ticket version moved, so the retry gets 409; the line is marked "Verifica en la cuenta" and the run stops. The app never refreshes the version, never resends automatically and never offers "Reintentar" on a `verify` line. If the first attempt had no version header the line is not re-posted at all. Net effect: without B1 an ambiguous failure can produce at most one add.
+- Invalid key: B1 answers **422** `INVALID_IDEMPOTENCY_KEY` (keys match `[A-Za-z0-9_-]{1,64}`, column `VARCHAR(64)`).
+- On app restart, any `sending` line is treated as ambiguous (`failed`/network) and handled by the same rules.
 
 Printing note (not a mobile bug): the backend auto-prints a kitchen chit per `POST /items` (and a bar chit if enabled). A six-line send produces six chits and six socket bursts. Flagged in INTEGRATION_STRATEGY as proposal P5 (batch endpoint).
 
@@ -105,7 +107,7 @@ Query keys: `['resources']`, `['ticket', id]`, `['tickets', filter]`, `['queue',
 | `floor:update` | `{}` | `['resources']`, `['tickets','mine']` (open ticket badges), `['cash','status']` (open ticket count) |
 | `waiting:update`, `waiting_list:update` | `{}` | `['waiting-list']`. Listen to both names (G16) |
 | `ticket:updated` | `{ticket_id, version?}` | `['ticket', ticket_id]`; if cached version >= `version`, skip refetch; `['tickets', ...]` |
-| `ticket:item_status` | `{item_id, status}` (+ `ticket_id, resource_code, menu_item_name, quantity, opened_by` after B2) | `['ticket', ticket_id]`; before B2 use the currently viewed ticket id (joined room is the only source) |
+| `ticket:item_status` | `{item_id, status}` (+ `ticket_id, resource_code, menu_item_name, quantity` after B2) | `['ticket', ticket_id]`; before B2 use the currently viewed ticket id (joined room is the only source) |
 | `kitchen:update`, `bar:update` | `{}` | `['queue', station]`, `['queue','counts']` |
 | `kitchen:item_update`, `bar:item_update` | `{item_id, status}` or `{item_id, needs_reprint}` (+ B2 fields) | Patch the cached queue item status optimistically if present, then invalidate `['queue', station]`. Events without `status` are reprint flags: invalidate only. Run the ready handler (section 6) |
 | `pool:timer_voided` | `{ticket_id, resource_id, session_id, ticket_closed}` | `['ticket', ticket_id]`, `['resources']`, `['tickets', ...]` |
@@ -117,8 +119,8 @@ Query keys: `['resources']`, `['ticket', id]`, `['tickets', filter]`, `['queue',
 ## 6. Ready notification (waiter)
 
 Trigger: `kitchen:item_update` or `bar:item_update` with `status === 'READY'`.
-- With B2: `opened_by === me` selects the waiter's own items. Show an in-app banner "Mesa {resource_code}: {quantity} x {menu_item_name} listo", haptic pulse, and optional sound. Tapping opens the ticket.
-- Without B2 (payload is `{item_id, status}` only): look up `item_id` in cached tickets of the current user (`['tickets','mine']`, `['ticket', id]`). If found, notify; if not found, refetch `['tickets','mine']` once and re-check; if still not found, stay silent (it belongs to someone else).
+- With B2: the payload carries `ticket_id` (never `opened_by`, SEC-05: the rooms are public). "Mine" = `ticket_id` is in the set of OPEN tickets whose `opened_by` is the current user (`GET /tickets?status=OPEN`, cached under the `resources` key so every `floor:update` refreshes it). Other waiters' ready items only appear in the Listos list. Show an in-app banner "Mesa {resource_code}: {quantity} x {menu_item_name} listo", haptic pulse, and optional sound. Tapping opens the ticket.
+- Without B2 (payload is `{item_id, status}` only, so no `ticket_id`): the app only refetches the lists (no toast). The original plan was to look up `item_id` in cached tickets of the current user (`['tickets','mine']`, `['ticket', id]`). If found, notify; if not found, refetch `['tickets','mine']` once and re-check; if still not found, stay silent (it belongs to someone else).
 - Dedupe by `item_id:READY` for 60 s so reconnect resyncs and duplicate emits do not re-alert.
 - **Limitation (documented, accepted for v1):** there is no push. Notifications work while the app is in the foreground with a live socket. Backgrounded or screen-off phones get nothing until foreground, then a resync shows READY chips and an "x items ready" indicator. FCM is out of scope (D2, no external services). Revisit with a foreground service only if bars report missed alerts.
 - Items are `READY` also when a waiter's own tickets show `READY` at resync time; the banner for resync-discovered READY items is a single summary, not N alerts.
@@ -126,7 +128,7 @@ Trigger: `kitchen:item_update` or `bar:item_update` with `status === 'READY'`.
 ## 7. App state, connectivity and staleness
 
 - **AppState foreground:** on `active`: refresh token if near expiry, `connect()` the socket if disconnected, `queryClient.invalidateQueries({ refetchType: 'active' })`. Throttle to once per 5 s.
-- **Connectivity:** `NetInfo.configure({ reachabilityUrl: '{serverUrl}/api/v1/health', reachabilityTest: r => r.status === 200, reachabilityMethod: 'GET', reachabilityShortTimeout: 5000, reachabilityLongTimeout: 60000 })`. Then `isInternetReachable` means "the POS is reachable", which is what we need on a Wi-Fi without internet. TanStack `onlineManager.setEventListener` is wired to this value.
+- **Connectivity (implemented in `src/realtime/connectivity.ts`):** the bar LAN normally has no internet, so connectivity is **never** internet reachability. **Online = the POS answers `GET {base}/api/v1/health` (HTTP 200) OR the socket is connected.** Until the first probe finishes the app trusts the link (`isConnected`) alone. The app (1) calls `NetInfo.configure({ reachabilityUrl: '{base}/api/v1/health', reachabilityTest: r => r.status === 200, useNativeReachability: false, short/long timeouts 5 s / 20 s })` at boot and again whenever the server URL changes, and (2) runs its own health probe (4 s timeout) on every NetInfo change, on foreground and every 20 s. TanStack `onlineManager.setOnline` is driven by the combined value, and `OfflineBanner` / `useConnectionLevel` use the same rule. Socket down while the POS answers health shows "reconnecting" and keeps mutations enabled; neither `isInternetReachable` nor the OS "validated" flag is read.
 - **Connection state machine** (`connectionStore`): `online` (reachable and socket connected), `degraded` (reachable, socket down), `offline` (not reachable), `unknown` (booting). Combine with REST failures: three consecutive `network`/`timeout` errors force `offline` until the next success.
 - **Banners (top of every screen, one at a time, highest priority first):** DEMO DATA (D13) > offline "Sin conexion al POS - mostrando datos de {hh:mm}" (red) > reconnecting "Reconectando..." (amber) > none. Online but a query older than 60 s shows a subtle per-screen "Actualizado hace Xs" chip (`dataUpdatedAt`), not a banner.
 - **Stale indicators:** every list/detail screen shows `StaleBadge` driven by `dataUpdatedAt` and `isFetching`; when offline, content is dimmed slightly and write buttons show a lock with the reason.
@@ -221,11 +223,11 @@ sequenceDiagram
     participant U as Waiter UI
     KS->>B: PATCH /queue/I/status READY
     B->>B: commit status
-    B-->>WS: kitchen:item_update {item_id, status READY, ticket_id, resource_code, menu_item_name, quantity, opened_by}
+    B-->>WS: kitchen:item_update {item_id, status READY, ticket_id, resource_code, menu_item_name, quantity}
     B-->>WS: ticket:item_status (only if viewing ticket room)
     WS->>WS: status==READY and not seen in last 60s
     alt B2 payload present
-        WS->>WS: opened_by == me ?
+        WS->>WS: ticket_id in my OPEN tickets ?
     else legacy payload
         WS->>Q: find item_id in my cached tickets
         Q-->>WS: miss -> refetch my tickets once

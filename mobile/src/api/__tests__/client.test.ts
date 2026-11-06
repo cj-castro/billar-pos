@@ -142,4 +142,25 @@ describe('refresh on 401', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].headers.Authorization).toBeUndefined();
   });
+
+  it('M3: a wrong-PIN 401 (INVALID_PIN) is returned as is: no refresh, no replay of the PIN', async () => {
+    const calls = useAdapter(() => ({ status: 401, data: { error: 'INVALID_PIN' } }));
+    const e = await client.delete('/tickets/t/items/i', { data: { pin: '0000' } }).catch((x: unknown) => x as ApiError);
+    expect(e).toMatchObject({ status: 401, code: 'INVALID_PIN' });
+    expect(calls).toHaveLength(1);
+    expect(session.expired).toBe(0);
+  });
+
+  it('SEC-10: a refresh that returns after logout is discarded (no token written back)', async () => {
+    useAdapter(async (cfg) => {
+      if (cfg.url === '/auth/refresh') {
+        session.refresh = null; // user logged out while the refresh was in flight
+        return { status: 200, data: { access_token: 'late' } };
+      }
+      return { status: 401, data: { msg: 'expired' } };
+    });
+    const e = await get('/a');
+    expect(e).toMatchObject({ code: 'SESSION_ENDED' });
+    expect(session.access).toBe('old-access');
+  });
 });

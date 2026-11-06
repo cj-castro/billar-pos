@@ -169,14 +169,14 @@ def body(mgr, wtr, kit, bar, tid):
     if sio:
         evn = line['routing_dest'].lower() + ':item_update'
         got = [d for e, d in events if e == evn]
-        want = {'item_id', 'status', 'ticket_id', 'resource_code', 'menu_item_name', 'quantity', 'opened_by'}
+        want = {'item_id', 'status', 'ticket_id', 'resource_code', 'menu_item_name', 'quantity'}
         check('B2 %s has all fields' % evn, bool(got) and want <= set(got[0]), got)
+        check('B2 %s does NOT leak opened_by (SEC-05)' % evn, bool(got) and 'opened_by' not in got[0], got)
         if got:
             tk = ticket()
             check('B2 field values', got[0]['ticket_id'] == tid and got[0]['quantity'] == 1
                   and got[0]['menu_item_name'] == line['menu_item_name']
-                  and got[0]['resource_code'] == tk['resource_code']
-                  and got[0]['opened_by'] == tk['opened_by'], got[0])
+                  and got[0]['resource_code'] == tk['resource_code'], got[0])
     if line2:
         r = ready(line2, bt)
         check('B2 other queue READY -> 200', r.status_code == 200, r.text)

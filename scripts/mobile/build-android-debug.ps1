@@ -39,7 +39,7 @@ try {
   # Private CMake/ninja (see header). Only cmake.dir; sdk.dir comes from ANDROID_HOME.
   $lp = "$mobile\android\local.properties"
   if (Test-Path $CmakeDir) {
-    $esc = $CmakeDir.Replace('\', '\\').Replace(':', '\:')
+    $esc = $CmakeDir.Replace([char]92, '/').Replace(':', '\:')  # forward slashes survive properties-file escaping
     Set-Content -Path $lp -Value "cmake.dir=$esc" -Encoding ascii
     Write-Host "local.properties: cmake.dir=$esc"
   } else {

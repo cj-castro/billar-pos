@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { loginErrorKey } from '../src/auth/loginErrors';
@@ -24,6 +24,7 @@ export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false); // L5: synchronous guard, two taps in one frame must not burn the 10/min login bucket
   const [error, setError] = useState<string | null>(null);
   const host = (getServerUrl() ?? '').replace(/^https?:\/\//, '');
 
@@ -32,6 +33,8 @@ export default function LoginScreen() {
       setError(t('login.errRequired'));
       return;
     }
+    if (submitting.current) return;
+    submitting.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -43,6 +46,7 @@ export default function LoginScreen() {
       setPassword('');
       setError(t(loginErrorKey(e)));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };

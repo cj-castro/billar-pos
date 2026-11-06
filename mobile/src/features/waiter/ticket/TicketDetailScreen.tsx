@@ -90,7 +90,6 @@ export function TicketDetailScreen({ ticketId, mode }: TicketDetailScreenProps) 
   };
 
   const billMutation = useMutation({
-    networkMode: 'always',
     retry: 0,
     mutationFn: () => requestPayment(ticketId),
     onSuccess: () => {
@@ -98,7 +97,7 @@ export function TicketDetailScreen({ ticketId, mode }: TicketDetailScreenProps) 
       toast.show({ tone: 'success', title: t('waiter.ticket.billOk') });
       resync();
     },
-    onError: async () => {
+    onError: async (billErr) => {
       // Unknown outcome after a network loss: if the server did record it, treat it as success.
       const fresh = await ticketQ.refetch();
       if (fresh.data?.payment_requested) {
@@ -106,14 +105,13 @@ export function TicketDetailScreen({ ticketId, mode }: TicketDetailScreenProps) 
         toast.show({ tone: 'success', title: t('waiter.ticket.billOk') });
       } else {
         haptic.error();
-        toast.show({ tone: 'error', title: t('errors.title'), message: errorMessage(billMutation.error) });
+        toast.show({ tone: 'error', title: t('errors.title'), message: errorMessage(billErr) });
       }
       resync();
     },
   });
 
   const cancelMutation = useMutation({
-    networkMode: 'always',
     retry: 0,
     mutationFn: () => cancelTicket(ticketId),
     onSuccess: () => {
@@ -133,7 +131,6 @@ export function TicketDetailScreen({ ticketId, mode }: TicketDetailScreenProps) 
   });
 
   const serveMutation = useMutation({
-    networkMode: 'always',
     retry: 0,
     mutationFn: (itemId: string) => updateStatus(itemId, 'SERVED'),
     onMutate: (itemId) => setServingId(itemId),

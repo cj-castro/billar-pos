@@ -1,6 +1,6 @@
 import type { QueueItem, Ticket } from '../../../domain/types';
 
-/** `kitchen:item_update` / `bar:item_update` payload (backend extension B2 adds everything after `status`). */
+/** `kitchen:item_update` / `bar:item_update` payload (backend extension B2 adds everything after `status`; never `opened_by`, SEC-05). */
 export interface ItemEvent {
   item_id?: string;
   status?: string;
@@ -8,7 +8,6 @@ export interface ItemEvent {
   resource_code?: string | null;
   menu_item_name?: string;
   quantity?: number;
-  opened_by?: string;
 }
 
 export type ReadyDecision =
@@ -20,13 +19,14 @@ export type ReadyDecision =
 const SEEN_MAX = 300;
 
 /**
- * Which ready events earn a toast: status READY, opened by me (events for other waiters only change the list),
- * once per item+status (socket may deliver duplicates). `seen` is owned by the caller and mutated on notify.
+ * Which ready events earn a toast: status READY on a ticket in `myTicketIds` (OPEN tickets whose opened_by is me,
+ * from GET /tickets?status=OPEN; events for other waiters only change the list), once per item+status (socket may
+ * deliver duplicates). `myTicketIds` null = not loaded yet. `seen` is owned by the caller and mutated on notify.
  */
-export function classifyReadyEvent(payload: ItemEvent | undefined, userId: string | null | undefined, seen: Set<string>): ReadyDecision {
+export function classifyReadyEvent(payload: ItemEvent | undefined, myTicketIds: ReadonlySet<string> | null, seen: Set<string>): ReadyDecision {
   if (!payload || payload.status !== 'READY' || !payload.item_id) return { action: 'ignore' };
-  if (!payload.ticket_id || !payload.menu_item_name || !payload.opened_by) return { action: 'refetch' };
-  if (!userId || payload.opened_by !== userId) return { action: 'ignore' };
+  if (!payload.ticket_id || !payload.menu_item_name || !myTicketIds) return { action: 'refetch' };
+  if (!myTicketIds.has(payload.ticket_id)) return { action: 'ignore' };
   const k = `${payload.item_id}:READY`;
   if (seen.has(k)) return { action: 'ignore' };
   seen.add(k);

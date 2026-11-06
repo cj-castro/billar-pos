@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Modal, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { toApiError } from '../../../api/client';
+import { ApiError, toApiError } from '../../../api/client';
 import { verifyPin } from '../../../api/endpoints/auth';
 import { printPreBill, setCustomerName, setDiscount, transferTicket } from '../../../api/endpoints/ticketOps';
 import { updateQty, voidItem } from '../../../api/endpoints/tickets';
@@ -37,6 +37,28 @@ type Flow =
 
 /** HTTP 429 on verify-pin / PIN endpoints: lock the pad for a minute. */
 const lockUntil = () => Date.now() + 60_000;
+/** SEC-07: the void/qty endpoints have no server-side limiter yet, so 3 wrong PINs in a row cool the pad down client-side. */
+export const PIN_MAX_WRONG = 3;
+export const PIN_COOLDOWN_MS = 30_000;
+/** Module-level so closing/reopening the sheet or leaving the screen does not reset the cooldown. */
+const pinGuard = { wrong: 0, until: 0 };
+export const resetPinGuard = () => {
+  pinGuard.wrong = 0;
+  pinGuard.until = 0;
+};
+const activeLock = () => (pinGuard.until > Date.now() ? pinGuard.until : null);
+const pinOk = () => {
+  pinGuard.wrong = 0;
+};
+/** Server said 429: lock for a minute. Returns the lock end. */
+const pinRateLimited = () => (pinGuard.until = lockUntil());
+/** Wrong PIN: returns the cooldown end when this was the 3rd in a row, else null. */
+const pinWrong = (): number | null => {
+  pinGuard.wrong += 1;
+  if (pinGuard.wrong < PIN_MAX_WRONG) return null;
+  pinGuard.wrong = 0;
+  return (pinGuard.until = Date.now() + PIN_COOLDOWN_MS);
+};
 
 export const DISCOUNT_PRESETS = [0, 5, 10, 15, 20, 25, 50];
 
@@ -71,7 +93,7 @@ export function TicketExtras({ ctl, ticket, offline }: { ctl: TicketExtrasCtl; t
   const { flow, setFlow, manager, ticketId } = ctl;
   const [busy, setBusy] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
-  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(activeLock);
   const [name, setName] = useState(ticket.customer_name ?? '');
 
   const refresh = () => {
@@ -81,7 +103,6 @@ export function TicketExtras({ ctl, ticket, offline }: { ctl: TicketExtrasCtl; t
   const close = () => {
     setFlow(null);
     setPinError(null);
-    setLockedUntil(null);
   };
 
   /** Runs a PIN-guarded call: wrong PIN keeps the pad open with an error; 429 locks it; other errors toast. */
@@ -90,15 +111,19 @@ export function TicketExtras({ ctl, ticket, offline }: { ctl: TicketExtrasCtl; t
     setPinError(null);
     try {
       await action();
+      pinOk();
       haptic.success();
       toast.show({ tone: 'success', title: okTitle });
       refresh();
       close();
     } catch (e) {
       const err = toApiError(e);
-      if (err.status === 429) setLockedUntil(lockUntil());
-      else if (err.code === 'INVALID_PIN' || err.code === 'MANAGER_REQUIRED' || err.status === 400 || err.status === 401 || err.status === 403) setPinError(t('pin.wrong'));
-      else {
+      if (err.status === 429) setLockedUntil(pinRateLimited());
+      else if (err.code === 'INVALID_PIN' || err.code === 'MANAGER_REQUIRED') {
+        const until = pinWrong();
+        if (until) setLockedUntil(until);
+        else setPinError(t('pin.wrong'));
+      } else {
         toast.show({ tone: 'error', title: t('errors.title'), message: errorMessage(e) });
         refresh();
         close();
@@ -246,7 +271,7 @@ export function TicketExtras({ ctl, ticket, offline }: { ctl: TicketExtrasCtl; t
         pinPad(t('pin.title'), t('waiter.ticket.discountPin'), (pin) =>
           void guarded(async () => {
             const v = await verifyPin(pin); // PIN UX only; the discount call itself is gated by the manager JWT
-            if (!v.valid) throw new Error('invalid');
+            if (!v.valid) throw new ApiError({ status: 401, code: 'INVALID_PIN', message: 'invalid' });
             await setDiscount(ticketId, flow.pct, 'mobile');
           }, t('waiter.ticket.discountOk')),
         )}

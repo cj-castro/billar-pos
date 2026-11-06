@@ -17,6 +17,7 @@ import { ScreenScaffold } from '../../components/ScreenScaffold';
 import type { Station } from '../../domain/types';
 import { colors, layout, radii, spacing } from '../../theme/tokens';
 import { formatClock } from '../../utils/time';
+import { useNow } from '../../utils/useNow';
 import { useFreshIds, useKdsActions, useKdsQueue, useStaleLive } from './useKds';
 
 export interface KdsScreenProps {
@@ -27,6 +28,8 @@ export interface KdsScreenProps {
 }
 
 const GAP = spacing.s3;
+/** No successful KDS poll for this long while disconnected: advance buttons lock (3 polls of 15 s). */
+const KDS_LOCK_AFTER_MS = 45_000;
 
 function StationSwitch({ value, onChange }: { value: Station; onChange: (s: Station) => void }) {
   const { t } = useTranslation('mobile');
@@ -58,6 +61,9 @@ function KdsStation({ station, tabs, header }: { station: Station; tabs?: boolea
   const fresh = useFreshIds(q.data);
   const actions = useKdsActions(station, q.items);
   const stale = useStaleLive();
+  // M8 / US-K-06: connection down AND no successful poll for 3 cycles = stale -> advancing is disabled (reads keep working).
+  const clock = useNow(undefined, 5000);
+  const locked = stale && (!q.dataUpdatedAt || clock - q.dataUpdatedAt > KDS_LOCK_AFTER_MS);
   const [confirmTicket, setConfirmTicket] = useState<string | null>(null);
 
   // Portrait phone: one column list. Landscape / tablet: 2-3 column grid.
@@ -104,6 +110,7 @@ function KdsStation({ station, tabs, header }: { station: Station; tabs?: boolea
                 onAllReady={() => onAllReady(g.ticketId)}
                 onServed={allReady ? () => actions.serve(g.ticketId) : undefined}
                 servedLabel={t('kitchen.served')}
+                disabled={locked}
               />
             </View>
           );

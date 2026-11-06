@@ -200,7 +200,14 @@ describe('useReadyNotifications', () => {
     useReadyNotifications();
     return null;
   }
-  const ev = { item_id: 'a', status: 'READY', ticket_id: 'tMine', resource_code: 'T4', menu_item_name: 'Alitas BBQ 10 pz', quantity: 1, opened_by: 'u-waiter' };
+  const ev = { item_id: 'a', status: 'READY', ticket_id: 'tMine', resource_code: 'T4', menu_item_name: 'Alitas BBQ 10 pz', quantity: 1 };
+  // SEC-05: ownership comes from GET /tickets?status=OPEN, not from the public socket payload.
+  const openTickets = { 'GET /tickets': { data: [ticket({ id: 'tMine', opened_by: 'u-waiter' }), ticket({ id: 'tOther', opened_by: 'someone' })] } };
+
+  const loaded = async (m: ReturnType<typeof mockApi>) => {
+    await waitFor(() => expect(m.of('GET', /tickets/).length).toBeGreaterThan(0));
+    await act(async () => new Promise((r) => setTimeout(r, 30))); // let the open-tickets result reach the hook
+  };
 
   it('joins the kitchen and bar rooms and leaves them on unmount', async () => {
     mockApi({});
@@ -213,8 +220,9 @@ describe('useReadyNotifications', () => {
   });
 
   it('READY on my ticket -> toast "Listo: {nombre} · {mesa}" with a "Ver" action to the ticket', async () => {
-    mockApi({});
+    const m = mockApi(openTickets);
     await renderScreen(<Probe />);
+    await loaded(m);
     await act(async () => mockHandlers['kitchen:item_update'](ev));
     expect(await screen.findByText('Listo: Alitas BBQ 10 pz · T4')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('toast-action'));
@@ -222,8 +230,9 @@ describe('useReadyNotifications', () => {
   });
 
   it('works for bar events too, once per item (duplicate delivery ignored)', async () => {
-    mockApi({});
+    const m = mockApi(openTickets);
     await renderScreen(<Probe />);
+    await loaded(m);
     await act(async () => mockHandlers['bar:item_update']({ ...ev, item_id: 'b9', menu_item_name: 'Corona' }));
     expect(await screen.findByText('Listo: Corona · T4')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('toast-dismiss'));
@@ -233,16 +242,16 @@ describe('useReadyNotifications', () => {
   });
 
   it('ignores other waiters, other statuses; refetches when the payload has no B2 fields', async () => {
-    const m = mockApi({});
+    const m = mockApi(openTickets);
     const { queryClient } = await renderScreen(<Probe />);
     const spy = jest.spyOn(queryClient, 'invalidateQueries');
-    await act(async () => mockHandlers['kitchen:item_update']({ ...ev, item_id: 'o1', opened_by: 'someone' }));
+    await loaded(m);
+    await act(async () => mockHandlers['kitchen:item_update']({ ...ev, item_id: 'o1', ticket_id: 'tOther' }));
     await act(async () => mockHandlers['kitchen:item_update']({ ...ev, item_id: 'o2', status: 'IN_PROGRESS' }));
     expect(screen.queryByTestId('toast')).toBeNull();
     expect(spy).not.toHaveBeenCalled();
     await act(async () => mockHandlers['kitchen:item_update']({ item_id: 'o3', status: 'READY' }));
     expect(screen.queryByTestId('toast')).toBeNull();
     expect(spy).toHaveBeenCalledWith({ queryKey: ['queue'] });
-    expect(m.calls).toHaveLength(0);
   });
 });

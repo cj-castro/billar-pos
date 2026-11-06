@@ -4,6 +4,7 @@ import { __setServerUrlForTests } from '../../config/serverConfig';
 import client from '../../api/client';
 import { ACCESS_KEY, REFRESH_KEY, USER_KEY, useAuthStore } from '../authStore';
 import { queryClient } from '../queryClient';
+import { useDraftStore } from '../../features/waiter/draft/draftStore';
 import { AxiosError, type AxiosAdapter } from 'axios';
 
 const user = { id: 'u1', username: 'ana', name: 'Ana', role: 'WAITER' };
@@ -80,4 +81,32 @@ it('logout still works when the server is unreachable', async () => {
   await useAuthStore.getState().logout();
   expect(store.size).toBe(0);
   expect(useAuthStore.getState().user).toBeNull();
+});
+
+
+it('SEC-04: logout clears ALL persisted drafts (memory and AsyncStorage) and the owner', async () => {
+  client.defaults.adapter = adapter({ 'post /auth/logout': { status: 200, data: {} } });
+  useAuthStore.setState({ user: user as never, accessToken: 'A', refreshToken: 'R' });
+  useDraftStore.getState().claimDrafts('u1');
+  useDraftStore.getState().addLine('t1', { menuItemId: 'm', name: 'Nachos', unitPriceCents: 1, quantity: 1, modifiers: [], notes: '' });
+  useDraftStore.getState().addLine('t2', { menuItemId: 'm', name: 'Alitas', unitPriceCents: 1, quantity: 1, modifiers: [], notes: '' });
+  expect(await AsyncStorage.getItem('bola8.waiter.drafts')).toContain('Nachos');
+
+  await useAuthStore.getState().logout();
+
+  expect(useDraftStore.getState()).toMatchObject({ byTicket: {}, ownerId: null, b1Confirmed: {} });
+  const raw = await AsyncStorage.getItem('bola8.waiter.drafts');
+  expect(raw === null || !/Nachos|Alitas/.test(raw)).toBe(true);
+});
+
+it("SEC-04: logging in as a different user drops the previous user's drafts", async () => {
+  client.defaults.adapter = adapter({ 'post /auth/login': { status: 200, data: { access_token: 'A', refresh_token: 'R', user: { ...user, id: 'u2' } } } });
+  useDraftStore.getState().claimDrafts('u1');
+  useDraftStore.getState().addLine('t1', { menuItemId: 'm', name: 'Nachos', unitPriceCents: 1, quantity: 1, modifiers: [], notes: '' });
+  await useAuthStore.getState().login('other', 'pw');
+  expect(useDraftStore.getState().byTicket).toEqual({});
+});
+
+it('F4: every mutation inherits networkMode "always" from the query client (no per-call overrides)', () => {
+  expect(queryClient.getDefaultOptions().mutations).toMatchObject({ networkMode: 'always', retry: 0 });
 });

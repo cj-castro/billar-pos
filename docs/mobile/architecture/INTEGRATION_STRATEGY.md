@@ -79,8 +79,8 @@ Request: unchanged body (`menu_item_id`, `quantity`, `modifiers`, `notes`) plus 
 
 Behaviour:
 1. Header absent: exactly today's behaviour (plus `ticket_version` in the response).
-2. Header present but not a UUID: 400 `{error:"INVALID_IDEMPOTENCY_KEY", message}`.
-3. Lookup `(ticket_id, client_request_id)` **before** the `TICKET_CLOSED`, stock and version checks. If found: return **200** with the existing line, no new row, no stock consumption, no chit print, no socket emit. If the stored `menu_item_id` or `quantity` differs from the request: 409 `IDEMPOTENCY_KEY_REUSED`. If the existing line is VOIDED: still 200 with `status:"VOIDED"` so the client does not resend.
+2. Header present but not matching `[A-Za-z0-9_-]{1,64}`: **422** `{error:"INVALID_IDEMPOTENCY_KEY"}` (as implemented, see BACKEND_EXTENSIONS.md).
+3. Lookup `(ticket_id, client_request_id)` **before** the `TICKET_CLOSED`, stock and version checks. If found: return **200** with the existing line, no new row, no stock consumption, no chit print, no socket emit. The body of a replay is **not** compared with the stored line (a `409 IDEMPOTENCY_KEY_REUSED` check was planned but is not implemented; follow-up SEC-12), which is why the mobile app locks uncertain lines against editing. If the existing line is VOIDED: still 200 with `status:"VOIDED"` so the client does not resend.
 4. Not found: normal create (201), storing the key. A unique-violation race (`IntegrityError` on the partial index) rolls back (which also undoes the stock consumption, same transaction), re-selects and returns 200.
 5. Response (201 and 200): the line `to_dict()` plus `client_request_id` and `ticket_version` (the ticket's `version` after commit). Replays add `idempotent_replay: true`.
 
@@ -88,7 +88,7 @@ Migration outline (next file after the baseline, `backend/migrations/sql/002_lin
 
 ```sql
 ALTER TABLE ticket_line_items
-  ADD COLUMN IF NOT EXISTS client_request_id VARCHAR(36);
+  ADD COLUMN IF NOT EXISTS client_request_id VARCHAR(64);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_line_item_client_request
   ON ticket_line_items (ticket_id, client_request_id)
   WHERE client_request_id IS NOT NULL;
@@ -102,7 +102,7 @@ Feature detection: (1) preferred - proposal P2 below adds `api_features: ["idemp
 
 ### B2 - Richer item-update socket payloads
 
-Add to `kitchen:item_update`, `bar:item_update` and `ticket:item_status` (emitters in `queue.py:104-110` and `tickets.py:101`): `ticket_id`, `resource_code`, `menu_item_name`, `quantity`, `opened_by` (user id string, same value as `ticket.opened_by`). Existing keys `item_id`, `status` (or `needs_reprint`) are unchanged. One query joins `TicketLineItem -> Ticket -> Resource` on the already-loaded item. Web ignores unknown keys. Detection: presence of `ticket_id` in the first payload, or `socket-payload-v2` in `api_features`.
+Add to `kitchen:item_update`, `bar:item_update` and `ticket:item_status` (emitters in `queue.py:104-110` and `tickets.py:101`): `ticket_id`, `resource_code`, `menu_item_name`, `quantity`. **Not** `opened_by`: the `kitchen`/`bar`/`ticket:*` rooms are joinable without a token (G1), so the opener's user id must not be broadcast (SEC-05). The mobile app matches "my tickets" against `GET /tickets?status=OPEN`. Existing keys `item_id`, `status` (or `needs_reprint`) are unchanged. One query joins `TicketLineItem -> Ticket -> Resource` on the already-loaded item. Web ignores unknown keys. Detection: presence of `ticket_id` in the first payload, or `socket-payload-v2` in `api_features`.
 
 Privacy note: `kitchen`/`bar`/`ticket:*` rooms are joinable without authentication (G1). The added fields (table code, item name, quantity, opener id) are the minimum for the ready notification; do **not** add prices or customer names.
 

@@ -9,12 +9,15 @@ import { AppTextField } from '../src/components/AppTextField';
 import { LanguageToggle } from '../src/components/LanguageToggle';
 import { Logo } from '../src/components/Logo';
 import { ScreenScaffold } from '../src/components/ScreenScaffold';
-import { getServerUrl, saveServerUrl, validateServer } from '../src/config/serverConfig';
+import { ConfirmDialog } from '../src/components/ConfirmDialog';
+import { getServerUrl, normalizeServerUrl, saveServerUrl, validateServer } from '../src/config/serverConfig';
+import { useAuthStore } from '../src/state/authStore';
 import { colors, radii, spacing } from '../src/theme/tokens';
 import { haptic } from '../src/utils/haptics';
 
 const ERR_KEY = {
   invalid: 'setup.errInvalid',
+  insecure: 'setup.errInsecure',
   timeout: 'setup.errTimeout',
   unreachable: 'setup.errUnreachable',
   not_pos: 'setup.errNotPos',
@@ -28,6 +31,8 @@ export default function SetupScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [okMs, setOkMs] = useState<number | null>(null);
+  const hasSession = useAuthStore((st) => !!st.user);
+  const [confirmSwitch, setConfirmSwitch] = useState(false);
 
   const onTest = async () => {
     setBusy(true);
@@ -45,9 +50,16 @@ export default function SetupScreen() {
     setOkMs(Date.now() - started);
   };
 
-  const onContinue = async () => {
+  const commit = async () => {
+    // SEC-02: credentials belong to the host that issued them. A different host ends the session first
+    // (tokens, user, query cache, socket, drafts) so nothing is ever sent to the new host.
+    if (hasSession && normalizeServerUrl(value) !== getServerUrl()) await useAuthStore.getState().logout();
     await saveServerUrl(value);
     router.replace('/login');
+  };
+  const onContinue = () => {
+    if (hasSession && normalizeServerUrl(value) !== getServerUrl()) setConfirmSwitch(true);
+    else void commit();
   };
 
   return (
@@ -110,6 +122,20 @@ export default function SetupScreen() {
           </View>
         </View>
       )}
+      <ConfirmDialog
+        visible={confirmSwitch}
+        title={t('setup.switchTitle')}
+        message={t('setup.switchBody')}
+        confirmLabel={t('setup.switchConfirm')}
+        cancelLabel={t('cancel')}
+        destructive
+        onCancel={() => setConfirmSwitch(false)}
+        onConfirm={() => {
+          setConfirmSwitch(false);
+          void commit();
+        }}
+        testID="switch-server-dialog"
+      />
     </ScreenScaffold>
   );
 }

@@ -50,7 +50,7 @@ export function handleRealtimeEvent(event: string, payload: Payload, qc: QueryCl
 
 /** After (re)connect events may have been missed (not replayed): resync everything cheap. */
 export function resyncAll(qc: QueryClient) {
-  for (const key of [qk.resources, ['queue'], qk.waiting, ['ticket'], qk.settings()] as const)
+  for (const key of [qk.resources, ['queue'], qk.waiting, ['ticket'], qk.settings(), qk.cash, qk.stock, ['tickets']] as const)
     qc.invalidateQueries({ queryKey: key as unknown as unknown[] });
 }
 
@@ -112,6 +112,7 @@ export function connectSocket(o: ConnectOptions) {
   const s = io(o.baseUrl, {
     path: '/socket.io',
     transports: ['websocket', 'polling'],
+    forceNew: true, // L7: own Manager per connection, so reconnect_attempt listeners cannot pile up on a cached one
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 10_000,

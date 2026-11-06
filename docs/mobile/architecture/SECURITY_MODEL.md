@@ -100,3 +100,16 @@ The server URL is configuration, so steps 1-3 need no app architecture change; o
 - Contract tests: wrong role gets 403 where the server enforces it; socket `manager` join cases (B4); idempotency replay does not duplicate (B1).
 - Unit tests: logger redaction; PIN ref cleared; auth store persists no tokens; query persister allow-list excludes tokens and mutations; URL guard cases.
 - Manual: `adb shell run-as <pkg>` on a debug build confirms no tokens in `shared_prefs` outside the SecureStore blob and none in the AsyncStorage database; Wireshark/mitmproxy on the emulator confirms the cleartext residual is exactly as documented (and that PINs are only in bodies).
+
+## 10. Residual risks
+
+Risks that remain after the fix pass (SECURITY_REVIEW.md carries the per-finding resolution).
+
+| ID | Residual risk | Mitigation today | Plan |
+|---|---|---|---|
+| SEC-01 | **Cleartext LAN traffic.** The app uses `usesCleartextTraffic` and talks plain `http://` to the POS (nginx :8080). Passwords, JWTs, refresh tokens, manager PINs and the socket `join` token cross the venue Wi-Fi unencrypted. | The URL guard (SEC-03) limits `http://` to private/LAN hosts and `https://` is accepted anywhere, so credentials never go cleartext to a public host. Use a staff-only SSID, separate from patron Wi-Fi. | Roadmap: terminate TLS on the bar machine (local CA or a reverse proxy with a certificate that the phones trust), then drop `usesCleartextTraffic` and reject `http://` in release builds. Until then the owner accepts the risk in writing. |
+| SEC-06 | **Debug-keystore signing.** The local `assembleRelease` build (`scripts/mobile/build-android-release.ps1`) is signed with the Expo template's public debug keystore, so anyone can build an APK that Android installs as an update of the app. | Local/emulator use only; the script prints a warning; the APK lives in the git-ignored `mobile/dist/`. | Before any APK goes to a staff phone, re-sign with a **venue-owned keystore** (kept outside the repo, `*.jks` is git-ignored; inject the release `signingConfig` through a config plugin or `gradle.properties`). Never distribute the debug-signed build. |
+| SEC-07 | **Manager PIN brute force on void / quantity-decrease.** These endpoints have no server-side rate limit (only `/auth/login` and `/auth/verify-pin` are limited). | Client-side only: after 3 consecutive `INVALID_PIN` answers the PIN pad locks for 30 s with a countdown (the counter survives closing the sheet). A modified client bypasses this. | **Recommended backend follow-up:** one shared per-user failure budget in `verify_manager_pin` (count `MANAGER_PIN_FAILED` audit rows, 429 after 5 per minute) or `@limiter.limit` on `void_item` and `update_item_quantity`. Needs ProxyFix (P1) for a meaningful IP key. |
+| SEC-05 | `kitchen`/`bar`/`ticket:*` rooms remain joinable without a token (G1) and still carry table codes, item names and ticket ids. | `opened_by` was removed from the payload (B2). | Authenticate the socket in `on_connect`. |
+| SEC-09/SEC-12 | The manager room accepts blocklisted / deactivated users' tokens (G25); a B1 replay ignores the request body. | Mobile locks uncertain lines so a body change cannot be silently dropped. | Backend: validate room joins like REST; store a request hash and answer 422 `IDEMPOTENCY_KEY_REUSED`. |
+

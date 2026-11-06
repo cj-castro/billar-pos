@@ -96,3 +96,16 @@ describe('draft store', () => {
     expect(draftSubtotalCents(useDraftStore.getState().byTicket.t1)).toBe((14500 + 1000) * 2);
   });
 });
+
+
+describe('SEC-04 ownership', () => {
+  it("a different user logging in wipes the previous user's drafts; the same user keeps them", () => {
+    useDraftStore.getState().claimDrafts('u1');
+    useDraftStore.getState().addLine('t1', line());
+    useDraftStore.getState().claimDrafts('u1');
+    expect(useDraftStore.getState().byTicket.t1).toHaveLength(1);
+    useDraftStore.getState().claimDrafts('u2');
+    expect(useDraftStore.getState().byTicket).toEqual({});
+    expect(useDraftStore.getState().ownerId).toBe('u2');
+  });
+});

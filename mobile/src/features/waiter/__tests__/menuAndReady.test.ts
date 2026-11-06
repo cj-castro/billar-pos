@@ -69,28 +69,29 @@ describe('configurator rules', () => {
 });
 
 describe('classifyReadyEvent', () => {
-  const ev = { item_id: 'a', status: 'READY', ticket_id: 't1', resource_code: 'T4', menu_item_name: 'Alitas BBQ', quantity: 1, opened_by: 'me' };
+  const ev = { item_id: 'a', status: 'READY', ticket_id: 't1', resource_code: 'T4', menu_item_name: 'Alitas BBQ', quantity: 1 };
+  const mine = new Set(['t1']);
   it('notifies for READY on my ticket', () => {
     const seen = new Set<string>();
-    expect(classifyReadyEvent(ev, 'me', seen)).toEqual({ action: 'notify', ticketId: 't1', name: 'Alitas BBQ', code: 'T4', itemId: 'a' });
+    expect(classifyReadyEvent(ev, mine, seen)).toEqual({ action: 'notify', ticketId: 't1', name: 'Alitas BBQ', code: 'T4', itemId: 'a' });
   });
   it('ignores other waiters, other statuses, and junk', () => {
-    expect(classifyReadyEvent(ev, 'someone', new Set())).toEqual({ action: 'ignore' });
-    expect(classifyReadyEvent({ ...ev, status: 'IN_PROGRESS' }, 'me', new Set())).toEqual({ action: 'ignore' });
-    expect(classifyReadyEvent(undefined, 'me', new Set())).toEqual({ action: 'ignore' });
-    expect(classifyReadyEvent({ status: 'READY' }, 'me', new Set())).toEqual({ action: 'ignore' });
-    expect(classifyReadyEvent(ev, null, new Set())).toEqual({ action: 'ignore' });
+    expect(classifyReadyEvent(ev, new Set(['t9']), new Set())).toEqual({ action: 'ignore' });
+    expect(classifyReadyEvent({ ...ev, status: 'IN_PROGRESS' }, mine, new Set())).toEqual({ action: 'ignore' });
+    expect(classifyReadyEvent(undefined, mine, new Set())).toEqual({ action: 'ignore' });
+    expect(classifyReadyEvent({ status: 'READY' }, mine, new Set())).toEqual({ action: 'ignore' });
+    expect(classifyReadyEvent(ev, null, new Set())).toEqual({ action: 'refetch' }); // my tickets not loaded yet
   });
   it('falls back to a refetch when B2 fields are missing', () => {
-    expect(classifyReadyEvent({ item_id: 'a', status: 'READY' }, 'me', new Set())).toEqual({ action: 'refetch' });
+    expect(classifyReadyEvent({ item_id: 'a', status: 'READY' }, mine, new Set())).toEqual({ action: 'refetch' });
   });
   it('dedupes the same item+status', () => {
     const seen = new Set<string>();
-    expect(classifyReadyEvent(ev, 'me', seen).action).toBe('notify');
-    expect(classifyReadyEvent(ev, 'me', seen).action).toBe('ignore');
+    expect(classifyReadyEvent(ev, mine, seen).action).toBe('notify');
+    expect(classifyReadyEvent(ev, mine, seen).action).toBe('ignore');
   });
   it('null resource_code is tolerated (express tickets)', () => {
-    expect(classifyReadyEvent({ ...ev, resource_code: null }, 'me', new Set())).toMatchObject({ action: 'notify', code: '' });
+    expect(classifyReadyEvent({ ...ev, resource_code: null }, mine, new Set())).toMatchObject({ action: 'notify', code: '' });
   });
 });
 

@@ -12,6 +12,7 @@ import { ScreenHeader } from '../../components/ScreenHeader';
 import { ScreenScaffold } from '../../components/ScreenScaffold';
 import { SectionHeader } from '../../components/SectionHeader';
 import { getServerUrl } from '../../config/serverConfig';
+import { useDraftStore } from '../waiter/draft/draftStore';
 import { useAuthStore } from '../../state/authStore';
 import { colors, radii, spacing } from '../../theme/tokens';
 
@@ -33,6 +34,7 @@ export function ProfileScreen({ tabs, back }: { tabs?: boolean; back?: boolean }
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const [confirm, setConfirm] = useState(false);
+  const unsent = useDraftStore((d) => Object.values(d.byTicket).reduce((n, l) => n + l.length, 0)); // M9: logout deletes them
   const [busy, setBusy] = useState(false);
 
   const onLogout = async () => {
@@ -74,7 +76,7 @@ export function ProfileScreen({ tabs, back }: { tabs?: boolean; back?: boolean }
         destructive
         loading={busy}
         title={t('profile.logoutTitle')}
-        message={t('profile.logoutMessage')}
+        message={unsent > 0 ? t('profile.logoutDrafts', { n: unsent }) : t('profile.logoutMessage')}
         confirmLabel={t('logout')}
         cancelLabel={t('cancel')}
         onConfirm={onLogout}

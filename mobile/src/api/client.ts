@@ -1,3 +1,4 @@
+import { recordServerDate } from './clockSkew';
 import axios, { AxiosError, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios';
 import { getServerUrl } from '../config/serverConfig';
 
@@ -116,6 +117,8 @@ async function doRefresh(): Promise<string> {
       _isRefresh: true,
     } as ClientRequestConfig);
     const token = res.data.access_token;
+    // SEC-10: the session ended (logout / user switch) while the refresh was in flight: drop the result.
+    if (bridge?.getRefreshToken() !== refresh) throw new ApiError({ status: null, code: 'SESSION_ENDED', message: 'Session ended' });
     await bridge?.setAccessToken(token);
     return token;
   } catch (e) {
@@ -127,10 +130,15 @@ async function doRefresh(): Promise<string> {
 }
 
 client.interceptors.response.use(
-  (r) => r,
+  (r) => {
+    recordServerDate(r.headers?.date);
+    return r;
+  },
   async (error: unknown) => {
     const cfg = (error as AxiosError)?.config as ReqConfig | undefined;
-    if (axios.isAxiosError(error) && error.response?.status === 401 && cfg && !cfg._retry && !cfg._isRefresh && !cfg._noAuth) {
+    // M3/SEC-08: an app-level 401 (INVALID_PIN, INVALID_CREDENTIALS...) carries `error`; an expired JWT has flask-jwt's `{msg}` shape.
+    const appCode = (error as AxiosError<{ error?: unknown }>)?.response?.data?.error;
+    if (axios.isAxiosError(error) && error.response?.status === 401 && typeof appCode !== 'string' && cfg && !cfg._retry && !cfg._isRefresh && !cfg._noAuth) {
       cfg._retry = true;
       const token = await refreshOnce(); // throws ApiError on failure
       cfg.headers.Authorization = `Bearer ${token}`;

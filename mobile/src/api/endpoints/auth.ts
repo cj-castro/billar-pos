@@ -1,4 +1,4 @@
-import client, { type ClientRequestConfig } from '../client';
+import client, { ApiError, toApiError, type ClientRequestConfig } from '../client';
 import type { User } from '../../domain/types';
 
 export interface LoginResponse {
@@ -38,8 +38,14 @@ export interface VerifyPinResponse {
   manager_name?: string;
 }
 
-/** Rate-limited 5/min. 400 {valid:false} surfaces as ApiError status 400. */
+/** Rate-limited 5/min. The server answers 400 {valid:false} for a wrong PIN: surfaced as ApiError INVALID_PIN. */
 export async function verifyPin(pin: string): Promise<VerifyPinResponse> {
-  const { data } = await client.post<VerifyPinResponse>('/auth/verify-pin', { pin });
-  return data;
+  try {
+    const { data } = await client.post<VerifyPinResponse>('/auth/verify-pin', { pin });
+    return data;
+  } catch (e) {
+    const err = toApiError(e);
+    if (err.status === 400) throw new ApiError({ status: 400, code: 'INVALID_PIN', message: err.message });
+    throw err;
+  }
 }

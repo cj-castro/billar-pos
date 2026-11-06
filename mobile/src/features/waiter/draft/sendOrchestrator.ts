@@ -15,6 +15,8 @@ export interface SendLine {
   quantity: number;
   modifiers: { id: string }[];
   notes: string;
+  /** X-Ticket-Version of this line's first POST (null = none sent); undefined = never attempted. */
+  firstAttemptVersion?: number | null;
 }
 
 export interface AddItemBodyDep {
@@ -35,10 +37,11 @@ export interface SendDeps {
 }
 
 export type LinePatch =
-  | { state: 'SENDING' }
+  | { state: 'SENDING'; firstAttemptVersion?: number | null }
   | { state: 'SENT' }
   | { state: 'PENDING' }
-  | { state: 'FAILED'; error: DraftErrorCode; errorDetail?: string };
+  /** Definitive server rejection: the line was NOT created, so it is a fresh line again (`resetAttempt`). */
+  | { state: 'FAILED'; error: DraftErrorCode; errorDetail?: string; resetAttempt?: boolean };
 
 export type StopReason = 'closed' | 'unauthorized' | 'network' | 'verify';
 
@@ -57,18 +60,20 @@ export interface SendParams {
   lines: SendLine[];
   /** Latest known ticket.version. */
   version: number | null;
-  /** B1 seen earlier in this app session. */
-  b1Known?: boolean;
+  /** This ticket's server has already answered an add with `ticket_version` (B1). Persisted per ticket. */
+  b1Confirmed?: boolean;
   deps: SendDeps;
   onUpdate: (key: string, patch: LinePatch) => void;
+  /** Called the first time a response carries `ticket_version`, so the caller can persist the flag. */
+  onB1?: () => void;
 }
 
 /** Server text is only a detail when it says something (toApiError's generic fallback is not). */
 const detailOf = (message: string) => (!message || /^Request failed \(\d+\)$/.test(message) ? undefined : message);
 
-export async function sendDraft({ ticketId, lines, version: initial, b1Known = false, deps, onUpdate }: SendParams): Promise<SendResult> {
+export async function sendDraft({ ticketId, lines, version: initial, b1Confirmed = false, deps, onUpdate, onB1 }: SendParams): Promise<SendResult> {
   let version = initial;
-  let b1 = b1Known;
+  let b1 = b1Confirmed;
   const sent: string[] = [];
   const failed: string[] = [];
 
@@ -81,8 +86,18 @@ export async function sendDraft({ ticketId, lines, version: initial, b1Known = f
   };
 
   for (const line of lines) {
-    onUpdate(line.key, { state: 'SENDING' });
+    // Earlier attempt of unknown outcome? Then only the original version may be re-sent (H1).
+    const retryOfUncertain = line.firstAttemptVersion !== undefined;
+    if (retryOfUncertain && !b1 && line.firstAttemptVersion === null) {
+      // Without B1 and without a version header the first attempt cannot be told apart from a duplicate: never re-post.
+      failed.push(line.key);
+      onUpdate(line.key, { state: 'FAILED', error: 'VERIFY' });
+      return { sent, failed, stopped: 'verify', b1, version };
+    }
+    const attemptVersion = retryOfUncertain && !b1 ? (line.firstAttemptVersion as number) : version;
+    onUpdate(line.key, retryOfUncertain ? { state: 'SENDING' } : { state: 'SENDING', firstAttemptVersion: attemptVersion });
     let conflictRetried = false;
+    let currentVersion = attemptVersion;
     for (;;) {
       try {
         const res = await deps.addItem(
@@ -93,9 +108,10 @@ export async function sendDraft({ ticketId, lines, version: initial, b1Known = f
             ...(line.modifiers.length ? { modifiers: line.modifiers.map((m) => ({ modifier_id: m.id })) } : {}),
             ...(line.notes ? { notes: line.notes } : {}),
           },
-          { idempotencyKey: line.key, ...(version != null ? { ticketVersion: version } : {}) },
+          { idempotencyKey: line.key, ...(currentVersion != null ? { ticketVersion: currentVersion } : {}) },
         );
         if (typeof res?.ticket_version === 'number') {
+          if (!b1) onB1?.();
           b1 = true;
           version = res.ticket_version;
         } else {
@@ -108,12 +124,15 @@ export async function sendDraft({ ticketId, lines, version: initial, b1Known = f
         const err = toApiError(e);
 
         if (err.status === 409 && err.code === 'VERSION_CONFLICT') {
-          await refresh();
+          // Only with B1 may the version be refreshed (replay is decided before the version check, so the same key is safe).
+          // Without B1 the version moving can mean our earlier attempt landed: never refresh, never retry.
           if (b1 && !conflictRetried) {
+            await refresh();
+            currentVersion = version;
             conflictRetried = true;
-            continue; // same key: B1 makes a replay safe
+            continue;
           }
-          // Without B1 the first attempt might have landed: let the waiter check the ticket first.
+          if (b1) await refresh();
           failed.push(line.key);
           onUpdate(line.key, { state: 'FAILED', error: 'VERIFY' });
           return { sent, failed, stopped: 'verify', b1, version };
@@ -130,7 +149,7 @@ export async function sendDraft({ ticketId, lines, version: initial, b1Known = f
           const error: DraftErrorCode =
             err.code === 'OUT_OF_STOCK' ? 'OUT_OF_STOCK' : err.code === 'FLAVOR_REQUIRED' ? 'FLAVOR_REQUIRED' : err.code === 'INVALID_QUANTITY' ? 'INVALID_QUANTITY' : 'UNKNOWN';
           failed.push(line.key);
-          onUpdate(line.key, { state: 'FAILED', error, errorDetail: detailOf(err.message) });
+          onUpdate(line.key, { state: 'FAILED', error, errorDetail: detailOf(err.message), resetAttempt: true });
           break; // this line is dead until edited; the others go on
         }
         if (err.isNetwork || err.isTimeout || (err.status ?? 0) >= 500) {

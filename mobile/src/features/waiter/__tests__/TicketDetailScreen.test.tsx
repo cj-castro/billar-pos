@@ -143,7 +143,7 @@ describe('TicketDetailScreen', () => {
     api();
     useDraftStore.getState().addLine('t1', { menuItemId: 'm', name: 'Nachos', unitPriceCents: 9500, quantity: 1, modifiers: [], notes: '' });
     await renderScreen(<TicketDetailScreen ticketId="t1" mode="waiter" />);
-    expect(screen.queryByText('1 producto por enviar')).toBeNull();
+    expect(await screen.findByText('1 producto por enviar')).toBeTruthy(); // the hint bar renders the unsent count
     await fireEvent.press(await screen.findByTestId('ticket-draft-bar'));
     expect(mockRouter.push).toHaveBeenCalledWith('/ticket/t1/draft');
   });

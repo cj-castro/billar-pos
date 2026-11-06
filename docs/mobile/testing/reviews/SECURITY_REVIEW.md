@@ -303,3 +303,30 @@ await setDiscount(ticketId, flow.pct, 'mobile');
 The button only shows in manager mode (`:153`), and the server gates on the JWT role. Any manager's PIN passes, and the discount is attributed to the logged-in manager, not to the PIN owner. Each attempt also spends the shared 5/min `verify-pin` bucket. SECURITY_MODEL section 5 asks that the UI "must be explicit that the server does not re-check it". The copy (`i18n/mobile.ts:266`) is not explicit.
 
 **Recommended correction.** Drop the PIN step for discounts (the JWT is the control), or reword the copy to say it is a confirmation, not an authorization. **Effort.** S.
+
+---
+
+## Resolution (fix pass)
+
+| ID | Resolution |
+|---|---|
+| SEC-01 | **Won't fix in this pass** (needs TLS on the bar machine). Mitigated by SEC-03 (cleartext only to LAN hosts); documented in SECURITY_MODEL.md section 10 "Residual risks" with the HTTPS roadmap. |
+| SEC-02 | **Fixed.** `app/setup.tsx`: confirm dialog, then `logout()` (tokens, user, query cache, socket disconnect, drafts) before saving a different URL. Test: `src/test/__tests__/setup.test.tsx`. |
+| SEC-03 | **Fixed.** `serverConfig.ts` `serverUrlProblem`/`isPrivateHost`; Spanish `setup.errInsecure`; `validateServer` makes no request for an insecure host. Tests: `serverConfig.test.ts`, `setup.test.tsx`. |
+| SEC-04 | **Fixed.** `logout()` clears all drafts (memory + AsyncStorage) and the owner; `login()` wipes drafts of another user. Tests: `authStore.test.ts`, `draftStore.test.ts`. |
+| SEC-05 | **Fixed (option b).** `backend/app/api/queue.py` no longer emits `opened_by`; mobile matches OPEN tickets whose `opened_by` is the user. `test_mobile_extensions_live.py` asserts absence (31/31); contract tests updated; BACKEND_EXTENSIONS.md B2 documents why. **Deferred:** socket authentication (option a). |
+| SEC-06 | **Deferred.** Debug-keystore signing and a debuggable APK are documented in SECURITY_MODEL.md residual risks; `build-android-release.ps1` prints a LOCAL-USE-ONLY warning. No production keystore was created. |
+| SEC-07 | **Fixed client-side only.** 3 consecutive `INVALID_PIN` -> 30 s cooldown with countdown (`TicketExtras.tsx`, test in `TicketExtras.test.tsx`). **Deferred:** server-side limiter (backend change), recorded in SECURITY_MODEL.md. |
+| SEC-08 | **Fixed.** See M3. |
+| SEC-09 | **Deferred** (backend socket change beyond the one allowed). |
+| SEC-10 | **Fixed (refresh).** A refresh that returns after logout is discarded (`SESSION_ENDED`). Test: `client.test.ts`. Replay of queued retries after logout: **Deferred**. |
+| SEC-11 | **Deferred** (needs on-device verification; UUID validation of route params + `encodeURIComponent`). |
+| SEC-12 | **Fixed client-side** (uncertain lines locked, see H2). **Deferred:** server request-hash check (backend migration). |
+| SEC-13 | **Fixed.** `blockedPermissions` in `app.config.ts`, applied by `expo prebuild --clean` for the release build. |
+| SEC-14 | **Deferred** (new native dependency `expo-screen-capture`). |
+| SEC-15 | **Fixed.** `allowBackup: false` in `app.config.ts`. |
+| SEC-16 | **Deferred** (role refresh after every token refresh / on foreground). |
+| SEC-17 | **Fixed.** `uuid.ts` throws outside tests instead of falling back to `Math.random`. |
+| SEC-18 | **Deferred** (copy change; the discount PIN prompt still only confirms). |
+
+Counts: Fixed 11 (SEC-02, 03, 04, 05, 07 client, 08, 12 client, 13, 15, 17, plus 10 refresh part), Won't fix 1 (SEC-01), Deferred 7 whole (SEC-06, 09, 11, 14, 16, 18, plus the server halves of 05, 07, 10, 12).

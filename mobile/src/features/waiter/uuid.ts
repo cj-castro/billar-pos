@@ -8,7 +8,8 @@ export function newKey(): string {
   } catch {
     // fall through
   }
-  // ponytail: Math.random fallback only for hosts without native crypto (tests); uniqueness is what matters, not secrecy.
+  // SEC-17: a silent Math.random fallback would hide a broken native module; only tests may use it.
+  if (process.env.NODE_ENV !== 'test') throw new Error('Secure random UUID unavailable');
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = Math.floor(Math.random() * 16);
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);

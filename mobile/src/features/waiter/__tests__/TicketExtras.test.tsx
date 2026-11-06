@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useAuthStore } from '../../../state/authStore';
 import { useDraftStore } from '../draft/draftStore';
+import { PIN_COOLDOWN_MS, resetPinGuard } from '../ticket/TicketExtras';
 import { TicketDetailScreen } from '../ticket/TicketDetailScreen';
 import { httpError, line, makeRouter, mockApi, online, renderScreen, resource, ticket } from '../testing/testkit';
 
@@ -176,4 +177,26 @@ describe('P1 ticket actions', () => {
     expect(await screen.findByText('PIN incorrecto. Intenta de nuevo.')).toBeTruthy();
     expect(m.of('PATCH', /discount/)).toHaveLength(0);
   });
+
+  it('SEC-07: 3 consecutive INVALID_PIN lock the pad for 30 s with a countdown; no request while locked', async () => {
+    resetPinGuard();
+    const m = api({ 'DELETE /tickets/t1/items/a': httpError(401, 'INVALID_PIN') as never });
+    await renderScreen(<TicketDetailScreen ticketId="t1" mode="waiter" />);
+    await openLine();
+    await fireEvent.press(screen.getByTestId('line-action-void'));
+    await fireEvent.press(screen.getByTestId('void-dialog-confirm'));
+    await pin('1111');
+    expect(await screen.findByText('PIN incorrecto. Intenta de nuevo.')).toBeTruthy();
+    await pin('2222');
+    await waitFor(() => expect(m.of('DELETE', /items\/a$/)).toHaveLength(2));
+    await pin('3333');
+    await waitFor(() => expect(m.of('DELETE', /items\/a$/)).toHaveLength(3));
+    expect(await screen.findByText(/Demasiados intentos.*\(30 s\)/)).toBeTruthy();
+    // locked: keys are dead, a 4th attempt sends nothing
+    await pin('4444');
+    expect(m.of('DELETE', /items\/a$/)).toHaveLength(3);
+    expect(PIN_COOLDOWN_MS).toBe(30_000);
+    resetPinGuard();
+  });
 });
+

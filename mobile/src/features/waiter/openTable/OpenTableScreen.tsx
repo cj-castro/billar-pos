@@ -41,7 +41,6 @@ export function OpenTableScreen({ resourceId }: { resourceId: string }) {
   const close = () => (router.canGoBack() ? router.back() : router.replace('/floor'));
 
   const mutation = useMutation({
-    networkMode: 'always',
     retry: 0,
     mutationFn: () => openTicket({ resource_id: resourceId, ticket_type: 'TABLE', ...(name.trim() ? { customer_name: name.trim().slice(0, CUSTOMER_NAME_MAX) } : {}) }),
     onSuccess: (ticket) => {

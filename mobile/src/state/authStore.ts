@@ -4,6 +4,8 @@ import { create } from 'zustand';
 import { setAuthBridge } from '../api/client';
 import * as authApi from '../api/endpoints/auth';
 import type { User } from '../domain/types';
+import { useDraftStore } from '../features/waiter/draft/draftStore';
+import { disconnectSocket } from '../realtime/socket';
 import { queryClient } from './queryClient';
 
 export const ACCESS_KEY = 'bola8.accessToken';
@@ -60,6 +62,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       AsyncStorage.setItem(USER_KEY, JSON.stringify(res.user)),
     ]);
     queryClient.clear(); // never show the previous user's cache
+    useDraftStore.getState().claimDrafts(res.user.id); // SEC-04: another user never inherits unsent lines
     set({ user: res.user, accessToken: res.access_token, refreshToken: res.refresh_token });
     return res.user;
   },
@@ -79,8 +82,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Best effort server-side revoke of the access jti; never block local logout on it.
     if (hadToken) await authApi.logout().catch(() => {});
     set({ user: null, accessToken: null, refreshToken: null });
+    disconnectSocket();
     await clearPersisted();
     queryClient.clear();
+    // SEC-04: logout drops every persisted per-user draft (the confirm dialog is the caller's job).
+    useDraftStore.getState().clearAll();
+    await useDraftStore.persist.clearStorage();
   },
 }));
 
