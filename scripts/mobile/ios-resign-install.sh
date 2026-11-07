@@ -68,39 +68,52 @@ npx expo prebuild --platform ios --clean --no-install
 echo "+ pod install"
 (cd ios && pod install)
 
+# Free Personal Teams cannot sign the Push Notifications capability. expo-notifications adds
+# aps-environment, but the app only uses LOCAL notifications (ready chime), which need no entitlement.
+for ent in ios/*/*.entitlements; do
+  [[ -f "$ent" ]] || continue
+  if /usr/libexec/PlistBuddy -c 'Print :aps-environment' "$ent" >/dev/null 2>&1; then
+    echo "+ removing aps-environment from $ent (not allowed for free Personal Teams)"
+    /usr/libexec/PlistBuddy -c 'Delete :aps-environment' "$ent"
+  fi
+done
+
 WORKSPACE="$(ls -d ios/*.xcworkspace 2>/dev/null | head -1 || true)"
 [[ -n "$WORKSPACE" ]] || { echo "no ios/*.xcworkspace after prebuild" >&2; exit 1; }
 SCHEME="$(basename "$WORKSPACE" .xcworkspace)"
 DERIVED="$MOBILE/build/ios"
 
-echo "+ xcodebuild $WORKSPACE scheme $SCHEME (Release, generic iOS, team $TEAM)"
+# Pick the device BEFORE building: a free Personal Team can only create a provisioning profile for a
+# device registered to the team, and xcodebuild registers it only when it builds for that specific device.
+# Accepts either the hardware UDID or the CoreDevice identifier; resolves to the hardware UDID.
+LIST_JSON="$(mktemp -t bola8-devices).json"
+xcrun devicectl list devices --json-output "$LIST_JSON" >/dev/null
+UDID="$(python3 - "$LIST_JSON" "$UDID" <<'PY2'
+import json, sys
+devs = json.load(open(sys.argv[1]))["result"]["devices"]
+want = sys.argv[2]
+phones = [d for d in devs if d.get("hardwareProperties", {}).get("deviceType") == "iPhone"]
+if want:
+    phones = [d for d in phones if want in (d.get("identifier"), d.get("hardwareProperties", {}).get("udid"))]
+rank = {"connected": 0, "disconnected": 1}
+phones = [d for d in phones if d.get("connectionProperties", {}).get("tunnelState") != "unavailable"]
+phones.sort(key=lambda d: rank.get(d.get("connectionProperties", {}).get("tunnelState"), 2))
+print(phones[0]["hardwareProperties"]["udid"] if phones else "")
+PY2
+)"
+rm -f "$LIST_JSON"
+[[ -n "$UDID" ]] || { echo "no iPhone found. Plug it in, unlock it, tap 'Trust', enable Developer Mode, then re-run (or pass DEVICE_UDID)." >&2; exit 1; }
+echo "device: $UDID"
+
+echo "+ xcodebuild $WORKSPACE scheme $SCHEME (Release, device $UDID, team $TEAM)"
 xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
-  -destination 'generic/platform=iOS' -allowProvisioningUpdates \
+  -destination "id=$UDID" -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
   CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$TEAM" \
   -derivedDataPath "$DERIVED" build
 
 APP="$(find "$DERIVED/Build/Products/Release-iphoneos" -maxdepth 1 -name '*.app' | head -1)"
 [[ -d "$APP" ]] || { echo "build finished but no .app under $DERIVED/Build/Products/Release-iphoneos" >&2; exit 1; }
 echo "built: $APP"
-
-# Pick the device: explicit UDID, else the first iPhone that is connected (preferred) or at least reachable.
-if [[ -z "$UDID" ]]; then
-  LIST_JSON="$(mktemp -t bola8-devices).json"
-  xcrun devicectl list devices --json-output "$LIST_JSON" >/dev/null
-  UDID="$(python3 - "$LIST_JSON" <<'PY'
-import json, sys
-devs = json.load(open(sys.argv[1]))["result"]["devices"]
-phones = [d for d in devs if d.get("hardwareProperties", {}).get("deviceType") == "iPhone"]
-rank = {"connected": 0, "disconnected": 1}
-phones = [d for d in phones if d.get("connectionProperties", {}).get("tunnelState") != "unavailable"]
-phones.sort(key=lambda d: rank.get(d.get("connectionProperties", {}).get("tunnelState"), 2))
-print(phones[0]["hardwareProperties"]["udid"] if phones else "")
-PY
-)"
-  rm -f "$LIST_JSON"
-  [[ -n "$UDID" ]] || { echo "no iPhone found. Plug it in, unlock it, tap 'Trust', enable Developer Mode, then re-run (or pass DEVICE_UDID)." >&2; exit 1; }
-fi
-echo "device: $UDID"
 
 echo "+ devicectl device install app"
 xcrun devicectl device install app --device "$UDID" "$APP"

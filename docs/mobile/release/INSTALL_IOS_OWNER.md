@@ -41,3 +41,14 @@ and allow **Local Network**.
 - *`devicectl` finds no iPhone*: unlock it, re-plug, trust the Mac, enable Developer Mode, or pass the UDID explicitly.
 - *Launch fails right after install*: the phone was locked or the profile is not trusted yet; open the app by hand.
 - The updater (GitHub APK self-update) is Android-only; the iOS build never contains or uses the updater token.
+- *"Xcode is not supported on this version of macOS"* (e.g. Xcode 26.6 on macOS 27.3): the command-line build still works.
+  To reach Settings > Accounts, launch the binary directly: `/Applications/Xcode.app/Contents/MacOS/Xcode &`.
+  Updating Xcode from the App Store is the permanent fix.
+- *"Personal development teams ... do not support the Push Notifications capability"*: expo-notifications adds
+  `aps-environment`; the script deletes it after prebuild (the app only uses local notifications).
+- *"Your team has no devices from which to generate a provisioning profile"*: the script builds for the specific
+  connected iPhone with `-allowProvisioningDeviceRegistration`, which registers it to the Personal Team.
+
+## Verified (2026-11-06)
+Built, signed with a free Personal Team, installed and launched on an iPhone 17 Pro Max (cable, Developer Mode)
+from a Mac on macOS 27.3 + Xcode 26.6, after trusting the developer profile on the phone.
