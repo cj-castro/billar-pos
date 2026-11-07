@@ -1,0 +1,30 @@
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: floor-timer-names
+- tapOn:
+    id: floor-card-T05
+- extendedWaitUntil:
+    visible:
+      id: ticket-pay
+    timeout: 15000
+- tapOn:
+    id: ticket-pay
+- extendedWaitUntil:
+    visible:
+      id: screen-pay
+    timeout: 10000
+- tapOn:
+    id: pay-method-cash
+- tapOn:
+    id: pay-exact
+- takeScreenshot: pay-cash

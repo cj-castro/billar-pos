@@ -1,0 +1,9 @@
+# J6b: (airplane mode ON, app still on draft screen) -> connectivity banner, tap Send -> line must not be sent.
+appId: com.bola8.staff
+---
+- assertVisible: ".*(Reconectando|Sin conexión).*"
+- takeScreenshot: 13-offline-draft
+- tapOn:
+    id: draft-send
+- waitForAnimationToEnd
+- takeScreenshot: 13b-offline-after-send

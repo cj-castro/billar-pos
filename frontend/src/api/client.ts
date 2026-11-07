@@ -62,10 +62,17 @@ client.interceptors.response.use(
         drainQueue(newToken)
         originalRequest.headers.Authorization = `Bearer ${newToken}`
         return client(originalRequest)
-      } catch (refreshErr) {
+      } catch (refreshErr: any) {
         rejectQueue(refreshErr)
-        useAuthStore.getState().logout()
-        window.location.href = '/login'
+        // Only destroy the session when the server definitively rejected the
+        // refresh token. A network error (backend restarting, tunnel dropped,
+        // device offline) must NOT log the user out: the token is still valid
+        // and the next request will succeed once connectivity returns.
+        const status = refreshErr?.response?.status
+        if (status === 401 || status === 422) {
+          useAuthStore.getState().logout()
+          window.location.href = '/login'
+        }
         return Promise.reject(refreshErr)
       } finally {
         isRefreshing = false

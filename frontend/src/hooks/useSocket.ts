@@ -39,6 +39,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       client.get('/resources').then((r) => {
         setResources(r.data)
         qc.setQueryData(['resources'], r.data)
+      }).catch(() => {
+        // Keep the last known floor on screen. Dropping to an empty map here
+        // was how an in-progress ticket appeared to "vanish" on a blip.
       })
       qc.invalidateQueries({ queryKey: ['tickets-reopened'] })
       qc.invalidateQueries({ queryKey: ['tickets-pending-payment'] })
@@ -59,6 +62,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       client.get('/resources').then((r) => {
         setResources(r.data)
         qc.setQueryData(['resources'], r.data)
+      }).catch(() => {
+        // Event received but the refetch failed: the socket will fire again and
+        // 'connect' re-syncs, so hold the current floor instead of clearing it.
       })
       qc.invalidateQueries({ queryKey: ['tickets-reopened'] })
       qc.invalidateQueries({ queryKey: ['tickets-pending-payment'] })

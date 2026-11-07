@@ -1,4 +1,4 @@
-from datetime import datetime, timezone, time as dtime
+from datetime import datetime, timezone, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 from app.models.promotion import Promotion, QUANTITY_PROMO_TYPES
 from app.models.ticket import LineItemPromotion
@@ -177,6 +177,194 @@ def promo_time_window_contains(promo, moment: datetime) -> bool:
         return start <= current <= end
     # Overnight window: inside if after the start OR before the end
     return current >= start or current <= end
+
+
+def _as_aware(moment: datetime) -> datetime:
+    """Naive timestamps are stored in UTC; label them before converting."""
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=timezone.utc)
+    return moment
+
+
+def window_overlap_seconds(start: datetime, end: datetime, promo) -> int:
+    """Seconds of the span [start, end] that fall inside the promo's window.
+
+    Used by POOL_TIME_FREE_MINUTES, where the free time is only redeemable
+    against play that happens inside the window: a session running 14:30-19:30
+    against a 15:00-19:00 promotion only redeems the 4 hours in between.
+
+    Returns whole SECONDS, never money. The caller converts billable seconds
+    to cents exactly once, in billing.calculate_charge, so no rounding or
+    currency representation is introduced here.
+
+    A promo with no window (or a malformed one) is unrestricted and returns the
+    whole span, matching promo_time_window_contains. Overnight windows
+    (22:00 -> 02:00) and spans covering several days are supported.
+    """
+    if start is None or end is None:
+        return 0
+    start, end = _as_aware(start), _as_aware(end)
+    if end <= start:
+        return 0
+
+    span_seconds = int((end - start).total_seconds())
+    start_raw, end_raw = promo.happy_hour_start, promo.happy_hour_end
+    if not start_raw or not end_raw:
+        return span_seconds
+    try:
+        w_start = _parse_time(start_raw)
+        w_end = _parse_time(end_raw)
+    except (ValueError, TypeError, AttributeError):
+        return span_seconds  # misconfigured window must not silently kill the grant
+
+    tz = ZoneInfo(Config.TZ)
+    local_start = start.astimezone(tz)
+    local_end = end.astimezone(tz)
+
+    total = 0
+    # Walk one day either side so a window opened the previous day (overnight)
+    # or closing the next day is still intersected.
+    day = local_start.date() - timedelta(days=1)
+    last_day = local_end.date() + timedelta(days=1)
+    while day <= last_day:
+        open_at = datetime.combine(day, w_start, tzinfo=tz)
+        close_day = day if w_start <= w_end else day + timedelta(days=1)
+        close_at = datetime.combine(close_day, w_end, tzinfo=tz)
+        lo = max(open_at, local_start)
+        hi = min(close_at, local_end)
+        if hi > lo:
+            total += int((hi - lo).total_seconds())
+        day += timedelta(days=1)
+    return total
+
+
+def _pool_promo_applications(promo, units, category_by_item: dict, tz) -> int:
+    """How many times a POOL_TIME_FREE_MINUTES promo is earned on these units.
+
+    Eligibility is judged at PromoUnit.ordered_at and capped by
+    max_applications_per_ticket. Deliberately knows nothing about the timer
+    session: the "only redeemable inside the window" cap is applied by the
+    caller, so the waiter-facing offer can advertise the full entitlement
+    while billing still redeems only what was actually played in-window.
+    """
+    applications = 0
+    for unit in units:
+        ordered_at = getattr(unit, 'ordered_at', None)
+        if ordered_at is None:
+            continue
+        local_ordered = _as_aware(ordered_at).astimezone(tz)
+        if not promo_is_in_date_range(promo, local_ordered):
+            continue
+        if not promo_time_window_contains(promo, ordered_at):
+            continue
+        if not unit_is_eligible(promo, unit, category_by_item or {}):
+            continue
+        applications += 1
+    cap = getattr(promo, 'max_applications_per_ticket', None)
+    if cap is not None:
+        applications = min(applications, int(cap))
+    return applications
+
+
+def earned_free_seconds(promos, units, category_by_item: dict,
+                        session_start: datetime, session_end: datetime,
+                        decisions: dict = None) -> int:
+    """Free pool SECONDS a ticket has earned for one timer session.
+
+    A POOL_TIME_FREE_MINUTES promotion grants free_pool_minutes per eligible
+    unit purchased, where eligibility is judged against when the unit was
+    ORDERED (PromoUnit.ordered_at) so a bucket bought at 18:50 keeps its free
+    hour even when the ticket is paid at 23:00. The grant is then capped by:
+
+      * max_applications_per_ticket (NULL = unlimited), and
+      * how much of the session was actually played inside the window, so the
+        promotion can never discount time it does not cover.
+
+    A promo with requires_confirmation only grants once the waiter has
+    ACCEPTED it for this ticket (`decisions` maps promotion_id -> decision).
+    Undecided and DECLINED both grant nothing, so the free hour is opt-in and
+    changing the decision later simply changes the next calculation.
+
+    Returns integer seconds. Deliberately has no access to rates or prices:
+    the value is subtracted from billable seconds before any cents arithmetic.
+    """
+    if not promos or not units:
+        return 0
+
+    decisions = decisions or {}
+    tz = ZoneInfo(Config.TZ)
+    total = 0
+    for promo in promos:
+        if getattr(promo, 'promo_type', None) != 'POOL_TIME_FREE_MINUTES':
+            continue
+        if not getattr(promo, 'is_active', False):
+            continue
+        if getattr(promo, 'requires_confirmation', False) \
+                and decisions.get(getattr(promo, 'id', None)) != 'ACCEPTED':
+            continue
+        minutes = int(getattr(promo, 'free_pool_minutes', 0) or 0)
+        if minutes <= 0:
+            continue
+
+        redeemable = window_overlap_seconds(session_start, session_end, promo)
+        if redeemable <= 0:
+            continue
+
+        applications = _pool_promo_applications(promo, units, category_by_item, tz)
+        if applications <= 0:
+            continue
+
+        total += min(applications * minutes * 60, redeemable)
+    return int(total)
+
+
+def _latest_pool_session(ticket):
+    """The session free pool time would apply to: the running one, else the last.
+
+    Pool-time promos are meaningless on a ticket with no table, so this
+    returning None is what keeps the offer off bar and regular-table tickets.
+    """
+    try:
+        sessions = ticket.timer_sessions.all()
+    except AttributeError:
+        sessions = list(getattr(ticket, 'timer_sessions', []) or [])
+    if not sessions:
+        return None
+    active = [s for s in sessions if s.status == 'ACTIVE']
+    pool = active or sessions
+    return max(pool, key=lambda s: s.start_time or datetime.min.replace(tzinfo=timezone.utc))
+
+
+def free_seconds_for_session(ticket, session, end_time: datetime = None) -> int:
+    """Total free SECONDS applying to one timer session.
+
+    Two independent sources, kept separate on purpose:
+      * the table's configured baseline, snapshotted onto the session at start
+        (PoolTableConfig.promo_free_minutes), and
+      * the POOL_TIME_FREE_MINUTES promotion grant, which is DERIVED here on
+        every call rather than stored.
+
+    Deriving the grant is what makes clawback free: void the bucket and the
+    next calculation simply stops granting, with no bookkeeping to unwind.
+
+    Callers pass the result straight to billing.calculate_charge, which
+    subtracts it from billable seconds BEFORE any cents arithmetic, so the
+    integer-cents representation is untouched.
+    """
+    baseline = int(getattr(session, 'promo_free_seconds', 0) or 0)
+    if ticket is None or session is None or session.start_time is None:
+        return baseline
+
+    end = end_time or session.end_time or datetime.now(timezone.utc)
+    promos = Promotion.query.filter_by(
+        is_active=True, promo_type='POOL_TIME_FREE_MINUTES').all()
+    if not promos:
+        return baseline
+
+    units, category_by_item = _ticket_units(ticket)
+    return baseline + earned_free_seconds(
+        promos, units, category_by_item, session.start_time, end,
+        decisions=_ticket_decisions(ticket))
 
 
 def _eligible_menu_item_ids(promo) -> set:
@@ -439,6 +627,31 @@ def preview_pending_quantity_promos(ticket, now: datetime = None) -> list:
                 u.already_discounted = u.line_item_id in discounted_line_items
             discounts = compute_quantity_promo_discounts(promo, eligible_units, category_by_item)
             total = sum(c for c in discounts.values() if c > 0)
+        elif promo.promo_type == 'POOL_TIME_FREE_MINUTES':
+            # Free pool time is offered in MINUTES, never cents, so it cannot go
+            # through the discount path or the `total <= 0` skip below.
+            minutes = int(getattr(promo, 'free_pool_minutes', 0) or 0)
+            if minutes <= 0:
+                continue
+            if _latest_pool_session(ticket) is None:
+                continue  # nothing to discount on a ticket with no table time
+            units, category_by_item, _ = _get_units()
+            # The offer advertises the full entitlement. The "only redeemable
+            # against in-window play" cap is applied later by
+            # earned_free_seconds, so a session that has only just started does
+            # not show a misleading "1 min de mesa gratis".
+            applications = _pool_promo_applications(
+                promo, units, category_by_item, ZoneInfo(Config.TZ))
+            if applications <= 0:
+                continue
+            offers.append({
+                'promotion_id': promo.id,
+                'name': promo.name,
+                'promo_type': promo.promo_type,
+                'discount_cents': 0,
+                'free_pool_minutes': applications * minutes,
+            })
+            continue
         else:
             # HAPPY_HOUR / ITEM_DISCOUNT — evaluate against each current line item.
             total = sum(

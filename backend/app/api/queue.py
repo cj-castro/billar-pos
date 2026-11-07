@@ -4,6 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.extensions import db, socketio
 from app.models.ticket import TicketLineItem, Ticket
 from app.models.print_job import PrintJob
+from app.services import settings_svc
 import os
 
 PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://host.docker.internal:9191')
@@ -93,6 +94,17 @@ def update_status(item_id):
         return jsonify({'error': 'INVALID_STATUS'}), 422
 
     item = TicketLineItem.query.get_or_404(item_id)
+    if item.status == 'VOIDED':
+        return jsonify({'error': 'ITEM_VOIDED',
+                        'message': 'Item was voided and cannot change status'}), 409
+    expected_from = data.get('expected_from')
+    if expected_from:
+        # Opt-in compare-and-set (mobile). Web omits expected_from -> unchanged.
+        if item.status != expected_from:
+            return jsonify({'error': 'STATUS_CHANGED', 'current': item.status}), 409
+        if (item.status == 'READY' and new_status == 'IN_PROGRESS'
+                and (item.served_at or not item.ticket or item.ticket.status != 'OPEN')):
+            return jsonify({'error': 'STATUS_CHANGED', 'current': item.status}), 409
     item.status = new_status
     if new_status == 'SERVED':
         item.served_at = datetime.now(timezone.utc)
@@ -100,12 +112,18 @@ def update_status(item_id):
     db.session.commit()
 
     routing = item.routing_dest.lower()
-    socketio.emit(f'{routing}:item_update',
-                  {'item_id': item_id, 'status': new_status},
-                  room=routing)
-    socketio.emit('ticket:item_status',
-                  {'item_id': item_id, 'status': new_status},
-                  room=f'ticket:{item.ticket_id}')
+    ticket = item.ticket
+    payload = {
+        'item_id': item_id, 'status': new_status,
+        'ticket_id': item.ticket_id,
+        'resource_code': ticket.resource.code if ticket and ticket.resource else None,
+        'menu_item_name': item.menu_item.name if item.menu_item else item.item_name,
+        'quantity': item.quantity,
+        # SEC-05: no staff ids here. kitchen/bar/ticket:* rooms are joinable without a token (G1),
+        # so the opener is NOT broadcast; clients match "my tickets" via GET /tickets?status=OPEN.
+    }
+    socketio.emit(f'{routing}:item_update', payload, room=routing)
+    socketio.emit('ticket:item_status', payload, room=f'ticket:{item.ticket_id}')
     return jsonify({'item_id': item_id, 'status': new_status})
 
 
@@ -118,6 +136,14 @@ def print_queue_chit(item_id):
     user_id = get_jwt_identity()
     data    = request.get_json(silent=True) or {}
     job_id  = data.get('job_id')
+
+    # Defensive gate: never reach the thermal hardware for a destination whose
+    # printing is switched off. Returns ok so a manual reprint tap is a no-op
+    # rather than an error, and deliberately leaves needs_reprint untouched —
+    # nothing was printed, so nothing changed.
+    if not settings_svc.should_print(item.routing_dest):
+        return jsonify({'ok': True, 'skipped': 'PRINTING_DISABLED',
+                        'routing_dest': item.routing_dest}), 200
 
     # Idempotency: don't print again if this job already succeeded
     if job_id:

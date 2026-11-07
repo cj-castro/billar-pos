@@ -1,0 +1,70 @@
+# Waiter: login -> Yo tab -> logout (confirm) -> login screen -> login again -> floor.
+# Run:  maestro --device emulator-5554 test e2e/maestro/waiter-logout-login-flow.yaml
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    when:
+      visible:
+        id: server-input
+    commands:
+      - tapOn:
+          id: server-input
+      - inputText: ${SERVER}
+      - hideKeyboard
+      - tapOn:
+          id: server-connect
+      - extendedWaitUntil:
+          visible:
+            id: server-ok
+          timeout: 15000
+      - tapOn:
+          id: server-continue
+- extendedWaitUntil:
+    visible:
+      id: login-username
+    timeout: 15000
+- tapOn:
+    id: login-username
+- inputText: ${USER_NAME}
+- tapOn:
+    id: login-password
+- inputText: ${PASS}
+- hideKeyboard
+- tapOn:
+    id: login-submit
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- tapOn: "Yo"
+- extendedWaitUntil:
+    visible:
+      id: logout
+    timeout: 10000
+- tapOn:
+    id: logout
+- tapOn:
+    id: confirm-dialog-confirm
+- extendedWaitUntil:
+    visible:
+      id: login-username
+    timeout: 15000
+- tapOn:
+    id: login-username
+- inputText: ${USER_NAME}
+- tapOn:
+    id: login-password
+- inputText: ${PASS}
+- hideKeyboard
+- tapOn:
+    id: login-submit
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000

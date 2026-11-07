@@ -17,6 +17,7 @@ type PromoForm = {
   free_quantity: number
   discounted_quantity: number
   discount_value: number
+  free_pool_minutes: number
   max_applications_per_ticket: string   // '' = unlimited
   is_stackable: boolean
   combine_across_items: boolean
@@ -40,6 +41,7 @@ const BLANK: PromoForm = {
   free_quantity: 1,
   discounted_quantity: 1,
   discount_value: 50,
+  free_pool_minutes: 60,
   max_applications_per_ticket: '',
   is_stackable: false,
   combine_across_items: false,
@@ -63,6 +65,9 @@ const TYPE_LABELS: Record<string, string> = {
 
 // Types this page can create/edit with the quantity form
 const QUANTITY_TYPES = ['BOGO', 'QTY_PERCENT_DISCOUNT']
+// Types this page can fully round-trip through the form. POOL_TIME_FREE_MINUTES
+// is not a quantity promo but has a complete editor (minutes + window + scope).
+const EDITABLE_TYPES = [...QUANTITY_TYPES, 'POOL_TIME_FREE_MINUTES']
 
 const ERROR_MESSAGES: Record<string, string> = {
   NAME_REQUIRED: 'Se requiere un nombre',
@@ -146,6 +151,10 @@ export default function PromotionsPage() {
     }
     if (f.promo_type === 'BOGO') {
       payload.free_quantity = Number(f.free_quantity)
+    } else if (f.promo_type === 'POOL_TIME_FREE_MINUTES') {
+      // Free pool time is a duration, not money: no discount_type/value is
+      // sent, so nothing downstream can turn it into cents.
+      payload.free_pool_minutes = Number(f.free_pool_minutes)
     } else {
       payload.discounted_quantity = Number(f.discounted_quantity)
       payload.discount_type = 'PERCENTAGE'
@@ -223,6 +232,7 @@ export default function PromotionsPage() {
       free_quantity: promo.free_quantity ?? 1,
       discounted_quantity: promo.discounted_quantity ?? 1,
       discount_value: promo.discount_value ?? 50,
+      free_pool_minutes: promo.free_pool_minutes ?? 60,
       max_applications_per_ticket:
         promo.max_applications_per_ticket == null ? '' : String(promo.max_applications_per_ticket),
       is_stackable: !!promo.is_stackable,
@@ -262,6 +272,11 @@ export default function PromotionsPage() {
     if (p.promo_type === 'HAPPY_HOUR') {
       return `${p.happy_hour_start || '?'}–${p.happy_hour_end || '?'} · ${p.discount_type === 'PERCENTAGE' ? `${p.discount_value}%` : money(p.discount_value)}`
     }
+    if (p.promo_type === 'POOL_TIME_FREE_MINUTES') {
+      const win = p.happy_hour_start && p.happy_hour_end
+        ? ` · ${p.happy_hour_start}–${p.happy_hour_end}` : ''
+      return `${p.free_pool_minutes || 0} min de mesa gratis${win}`
+    }
     return p.discount_type === 'PERCENTAGE' ? `${p.discount_value}% de descuento` : money(p.discount_value)
   }
 
@@ -293,6 +308,7 @@ export default function PromotionsPage() {
           className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
           <option value="BOGO">{TYPE_LABELS.BOGO}</option>
           <option value="QTY_PERCENT_DISCOUNT">{TYPE_LABELS.QTY_PERCENT_DISCOUNT}</option>
+          <option value="POOL_TIME_FREE_MINUTES">{TYPE_LABELS.POOL_TIME_FREE_MINUTES}</option>
         </select>
       </div>
 
@@ -378,6 +394,19 @@ export default function PromotionsPage() {
           </div>
         )}
       </div>
+
+      {form.promo_type === 'POOL_TIME_FREE_MINUTES' && (
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Minutos de mesa gratis</label>
+          <input type="number" min={1} value={form.free_pool_minutes}
+            onChange={e => setForm(f => ({ ...f, free_pool_minutes: Number(e.target.value) }))}
+            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
+          <div className="text-xs text-slate-400 mt-1">
+            Se descuentan del tiempo jugado dentro de la ventana horaria de abajo. Si no hay
+            ventana, aplican a todo el día. Usa «Máx. por cuenta» = 1 para una sola hora por cuenta.
+          </div>
+        </div>
+      )}
 
       {form.promo_type === 'QTY_PERCENT_DISCOUNT' && (
         <div>
@@ -525,7 +554,7 @@ export default function PromotionsPage() {
         <div className="space-y-3">
           {(promos as any[]).map((p: any) => {
             const active = p.is_active !== false
-            const editable = QUANTITY_TYPES.includes(p.promo_type)
+            const editable = EDITABLE_TYPES.includes(p.promo_type)
             return (
               <div key={p.id}
                 className={`bg-slate-800 rounded-2xl border p-4 ${active ? 'border-slate-700' : 'border-slate-800 opacity-60'}`}>

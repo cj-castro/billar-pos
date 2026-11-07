@@ -15,6 +15,10 @@ _CODE_PREFIX = {
     'REGULAR_TABLE': 'T',
 }
 
+# Types a non-manager may create on the fly (walk-in seating). Billable types
+# are excluded — see create_resource.
+_TEMP_CREATABLE_TYPES = {'REGULAR_TABLE', 'BAR_SEAT'}
+
 
 def _next_free_code(resource_type: str) -> str:
     """Pick the next sequential code for the given type's prefix.
@@ -103,12 +107,32 @@ def get_resource(resource_id):
 @resources_bp.route('', methods=['POST'])
 @jwt_required()
 def create_resource():
-    err = require_manager()
-    if err: return err
-    data = request.get_json()
-    rtype = data['type']
+    data = request.get_json(silent=True) or {}
+    rtype = data.get('type')
+    name = (data.get('name') or '').strip()
     is_temp = bool(data.get('is_temp', False))
     code = (data.get('code') or '').strip() or None
+
+    if rtype not in _CODE_PREFIX:
+        return jsonify({
+            'error': 'INVALID_TYPE',
+            'message': f'type must be one of {sorted(_CODE_PREFIX)}',
+        }), 422
+    if not name:
+        return jsonify({'error': 'NAME_REQUIRED'}), 422
+
+    # Floating tables are an operational act, not a configuration change: a
+    # waiter seating a walk-in when the floor is full needs one immediately.
+    # The waiting list already offered them this flow, so a manager-only gate
+    # here just produced a dead-end 403. Permanent tables stay manager-only.
+    #
+    # The open path is limited to seating types. A POOL_TABLE is billable and
+    # would be created with the hardcoded PoolTableConfig defaults, which only
+    # a manager may set via update_resource / the pool-config endpoints, so it
+    # stays manager-only regardless of is_temp.
+    if not is_temp or rtype not in _TEMP_CREATABLE_TYPES:
+        err = require_manager()
+        if err: return err
 
     # For temp tables the client-supplied code is a hint. Soft-deleted rows
     # are still in `resources` (UNIQUE(code) is enforced regardless of
@@ -127,7 +151,7 @@ def create_resource():
 
     r = Resource(
         code=code,
-        name=data['name'],
+        name=name,
         type=rtype,
         sort_order=data.get('sort_order', 0),
         is_temp=is_temp,
@@ -191,8 +215,6 @@ def update_resource(resource_id):
 @resources_bp.route('/<resource_id>', methods=['DELETE'])
 @jwt_required()
 def delete_resource(resource_id):
-    err = require_manager()
-    if err: return err
     r = Resource.query.with_for_update().get_or_404(resource_id)
     active = Ticket.query.filter_by(resource_id=r.id, status='OPEN').first()
     if active:
@@ -207,6 +229,16 @@ def delete_resource(resource_id):
             'message': f'{r.code} está referenciada por la lista de espera de "{wl.party_name}"',
             'waiting_list_entry_id': wl.id,
         }), 409
+
+    # Staff may create a floating table (see create_resource), so they must be
+    # able to undo one that was never used -- otherwise a failed seat leaves an
+    # orphan table on the floor that only a manager can clear. Anything with
+    # ticket history, and every permanent table, stays manager-only.
+    ever_used = Ticket.query.filter_by(resource_id=r.id).first() is not None
+    if not (r.is_temp and not ever_used):
+        err = require_manager()
+        if err: return err
+
     # Soft-delete: deactivate instead of hard delete to preserve ticket history
     before = r.to_dict()
     r.is_active = False

@@ -1,0 +1,32 @@
+# J11: keyboard overlap check on setup + login (fields focused, keyboard open, no hideKeyboard).
+appId: com.bola8.staff
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: server-input
+    timeout: 15000
+- tapOn:
+    id: server-input
+- inputText: 10.0.2.2:8090
+- waitForAnimationToEnd
+- takeScreenshot: 21-setup-keyboard-open
+- hideKeyboard
+- tapOn:
+    id: server-connect
+- extendedWaitUntil:
+    visible:
+      id: server-ok
+    timeout: 15000
+- tapOn:
+    id: server-continue
+- extendedWaitUntil:
+    visible:
+      id: login-username
+    timeout: 15000
+- tapOn:
+    id: login-password
+- inputText: x
+- waitForAnimationToEnd
+- takeScreenshot: 22-login-keyboard-open

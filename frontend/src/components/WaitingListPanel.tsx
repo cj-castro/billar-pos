@@ -71,11 +71,6 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
     refetchInterval: 15_000,
   })
 
-  useEffect(() => {
-    const interval = setInterval(() => refetch(), 10_000)
-    return () => clearInterval(interval)
-  }, [refetch])
-
   // Pool tables are NOT offered via waiting list — they're assigned directly on the floor
   const floorResources   = allResources.filter(r => r.status === 'AVAILABLE' && r.is_active && !r.is_temp && r.type !== 'POOL_TABLE')
   const availableRegular = floorResources.filter(r => r.type === 'REGULAR_TABLE')
@@ -134,7 +129,7 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
     }
   }
 
-  const handleAssign = async (entryId: string, resourceId: string) => {
+  const handleAssign = async (entryId: string, resourceId: string): Promise<boolean> => {
     try {
       const res = await client.post(`/waiting-list/${entryId}/assign`, { resource_id: resourceId })
       const ticket = res.data.ticket
@@ -143,23 +138,43 @@ export default function WaitingListPanel({ allResources, isManager }: Props) {
       refetch()
       qc.invalidateQueries({ queryKey: ['resources'] })
       navigate(`/ticket/${ticket.id}`)
-    } catch (err: any) { toast.error(err.response?.data?.message || 'Error al asignar') }
+      return true
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Error al asignar')
+      return false
+    }
   }
 
   const handleCreateFloating = async () => {
     if (!floatingEntryId) return
+    let created: string | null = null
     try {
       const name = floatingName.trim() || 'Flotante'
-      // Auto-generate a short unique code
+      // Code is only a hint; the server reassigns it if taken.
       const code = `T-${Date.now().toString(36).slice(-4).toUpperCase()}`
       const res = await client.post('/resources', {
         code, name,
         type: 'REGULAR_TABLE', is_temp: true,
       })
+      created = res.data.id
       qc.invalidateQueries({ queryKey: ['resources'] })
-      await handleAssign(floatingEntryId, res.data.id)
+      const ok = await handleAssign(floatingEntryId, res.data.id)
+      if (!ok) {
+        // Don't strand the table we just made: seating failed, so the
+        // floating table has no reason to exist and would otherwise pile up
+        // on the floor map.
+        await client.delete(`/resources/${created}`).catch(() => {})
+        qc.invalidateQueries({ queryKey: ['resources'] })
+        return
+      }
       setShowFloating(false); setFloatingName(''); setFloatingEntryId(null)
-    } catch (err: any) { toast.error(err.response?.data?.error || 'Error') }
+    } catch (err: any) {
+      if (created) {
+        await client.delete(`/resources/${created}`).catch(() => {})
+        qc.invalidateQueries({ queryKey: ['resources'] })
+      }
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'Error')
+    }
   }
 
   const handleMove = async (id: string, direction: 'up' | 'down') => {

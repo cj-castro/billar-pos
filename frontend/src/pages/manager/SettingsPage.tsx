@@ -2,7 +2,7 @@ import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
 import { useTranslation } from 'react-i18next'
 import { useLanguage } from '../../hooks/useLanguage'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 
@@ -29,6 +29,24 @@ export default function SettingsPage() {
     qc.invalidateQueries({ queryKey: ['settings', 'kds_sound_enabled'] })
     toast.success(t('settings.saved'))
   }
+
+  // Bar thermal printing — off by default; bar service is screen-only unless
+  // a manager opts in here.
+  const { data: printBar, isLoading: printBarLoading } = useQuery({
+    queryKey: ['settings', 'print_bar_tickets'],
+    queryFn: () => client.get('/settings/print_bar_tickets').then((r) => r.data.value === 'true'),
+    staleTime: 30_000,
+  })
+
+  const togglePrintBar = useMutation({
+    mutationFn: (next: boolean) =>
+      client.patch('/settings/print_bar_tickets', { value: next ? 'true' : 'false' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings', 'print_bar_tickets'] })
+      toast.success(t('settings.saved'))
+    },
+    onError: () => toast.error('No se pudo guardar'),
+  })
 
   return (
     <div className="min-h-screen bg-slate-950 text-white page-root">
@@ -80,6 +98,36 @@ export default function SettingsPage() {
           >
             {kdsSound !== false ? '🔔 Sonido activo — toca para desactivar' : '🔕 Sonido desactivado — toca para activar'}
           </button>
+        </div>
+
+        <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 mt-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="font-semibold mb-1">🖨️ Imprimir comandas de barra</div>
+              <div className="text-sm text-slate-400">
+                Cuando está apagado, las comandas de barra solo aparecen en pantalla y nunca se
+                envían a la impresora térmica. Cocina no se ve afectada.
+              </div>
+            </div>
+            <button
+              role="switch"
+              aria-checked={printBar === true}
+              aria-label="Imprimir comandas de barra"
+              disabled={printBarLoading || togglePrintBar.isPending}
+              onClick={() => togglePrintBar.mutate(!printBar)}
+              className={`relative shrink-0 w-16 h-9 rounded-full border-2 transition-colors disabled:opacity-40 ${
+                printBar === true
+                  ? 'bg-green-700 border-green-500'
+                  : 'bg-slate-700 border-slate-600'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 w-7 h-7 rounded-full bg-white transition-all ${
+                  printBar === true ? 'left-[30px]' : 'left-0.5'
+                }`}
+              />
+            </button>
+          </div>
         </div>
       </div>
     </div>

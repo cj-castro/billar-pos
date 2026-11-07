@@ -1,0 +1,19 @@
+# J4: manager login -> overview tiles. Host compares tile accessibility text with API values.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: manager
+  PASS: manager123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-overview
+    timeout: 20000
+- assertVisible:
+    id: tile-open
+- assertVisible:
+    id: cash-card
+- assertNotVisible: Sistema
+- waitForAnimationToEnd
+- takeScreenshot: 11-manager-overview

@@ -35,6 +35,7 @@ class Ticket(db.Model):
     pool_time_cents = db.Column(db.Integer, default=0)
     total_cents = db.Column(db.Integer, default=0)
     version = db.Column(db.Integer, default=1)
+    close_request_id = db.Column(db.String(64), nullable=True)  # Idempotency-Key of the close
     notes = db.Column(db.Text)
 
     opener = db.relationship('User', foreign_keys=[opened_by])
@@ -53,7 +54,18 @@ class Ticket(db.Model):
         )
         self.subtotal_cents += mod_total
 
-        discounts = sum(p.discount_cents for p in self.applied_promos.all())
+        # Only count promotions still attached to a live line item. Voiding an
+        # item does NOT delete its HAPPY_HOUR / ITEM_DISCOUNT rows (and
+        # recompute_quantity_promos deliberately leaves them alone), so summing
+        # applied_promos blindly kept applying the discount of a product that
+        # was never served -- a phantom discount that silently undercharged the
+        # customer. Ticket-level promos (no line_item_id) always count.
+        active_item_ids = {i.id for i in items}
+        discounts = sum(
+            (p.discount_cents or 0)
+            for p in self.applied_promos.all()
+            if p.line_item_id is None or p.line_item_id in active_item_ids
+        )
         manual = round(self.subtotal_cents * (self.manual_discount_pct or 0) / 100)
         self.discount_cents = discounts + manual
 
@@ -173,6 +185,8 @@ class TicketLineItem(db.Model):
     sort_order = db.Column(db.Integer, default=0)
     cost_snapshot_cents = db.Column(db.Integer, nullable=True)
     needs_reprint = db.Column(db.Boolean, default=False, nullable=False)
+    # Mobile idempotency key; unique per ticket via partial index (migration 002).
+    client_request_id = db.Column(db.String(64), nullable=True)
 
     menu_item = db.relationship('MenuItem')
     modifiers = db.relationship('LineItemModifier', backref='line_item', cascade='all,delete-orphan')
@@ -215,6 +229,7 @@ class TicketLineItem(db.Model):
             'void_reason': self.void_reason,
             'notes': self.notes,
             'needs_reprint': bool(self.needs_reprint),
+            'client_request_id': self.client_request_id,
             'modifiers': [m.to_dict() for m in self.modifiers]
         }
 
@@ -273,6 +288,21 @@ class PoolTimerSession(db.Model):
 
     resource = db.relationship('Resource')
 
+    def effective_free_seconds(self, end_time=None) -> int:
+        """Config baseline + the derived POOL_TIME_FREE_MINUTES grant.
+
+        Serialized so the client never has to re-derive promo eligibility; it
+        only extrapolates forward from this value. Falls back to the stored
+        baseline if the promotion layer is unavailable, so serialization can
+        never break a ticket payload.
+        """
+        try:
+            from app.services import promotion_svc
+            return promotion_svc.free_seconds_for_session(
+                self.ticket, self, end_time)
+        except Exception:
+            return int(self.promo_free_seconds or 0)
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -286,6 +316,7 @@ class PoolTimerSession(db.Model):
             'billing_mode': self.billing_mode,
             'rate_cents': self.rate_cents,
             'promo_free_seconds': self.promo_free_seconds,
+            'promo_free_seconds_effective': self.effective_free_seconds(),
             'charge_cents': self.charge_cents,
             'is_manual_edit': self.is_manual_edit
         }

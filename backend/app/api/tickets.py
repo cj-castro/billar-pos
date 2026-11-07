@@ -1,15 +1,18 @@
 import os
+import re
 import json
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from app.extensions import db, socketio, limiter
 from app.models.resource import Resource, PoolTableConfig
 from app.models.ticket import (
-    Ticket, TicketLineItem, LineItemModifier,
+    Ticket, TicketLineItem, LineItemModifier, LineItemPromotion,
     PoolTimerSession
 )
 from app.models.print_job import PrintJob
@@ -17,7 +20,7 @@ from app.models.menu import MenuItem
 from app.models.inventory import InventoryItem, SaleItemCost
 from app.models.promotion import Promotion, TicketPromoDecision
 from app.models.waiting_list import WaitingListEntry
-from app.services import audit_svc, billing, inventory_svc, promotion_svc
+from app.services import audit_svc, billing, inventory_svc, promotion_svc, settings_svc
 from app.config import Config
 
 PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://host.docker.internal:9191')
@@ -27,6 +30,35 @@ tickets_bp = Blueprint('tickets', __name__)
 
 def _emit_floor_update():
     socketio.emit('floor:update', {}, room='floor')
+
+
+class _MoneyError(ValueError):
+    """Raised by _money() when a monetary field fails validation."""
+
+
+def _money(value, field: str, *, allow_none: bool = True) -> int | None:
+    """Validate a monetary field arriving from the client.
+
+    Money is stored as integer cents everywhere in this schema. Accepting a
+    bare JSON value meant a string reached an Integer column and blew up at
+    commit time, and a negative tip flowed straight into the cash-session
+    reconciliation (tip_payout is subtracted from expected_cash), producing a
+    phantom drawer shortfall that nobody could trace back to a ticket.
+
+    bool is rejected explicitly because bool is a subclass of int in Python,
+    so `True` would otherwise be accepted and stored as 1 cent.
+    """
+    if value is None or value == '':
+        if allow_none:
+            return None
+        raise _MoneyError(f'{field} is required')
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _MoneyError(f'{field} must be an integer number of cents')
+    if value < 0:
+        raise _MoneyError(f'{field} cannot be negative')
+    if value > 100_000_000:  # $1,000,000.00 — far beyond any real bar ticket
+        raise _MoneyError(f'{field} is implausibly large')
+    return value
 
 
 def _spawn_auto_print_chit(app, item_id: str, chit_payload: dict) -> None:
@@ -85,6 +117,25 @@ def _spawn_auto_print_chit(app, item_id: str, chit_payload: dict) -> None:
     socketio.start_background_task(_run)
 
 
+def _required_total_cents(*, total_cents: int, tip_cents: int,
+                          timer_charge: int,
+                          expected_total_cents: int | None) -> int:
+    """Minimum tender that may close a ticket, in integer cents.
+
+    Normally this is simply the final total plus the tip. When the close
+    stopped a running timer the bill kept growing between the moment the UI
+    quoted a total and the moment the timer was stopped server-side, so the
+    quoted total (expected_total_cents) is the fair bar instead. It is clamped
+    to [total before the timer stopped, final total] so a stale or forged quote
+    can never authorize paying less than the ticket was already worth.
+    """
+    if not timer_charge:
+        return total_cents + tip_cents
+    pre_timer_total = max(0, total_cents - timer_charge)
+    quoted = pre_timer_total if expected_total_cents is None else expected_total_cents
+    return min(max(quoted, pre_timer_total), total_cents) + tip_cents
+
+
 def _stop_active_timer(ticket: Ticket, user_id: str) -> int:
     """Stop any running timer session, compute charge, return charge_cents."""
     session = PoolTimerSession.query.filter_by(
@@ -99,7 +150,7 @@ def _stop_active_timer(ticket: Ticket, user_id: str) -> int:
     result = billing.calculate_charge(
         session.start_time, now,
         session.billing_mode, session.rate_cents,
-        session.promo_free_seconds
+        session.effective_free_seconds(now)
     )
     session.duration_seconds = result['duration_seconds']
     session.charge_cents = result['charge_cents']
@@ -294,7 +345,10 @@ def decide_promotion(ticket_id, promotion_id):
     db.session.flush()
 
     from app.models.promotion import QUANTITY_PROMO_TYPES
-    if decision == 'ACCEPTED' and promo.promo_type not in QUANTITY_PROMO_TYPES:
+    # POOL_TIME_FREE_MINUTES grants seconds, not a discount: the decision row
+    # itself is the grant, so there is nothing to write to line items here.
+    if (decision == 'ACCEPTED' and promo.promo_type not in QUANTITY_PROMO_TYPES
+            and promo.promo_type != 'POOL_TIME_FREE_MINUTES'):
         promotion_svc.apply_confirmable_item_promo(promo, ticket)
     promotion_svc.recompute_quantity_promos(ticket)
     ticket.recalculate_totals()
@@ -349,15 +403,32 @@ def add_item(ticket_id):
     user_id = get_jwt_identity()
     client_version = request.headers.get('X-Ticket-Version', type=int)
 
+    # Optional idempotency key (mobile retries). Same (ticket, key) => same line.
+    idem_key = request.headers.get('Idempotency-Key')
+    if idem_key is not None and not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', idem_key):
+        return jsonify({'error': 'INVALID_IDEMPOTENCY_KEY',
+                        'message': 'Idempotency-Key must be 1-64 chars of [A-Za-z0-9_-]'}), 422
+
     ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
 
     if ticket.status != 'OPEN':
         return jsonify({'error': 'TICKET_CLOSED', 'message': 'Cannot modify a closed ticket'}), 403
 
+    # Replay: checked BEFORE the version check, because the first attempt
+    # bumped the version. No side effects on this path.
+    if idem_key:
+        existing = TicketLineItem.query.filter_by(
+            ticket_id=ticket_id, client_request_id=idem_key).first()
+        if existing:
+            return jsonify({**existing.to_dict(), 'ticket_version': ticket.version}), 200
+
     if client_version is not None and ticket.version != client_version:
         return jsonify({'error': 'VERSION_CONFLICT'}), 409
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
+    if not data.get('menu_item_id'):
+        return jsonify({'error': 'VALIDATION',
+                        'message': 'menu_item_id is required'}), 422
     menu_item = MenuItem.query.get_or_404(data['menu_item_id'])
 
     # Validate mandatory flavor
@@ -372,8 +443,21 @@ def add_item(ticket_id):
                     'message': f'{menu_item.name} requires a flavor selection from "{fg.name}"'
                 }), 422
 
-    # Validate inventory availability
+    # Validate quantity BEFORE it reaches the stock engine or the bill.
+    # Without this a negative quantity inverted both sides of the sale: the
+    # line's gross went negative (silently crediting the customer) and
+    # consume_for_line_item deducted a negative amount, i.e. it *created*
+    # stock out of nothing. Mirrors the bounds enforced by update_item_quantity.
     quantity = data.get('quantity', 1)
+    if quantity is None:
+        quantity = 1
+    if not isinstance(quantity, int) or isinstance(quantity, bool):
+        return jsonify({'error': 'INVALID_QUANTITY',
+                        'message': 'La cantidad debe ser un número entero.'}), 422
+    if quantity < 1 or quantity > 99:
+        return jsonify({'error': 'INVALID_QUANTITY',
+                        'message': 'La cantidad debe estar entre 1 y 99.'}), 422
+
     # performed_by is what enables auto-conversion: when the loose item is short
     # but a full pack or bottle is on the shelf, fn_ensure_available opens one
     # and writes the CONVERSION_OUT/IN pair against this user. Without it the
@@ -393,15 +477,26 @@ def add_item(ticket_id):
         ticket_id=ticket_id,
         menu_item_id=menu_item.id,
         item_name=menu_item.name,
-        quantity=data.get('quantity', 1),
+        quantity=quantity,
         unit_price_cents=menu_item.price_cents,
         routing_dest=menu_item.category.routing,
         notes=data.get('notes'),
         status='SENT',
         sent_at=datetime.now(timezone.utc),
+        client_request_id=idem_key or None,
     )
     db.session.add(line_item)
-    db.session.flush()
+    try:
+        db.session.flush()
+    except IntegrityError:
+        # Lost a race on the (ticket_id, client_request_id) unique index.
+        db.session.rollback()
+        existing = TicketLineItem.query.filter_by(
+            ticket_id=ticket_id, client_request_id=idem_key).first()
+        if existing is None:
+            raise
+        return jsonify({**existing.to_dict(),
+                        'ticket_version': Ticket.query.get(ticket_id).version}), 200
 
     for mod_data in data.get('modifiers', []):
         from app.models.menu import Modifier
@@ -434,8 +529,10 @@ def add_item(ticket_id):
     socketio.emit('ticket:updated', {'ticket_id': ticket_id, 'version': ticket.version}, room=f'ticket:{ticket_id}')
 
 # Auto-print chit to kitchen/bar printer (non-blocking — runs in background)
-# BAR items are now excluded from physical printing; only kitchen items print.
-    if line_item.routing_dest != 'BAR':
+# BAR chits were hardcoded off here; the print_bar_tickets setting now owns
+# that decision (default False, so behaviour is unchanged until a manager
+# opts in). KITCHEN is never gated.
+    if settings_svc.should_print(line_item.routing_dest):
         mod_map: dict[str, int] = {}
         _mod_mult = max(1, int(line_item.quantity or 1))
         for lim in line_item.modifiers:
@@ -461,7 +558,7 @@ def add_item(ticket_id):
         current_app.logger.info(
             f'BAR CHIT SKIPPED (no print): item={line_item.id} name={menu_item.name} ticket={ticket_id}'
         )
-    return jsonify(line_item.to_dict()), 201
+    return jsonify({**line_item.to_dict(), 'ticket_version': ticket.version}), 201
 
     # # Auto-print chit to kitchen/bar printer (non-blocking — runs in background)
     # # Modifier rows are stored once per line item, so scale them by the line
@@ -531,6 +628,17 @@ def void_item(ticket_id, item_id):
     if item.ticket_id != ticket_id:
         return jsonify({'error': 'NOT_FOUND'}), 404
 
+    # Idempotency guard. Without this, a double-click / retry / duplicate
+    # request re-ran reverse_for_line_item against the SAME SaleItemCost rows,
+    # restoring the ingredients a second time and inventing stock that was
+    # never returned. Voiding is terminal: say so instead of re-reversing.
+    if item.status == 'VOIDED':
+        return jsonify({
+            'error': 'ALREADY_VOIDED',
+            'message': 'Este artículo ya fue anulado.',
+            'item_id': item.id,
+        }), 409
+
     before = item.to_dict()
 
     # Reverse inventory if item was sent
@@ -541,6 +649,12 @@ def void_item(ticket_id, item_id):
     item.voided_at = datetime.now(timezone.utc)
     item.voided_by = manager_id
     item.void_reason = reason
+
+    # Drop this line's promotion rows. recalculate_totals already ignores
+    # promos on voided items, but leaving the rows behind would still show a
+    # discount on the line and skew any query that reads the table directly.
+    LineItemPromotion.query.filter_by(line_item_id=item.id).delete(
+        synchronize_session=False)
 
     db.session.flush()
     promotion_svc.recompute_quantity_promos(ticket)
@@ -654,6 +768,28 @@ def update_item_quantity(ticket_id, item_id):
         if msg.startswith('OUT_OF_STOCK:'):
             return jsonify({'error': 'OUT_OF_STOCK', 'message': msg}), 422
         return jsonify({'error': 'INVENTORY_ERROR', 'message': msg}), 422
+
+    # Re-evaluate this line's per-item promos at the NEW quantity. HAPPY_HOUR /
+    # ITEM_DISCOUNT discounts are computed as unit_price * quantity, so the row
+    # written for the old quantity is now wrong: dropping 5 units to 1 left a
+    # discount sized for 5, which could exceed the line's own value and hand the
+    # product away for free. recompute_quantity_promos only rebuilds BOGO /
+    # QTY_PERCENT rows, so these have to be refreshed explicitly.
+    LineItemPromotion.query.filter_by(line_item_id=item.id).delete(
+        synchronize_session=False)
+    db.session.flush()
+    # Anchor the re-evaluation to when the line was ORDERED, not to now:
+    # HAPPY_HOUR windows are time-of-day gated, so re-evaluating at wall-clock
+    # time would silently strip a discount the ticket already earned when the
+    # qty is corrected after the window closes (and would invent one for a line
+    # ordered before it opened). This matches PromoUnit.ordered_at, which
+    # exists for exactly this reason. STAGED lines have no sent_at yet, so they
+    # are still priced at now.
+    promo_at = item.sent_at or datetime.now(timezone.utc)
+    if promo_at.tzinfo is None:
+        promo_at = promo_at.replace(tzinfo=timezone.utc)
+    promotion_svc.apply_promos_to_line_item(item, ticket, now=promo_at)
+    db.session.flush()
 
     promotion_svc.recompute_quantity_promos(ticket)
     ticket.recalculate_totals()
@@ -827,20 +963,54 @@ def transfer_ticket(ticket_id):
 @jwt_required()
 def close_ticket(ticket_id):
     user_id = get_jwt_identity()
-    data = request.get_json()
+    data = request.get_json() or {}
     payment_type = data.get('payment_type')        # CASH or CARD (primary)
-    tendered_cents = data.get('tendered_cents')
-    tip_cents = data.get('tip_cents', 0) or 0
     tip_source = data.get('tip_source')             # CASH, CARD, SPLIT
-    tip_cash_cents = data.get('tip_cash_cents')      # explicit split amounts
-    tip_card_cents = data.get('tip_card_cents')
     payment_type_2 = data.get('payment_type_2')    # optional second payment
-    tendered_cents_2 = data.get('tendered_cents_2')
 
     if payment_type not in ('CASH', 'CARD', 'EXTERNAL'):
         return jsonify({'error': 'INVALID_PAYMENT_TYPE'}), 422
     if payment_type_2 and payment_type_2 not in ('CASH', 'CARD'):
         return jsonify({'error': 'INVALID_PAYMENT_TYPE_2'}), 422
+    if tip_source and tip_source not in ('CASH', 'CARD', 'SPLIT'):
+        return jsonify({'error': 'INVALID_TIP_SOURCE'}), 422
+    # Mobile sends Idempotency-Key; its presence also opts in to the stricter
+    # AMOUNT_MISMATCH contract. The web never sends it, so it is unaffected.
+    close_key = (request.headers.get('Idempotency-Key') or '').strip()[:64] or None
+
+    # Every monetary field is validated before it can reach an Integer column
+    # or the cash-session reconciliation.
+    try:
+        tendered_cents   = _money(data.get('tendered_cents'), 'tendered_cents')
+        tendered_cents_2 = _money(data.get('tendered_cents_2'), 'tendered_cents_2')
+        tip_cents        = _money(data.get('tip_cents'), 'tip_cents') or 0
+        tip_cash_cents   = _money(data.get('tip_cash_cents'), 'tip_cash_cents')
+        tip_card_cents   = _money(data.get('tip_card_cents'), 'tip_card_cents')
+        # What the client was shown as the total when it quoted the tender.
+        expected_total_cents = _money(data.get('expected_total_cents'),
+                                      'expected_total_cents')
+    except _MoneyError as exc:
+        return jsonify({'error': 'INVALID_AMOUNT', 'message': str(exc)}), 422
+
+    # A SPLIT tip must account for exactly the tip that was taken, otherwise
+    # _build_summary splits it across cash/card using numbers that don't add up.
+    if tip_cash_cents is not None or tip_card_cents is not None:
+        if (tip_cash_cents or 0) + (tip_card_cents or 0) != tip_cents:
+            return jsonify({
+                'error': 'TIP_SPLIT_MISMATCH',
+                'message': ('La propina en efectivo y en tarjeta debe sumar '
+                            'exactamente el total de la propina.'),
+            }), 422
+    if (close_key and tip_source == 'SPLIT' and tip_cents
+            and (tip_cash_cents or 0) + (tip_card_cents or 0) != tip_cents):
+        return jsonify({'error': 'AMOUNT_MISMATCH',
+                        'message': 'SPLIT tip parts must sum to tip_cents',
+                        'tip_cents': tip_cents}), 422
+    if payment_type_2 and tendered_cents_2 is None:
+        return jsonify({
+            'error': 'TENDERED_2_REQUIRED',
+            'message': 'tendered_cents_2 is required when a second payment method is used',
+        }), 422
 
     ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
 
@@ -849,13 +1019,80 @@ def close_ticket(ticket_id):
         return jsonify({'error': 'EXTERNAL_PAYMENT_DELIVERY_ONLY'}), 422
     if ticket.status == 'CLOSED':
         # Mobile retry after network timeout — ticket was already closed successfully.
-        return jsonify(ticket.to_dict()), 200
+        if close_key and ticket.close_request_id != close_key:
+            return jsonify({'error': 'TICKET_NOT_OPEN', 'status': 'CLOSED'}), 409
+        result = ticket.to_dict()
+        if close_key:
+            paid = (ticket.tendered_cents or 0) + (ticket.tendered_cents_2 or 0)
+            has_cash = 'CASH' in (ticket.payment_type, ticket.payment_type_2)
+            result['change_due'] = (max(0, paid - (ticket.total_cents + (ticket.tip_cents or 0)))
+                                    if has_cash and paid else 0)
+        return jsonify(result), 200
     if ticket.status != 'OPEN':
         return jsonify({'error': 'TICKET_NOT_OPEN'}), 409
 
+    if (close_key and get_jwt().get('role') == 'WAITER'
+            and not settings_svc.get_bool('waiter_can_close_ticket', True)):
+        from datetime import timedelta
+        from app.api.auth import verify_manager_pin
+        from app.models.audit import AuditLog
+        pin = (data.get('manager_pin') or '').strip()
+        # ponytail: DB-backed per-user lockout (works across workers); 5 bad PINs / 10 min.
+        if pin and AuditLog.query.filter(
+                AuditLog.user_id == user_id, AuditLog.action == 'MANAGER_PIN_FAILED',
+                AuditLog.created_at > datetime.now(timezone.utc) - timedelta(minutes=10)
+        ).count() >= 5:
+            db.session.rollback()
+            return jsonify({'error': 'PIN_LOCKED'}), 429
+        if verify_manager_pin(pin) is None:
+            if pin:
+                audit_svc.log(user_id, 'MANAGER_PIN_FAILED', 'ticket', ticket.id,
+                              ip_address=request.remote_addr)
+                db.session.commit()
+            return jsonify({'error': 'PIN_REQUIRED'}), 403
+
     # Stop any running timer — flush so recalculate_totals sees the charge
-    _stop_active_timer(ticket, user_id)
+    timer_charge = _stop_active_timer(ticket, user_id)
     db.session.flush()
+
+    promotion_svc.recompute_quantity_promos(ticket)
+    ticket.recalculate_totals()
+
+    # The bill is only final once totals are recalculated, so underpayment is
+    # checked here. The check applies ONLY when the client actually supplied a
+    # tendered amount: the UI omits tendered_cents for CARD (the terminal
+    # settles the exact amount) and for EXTERNAL/Rappi, and blocking those
+    # would make every card sale uncloseable.
+    tendered_supplied = tendered_cents is not None or tendered_cents_2 is not None
+    total_tendered = (tendered_cents or 0) + (tendered_cents_2 or 0)
+    amount_owed = ticket.total_cents + tip_cents
+
+    # A pool charge keeps accruing (~2.4c/s at the default rate) between the
+    # moment the UI quotes a total and the moment we stop the timer here, so an
+    # exact-amount tender is legitimately a few cents short by the time it
+    # lands. Enforcing against the post-stop total would 422 every exact-amount
+    # close on a timed table, with no field the waiter can raise. When this
+    # close stopped a timer we therefore enforce against the total the client
+    # was shown (expected_total_cents), clamped so it can never be used to
+    # underpay below what the ticket was already worth before the timer stopped
+    # nor above the real total. The residual accrual is settled as a shortfall
+    # in change, not a dead-end rejection.
+    required_total = _required_total_cents(
+        total_cents=ticket.total_cents, tip_cents=tip_cents,
+        timer_charge=timer_charge, expected_total_cents=expected_total_cents)
+
+    if (payment_type != 'EXTERNAL' and tendered_supplied
+            and total_tendered < required_total):
+        db.session.rollback()
+        return jsonify({
+            'error': 'AMOUNT_MISMATCH' if close_key else 'INSUFFICIENT_PAYMENT',
+            'expected_total_cents': amount_owed,
+            'message': (f'El monto recibido (${total_tendered / 100:.2f}) es menor al total '
+                        f'a pagar (${amount_owed / 100:.2f}).'),
+            'total_cents': ticket.total_cents,
+            'tip_cents': tip_cents,
+            'tendered_cents': total_tendered,
+        }), 422
 
     # Free the resource (all types)
     if ticket.resource_id:
@@ -866,8 +1103,6 @@ def close_ticket(ticket_id):
             if resource.is_temp:
                 resource.is_active = False
 
-    promotion_svc.recompute_quantity_promos(ticket)
-    ticket.recalculate_totals()
     ticket.payment_type = payment_type
     ticket.tendered_cents = tendered_cents
     ticket.tip_cents = tip_cents
@@ -881,10 +1116,10 @@ def close_ticket(ticket_id):
     ticket.closed_at = datetime.now(timezone.utc)
     ticket.payment_requested = False
     ticket.version += 1
+    ticket.close_request_id = close_key
 
     # Change: total tendered across all methods minus bill+tip
-    total_tendered = (tendered_cents or 0) + (tendered_cents_2 or 0)
-    change_due = max(0, total_tendered - ticket.total_cents - tip_cents) if total_tendered else 0
+    change_due = max(0, total_tendered - amount_owed) if total_tendered else 0
 
     # Freeze cost snapshot on each non-voided line item.
     # Primary source: sale_item_costs rows written at SENT time (inventory v2).
@@ -957,23 +1192,59 @@ def edit_timer(ticket_id, session_id):
         return jsonify({'error': 'FORBIDDEN'}), 403
 
     user_id = get_jwt_identity()
-    data = request.get_json()
+    data = request.get_json() or {}
 
     session = PoolTimerSession.query.get_or_404(session_id)
     if session.ticket_id != ticket_id:
         return jsonify({'error': 'NOT_FOUND'}), 404
 
     before = session.to_dict()
-    if 'start_time' in data:
-        session.start_time = datetime.fromisoformat(data['start_time'])
-    if 'end_time' in data and data['end_time']:
-        session.end_time = datetime.fromisoformat(data['end_time'])
+
+    # Timestamps arrive as ISO strings from the manager UI. They must be
+    # parsed defensively and forced tz-aware: the columns are TIMESTAMPTZ, so a
+    # naive value makes billing.calculate_charge subtract an offset-naive from
+    # an offset-aware datetime, raising TypeError and 500-ing mid-transaction.
+    def _parse_ts(raw, field):
+        try:
+            parsed = datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            raise ValueError(f'{field} must be an ISO-8601 datetime')
+        if parsed.tzinfo is None:
+            # Naive input is interpreted as venue-local time, which is what the
+            # manager typed, then normalised to UTC for storage.
+            parsed = parsed.replace(tzinfo=ZoneInfo(Config.TZ))
+        return parsed.astimezone(timezone.utc)
+
+    try:
+        new_start = _parse_ts(data['start_time'], 'start_time') if 'start_time' in data else session.start_time
+        new_end = (_parse_ts(data['end_time'], 'end_time')
+                   if data.get('end_time') else session.end_time)
+    except ValueError as exc:
+        return jsonify({'error': 'INVALID_TIMESTAMP', 'message': str(exc)}), 422
+
+    if new_start is None:
+        return jsonify({'error': 'INVALID_TIMESTAMP',
+                        'message': 'La hora de inicio es obligatoria.'}), 422
+    if new_end is not None and new_end <= new_start:
+        return jsonify({'error': 'INVALID_TIME_RANGE',
+                        'message': 'La hora de fin debe ser posterior a la de inicio.'}), 422
+
+    now = datetime.now(timezone.utc)
+    if new_start > now:
+        return jsonify({'error': 'INVALID_TIME_RANGE',
+                        'message': 'La hora de inicio no puede estar en el futuro.'}), 422
+    if new_end is not None and new_end > now:
+        return jsonify({'error': 'INVALID_TIME_RANGE',
+                        'message': 'La hora de fin no puede estar en el futuro.'}), 422
+
+    session.start_time = new_start
+    session.end_time = new_end
 
     if session.end_time:
         result = billing.calculate_charge(
             session.start_time, session.end_time,
             session.billing_mode, session.rate_cents,
-            session.promo_free_seconds
+            session.effective_free_seconds(session.end_time)
         )
         session.duration_seconds = result['duration_seconds']
         session.charge_cents = result['charge_cents']
@@ -1243,9 +1514,45 @@ def reopen_ticket(ticket_id):
         return jsonify({'error': 'FORBIDDEN'}), 403
 
     user_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    reason = (data.get('reason') or '').strip()
+
     ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
     if ticket.status == 'OPEN':
         return jsonify({'error': 'ALREADY_OPEN'}), 409
+
+    # A reopened ticket stops being CLOSED, and _build_summary only counts
+    # CLOSED tickets. Reopening one that belongs to an already-reconciled cash
+    # session silently rewrites that session's historical sales and tips after
+    # the drawer was counted and signed off. Block it; the correct tool for a
+    # settled ticket is /edit-payment, which is PIN-gated and fully audited.
+    from app.models.cash_session import CashSession
+    owning_session = (CashSession.query
+                      .filter(CashSession.opened_at <= ticket.opened_at)
+                      .order_by(CashSession.opened_at.desc())
+                      .first())
+    if owning_session is not None and owning_session.status == 'CLOSED':
+        return jsonify({
+            'error': 'CASH_SESSION_CLOSED',
+            'message': ('Este ticket pertenece a un corte de caja ya cerrado. '
+                        'Usa "Editar pago" para corregirlo sin alterar el corte.'),
+            'cash_session_id': owning_session.id,
+        }), 409
+
+    before_payment = {
+        'status': ticket.status,
+        'payment_type': ticket.payment_type,
+        'payment_type_2': ticket.payment_type_2,
+        'tendered_cents': ticket.tendered_cents,
+        'tendered_cents_2': ticket.tendered_cents_2,
+        'tip_cents': ticket.tip_cents,
+        'tip_source': ticket.tip_source,
+        'tip_cash_cents': ticket.tip_cash_cents,
+        'tip_card_cents': ticket.tip_card_cents,
+        'total_cents': ticket.total_cents,
+        'closed_at': ticket.closed_at.isoformat() if ticket.closed_at else None,
+        'closed_by': ticket.closed_by,
+    }
 
     # Re-occupy the resource. Without this, the resource stays AVAILABLE
     # while the ticket goes back to OPEN, which (a) lets a second ticket be
@@ -1272,7 +1579,6 @@ def reopen_ticket(ticket_id):
                 'ticket_id': other_open.id,
             }), 409
 
-    before = {'status': ticket.status}
     ticket.status = 'OPEN'
     ticket.was_reopened = True
     ticket.reopened_at = datetime.now(timezone.utc)
@@ -1287,7 +1593,13 @@ def reopen_ticket(ticket_id):
     if resource is not None:
         resource.status = 'IN_USE'
 
-    audit_svc.log(user_id, 'TICKET_REOPEN', 'ticket', ticket_id, before=before, after={'status': 'OPEN'})
+    # Reopening wipes every payment field. Snapshot them first: _build_summary
+    # attributes tickets by opened_at and counts only CLOSED ones, so without
+    # this trail there is no way to explain why a session's historical totals
+    # changed, or to restore the original tip if the reopen was a mistake.
+    audit_svc.log(user_id, 'TICKET_REOPEN', 'ticket', ticket_id,
+                  before=before_payment, after={'status': 'OPEN'},
+                  reason=reason, ip_address=request.remote_addr)
     db.session.commit()
     _emit_floor_update()
     return jsonify(ticket.to_dict())

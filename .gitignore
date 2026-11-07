@@ -35,6 +35,16 @@ frontend/node_modules/
 *.swp
 *.swo
 
-# ── Backups (large zips, not for repo) ────────────────────────────────────────
-backups/*.zip
+# ── Backups & database dumps (may contain production data — never commit) ─────
+backups/
+*.sql.gz
+*.dump
+sql_restore.sql
+pre-migration-*.sql
 .aider*
+
+# Maestro v2 test run output (large, regenerated)
+docs/mobile/testing/v2/out/
+
+# Local macOS backend runtime state (pid/log) from scripts/mobile/start-local-backend.sh
+.local-backend/

@@ -1,0 +1,53 @@
+Running on billar_mobile_api35
+ > Flow j16-manager-cash
+Run _login.yaml...
+  Launch app "com.bola8.staff" with clear state... COMPLETED
+  Run flow when id: server-input is visible...
+    Tap on id: server-input... COMPLETED
+    Input text ${SERVER}... COMPLETED
+    Hide Keyboard... COMPLETED
+    Tap on id: server-connect... COMPLETED
+    Assert that id: server-ok is visible... COMPLETED
+    Tap on id: server-continue... COMPLETED
+  Run flow when id: server-input is visible... COMPLETED
+  Assert that id: login-username is visible... COMPLETED
+  Tap on id: login-username... COMPLETED
+  Input text ${USER_NAME}... COMPLETED
+  Tap on id: login-password... COMPLETED
+  Input text ${PASS}... COMPLETED
+  Hide Keyboard... COMPLETED
+  Tap on id: login-submit... COMPLETED
+Run _login.yaml... COMPLETED
+Assert that id: screen-overview is visible... COMPLETED
+Tap on "Caja"... COMPLETED
+Assert that id: screen-cash is visible... COMPLETED
+Run flow when id: cash-open-btn is visible...
+Run flow when id: cash-open-btn is visible... SKIPPED
+Assert that id: cash-summary is visible... COMPLETED
+Assert that id: line-expected is visible... COMPLETED
+Tap on id: cash-add-expense... COMPLETED
+Tap on id: expense-description... COMPLETED
+Input text Hielo... COMPLETED
+Tap on id: expense-payee... COMPLETED
+Input text Proveedor... COMPLETED
+Tap on id: expense-amount... COMPLETED
+Input text 50... COMPLETED
+Hide Keyboard... COMPLETED
+Tap on id: expense-save... COMPLETED
+Assert that "Hielo" is visible... COMPLETED
+Take screenshot 16-cash-open... COMPLETED
+Tap on id: cash-close-btn... COMPLETED
+Tap on id: count-pad-4... FAILED
+
+Element not found: Id matching regex: count-pad-4
+
+Element with Id matching regex: count-pad-4 not found. Check the UI hierarchy in debug artifacts to verify if the element exists.
+
+Possible causes:
+- Element selector may be incorrect - check if there are similar elements with slightly different names/properties.
+- Element may be temporarily unavailable due to loading state.
+- This could be a real regression that needs to be addressed.
+
+==== Debug output (logs & screenshots) ====
+
+D:\Projects\Code\billar-pos-worktrees\mobile-pos-companion\mobile\e2e\maestro\..\..\..\docs\mobile\testing\v2\out\j16-manager-cash\2026-11-06_010559

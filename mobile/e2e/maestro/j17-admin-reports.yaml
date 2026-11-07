@@ -1,0 +1,49 @@
+# J17: admin login -> Reportes tab -> switch periods -> open safe sheet. Not run in CI.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: admin
+  PASS: admin123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-overview
+    timeout: 20000
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn: "Reportes"
+# iOS labels bottom tabs as one accessibility element ("Reportes, tab, 5 of 9"), so match by prefix (hidden tabs count too)
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Reportes, tab.*"
+- extendedWaitUntil:
+    visible:
+      id: screen-reportes
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: card-sales
+    timeout: 10000
+- takeScreenshot: 17-reportes-hoy
+- tapOn:
+    id: preset-week
+- waitForAnimationToEnd
+- takeScreenshot: 17-reportes-semana
+- tapOn:
+    id: preset-month
+- waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      id: card-safe
+- tapOn:
+    id: safe-add
+- extendedWaitUntil:
+    visible:
+      id: safe-sheet
+    timeout: 5000
+- takeScreenshot: 17-reportes-caja-fuerte

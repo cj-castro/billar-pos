@@ -659,6 +659,12 @@ def reverse_for_line_item(line_item, performed_by: str):
     If no SaleItemCost rows exist the item was never deducted (STAGED) — no-op.
     Does NOT recompute WAC; WAC is forward-only.
 
+    The consumed SaleItemCost rows are deleted once restored, which makes this
+    function idempotent: a second call finds no rows and becomes a no-op rather
+    than restoring the same ingredients twice. Leaving them in place was how a
+    repeated void inflated stock. Dropping them is also what keeps COGS honest,
+    since a voided line was never actually sold.
+
     Args:
         line_item: TicketLineItem ORM instance being voided.
         performed_by: Manager user ID (PIN-verified by caller).
@@ -687,6 +693,12 @@ def reverse_for_line_item(line_item, performed_by: str):
             unit_cost_cents = item.unit_cost_cents,
             reference_id    = line_item.id,
         )
+
+    # Consume the cost rows so this reversal can never be applied twice.
+    SaleItemCost.query.filter_by(
+        ticket_line_item_id=line_item.id
+    ).delete(synchronize_session=False)
+    db.session.flush()
 
 
 # ── Adjustments ───────────────────────────────────────────────────────────────

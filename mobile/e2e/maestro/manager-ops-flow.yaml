@@ -1,0 +1,26 @@
+# Manager logs in and reads the operational state; the Sistema tab must not exist for MANAGER.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: manager
+  PASS: manager123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-overview
+    timeout: 20000
+- assertVisible:
+    id: tile-open
+- assertVisible:
+    id: cash-card
+- assertNotVisible: Sistema
+- tapOn: Tickets
+- assertVisible:
+    id: screen-tickets
+- tapOn: Piso
+- assertVisible:
+    id: screen-floor-view
+- tapOn: Cocina/Barra
+- assertVisible:
+    id: screen-kds
