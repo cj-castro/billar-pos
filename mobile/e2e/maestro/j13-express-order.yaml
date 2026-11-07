@@ -24,8 +24,18 @@ env:
     visible:
       id: menu-search
     timeout: 15000
-- tapOn:
-    id: menu-item-c3e595db-04a6-4767-b4a8-dca352325c30
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: menu-item-c3e595db-04a6-4767-b4a8-dca352325c30
+# iOS runs against a local DB whose menu ids differ: pick the card by its name
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Soda.*"
 - tapOn:
     id: menu-review-order
 - extendedWaitUntil:

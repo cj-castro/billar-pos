@@ -10,9 +10,29 @@ env:
     visible:
       id: screen-kds
     timeout: 20000
-- tapOn: Chicken Wings
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn: Chicken Wings
+# iOS exposes the whole KDS row as one accessibility element ("Chicken Wings, Buffalo, ..."), so match by substring
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: ".*Chicken Wings.*"
 - assertVisible: ".*En preparación.*"
-- tapOn: Chicken Wings
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn: Chicken Wings
+# iOS exposes the whole KDS row as one accessibility element ("Chicken Wings, Buffalo, ..."), so match by substring
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: ".*Chicken Wings.*"
 - assertVisible: "Marcado como listo"
 - tapOn:
     id: toast-action

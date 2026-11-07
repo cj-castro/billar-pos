@@ -19,3 +19,14 @@
 - [ ] Discovery scan assumes /24; make it netmask-aware (expo-network has no subnet mask API; derive from a candidate hit or accept /24).
 - [ ] Android API 37 (Android 17) introduces ACCESS_LOCAL_NETWORK runtime permission; when Expo targets SDK 37, request it before the LAN scan and candidate probes.
 - [ ] mDNS candidate (http://bola8pos.local:8080) on iOS only, if the bar PC ever runs a zeroconf responder; see Obsidian "Bar Network Access Plan 2026-11-06" §6c.
+
+## iOS open items
+
+- [ ] Truncated headers on iPhone: "Lista d…" on Waiting, and the floor subtitle "Alice Waiter · Mes…". The header layout is shared across platforms, so this needs a cross-platform decision.
+- [ ] iOS "Save Password?" sheet appears after every login on shared staff phones. Product decision needed (keep, or suppress the save prompt).
+- [ ] "Bar cerrado" banner does not refresh when a cash session is opened through the API (no socket push). Pull-to-refresh is needed.
+- [ ] Local-network permission prompt not yet verified. Needs a physical iPhone on the LAN.
+- [ ] Keep-awake, haptics and the silent-mode chime cannot be verified on the simulator. Needs a device.
+- [ ] Maestro j12 touch-target audit uses a host-side `uiautomator dump`, which has no iOS equivalent. Not replaced.
+- [ ] Maestro j16 keypad steps changed for Android too (the keypad became a text field: `fund-pad` / `count-pad`). Re-verify on the Android emulator.
+- [ ] Physical iPhone build is pending (simulator only so far).

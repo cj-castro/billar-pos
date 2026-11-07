@@ -1,0 +1,16 @@
+# Subflow: dismiss the soft keyboard.
+# Android: hideKeyboard. iOS: hideKeyboard fails in this app ("Couldn't hide the keyboard"), and a keyboard left open
+# covers bottom buttons (Maestro would tap the keyboard). The "go"/"next" Return key blurs the field on iOS, so press it.
+# NB: on the setup field Return runs "Probar conexion"; on the login password field Return submits the login.
+appId: com.bola8.staff
+---
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - hideKeyboard
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - pressKey: Enter

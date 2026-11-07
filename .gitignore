@@ -45,3 +45,6 @@ pre-migration-*.sql
 
 # Maestro v2 test run output (large, regenerated)
 docs/mobile/testing/v2/out/
+
+# Local macOS backend runtime state (pid/log) from scripts/mobile/start-local-backend.sh
+.local-backend/

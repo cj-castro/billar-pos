@@ -33,8 +33,18 @@ env:
       id: menu-search
     timeout: 10000
 - takeScreenshot: 05-menu
-- tapOn:
-    id: menu-item-b0a8d9ac-da84-4f45-9832-5b5b30996f59
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: menu-item-b0a8d9ac-da84-4f45-9832-5b5b30996f59
+# iOS runs against a local DB whose menu ids differ: pick the card by its name
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Chicken Wings.*"
 - extendedWaitUntil:
     visible:
       id: configure-sheet
@@ -47,8 +57,18 @@ env:
 - takeScreenshot: 06c-configurator-chosen
 - tapOn:
     id: configure-add
-- tapOn:
-    id: menu-item-c3e595db-04a6-4767-b4a8-dca352325c30
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: menu-item-c3e595db-04a6-4767-b4a8-dca352325c30
+# iOS runs against a local DB whose menu ids differ: pick the card by its name
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Soda.*"
 - tapOn:
     id: menu-review-order
 - extendedWaitUntil:

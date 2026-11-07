@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 import { useUpdater } from '../UpdateUi';
 import { downloadUpdate, launchInstaller } from '../updater';
 
@@ -24,5 +25,16 @@ describe('useUpdater install', () => {
     await act(async () => { await result.current.install(); });
     expect(launchInstaller).toHaveBeenCalledTimes(2);
     expect(downloadUpdate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useUpdater platform gate', () => {
+  const orig = Platform.OS;
+  afterEach(() => { Platform.OS = orig; });
+  it('is not configured on iOS (no start-up check, no Profile/update-required button), configured on Android', async () => {
+    Platform.OS = 'ios';
+    expect((await renderHook(() => useUpdater())).result.current.configured).toBe(false);
+    Platform.OS = 'android';
+    expect((await renderHook(() => useUpdater())).result.current.configured).toBe(true);
   });
 });

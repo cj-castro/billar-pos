@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { toApiError } from '../../../api/client';
 import { updateStatus } from '../../../api/endpoints/queue';
@@ -20,6 +20,7 @@ import { useToast } from '../../../components/Toast';
 import { colors, radii, spacing } from '../../../theme/tokens';
 import { haptic } from '../../../utils/haptics';
 import { useReady } from '../queries';
+import { ensureNotificationPermission, useAlertPrefs } from './readyAlerts';
 import type { ReadyGroup } from './readyEvents';
 
 /** SCR-W-06 Listos: READY lines (kitchen + bar) grouped by table, "Marcar servido" per line / "Servir todo". */
@@ -33,6 +34,11 @@ export function ReadyScreen() {
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
   const { model } = ready;
+
+  // iOS asks once, in context (first visit to Listos), not at launch. Android keeps its existing behaviour (Yo toggle).
+  useEffect(() => {
+    if (Platform.OS === 'ios' && useAlertPrefs.getState().alerts) void ensureNotificationPermission();
+  }, []);
 
   const serve = async (items: QueueItem[]) => {
     setBusy((b) => new Set([...b, ...items.map((i) => i.id)]));

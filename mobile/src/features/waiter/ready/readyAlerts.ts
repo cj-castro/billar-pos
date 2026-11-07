@@ -23,7 +23,9 @@ const safe = async (fn: () => Promise<unknown> | unknown) => {
 /** 200 ms two-tone chime. */
 export function playChime() {
   return safe(async () => {
-    const { createAudioPlayer } = await import('expo-audio');
+    const { createAudioPlayer, setAudioModeAsync } = await import('expo-audio');
+    // iOS: without this the chime is muted by the ring/silent switch (staff phones are often on silent).
+    if (Platform.OS === 'ios') await setAudioModeAsync({ playsInSilentMode: true });
     const player = createAudioPlayer(require('../../../../assets/sounds/chime.wav'));
     player.play();
     setTimeout(() => safe(() => player.remove()), 1500);

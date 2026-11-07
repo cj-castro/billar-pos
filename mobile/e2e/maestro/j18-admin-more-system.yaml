@@ -10,8 +10,18 @@ env:
     visible:
       id: screen-overview
     timeout: 20000
-- tapOn:
-    text: "Más"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          text: "Más"
+# iOS labels bottom tabs as one accessibility element ("Más, tab, 6 of 9"), so match by prefix (hidden tabs count too)
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Más, tab.*"
 - extendedWaitUntil:
     visible:
       id: screen-more
