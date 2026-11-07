@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Billar POS - Server</title>
+<style>
+  body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:32px;width:420px}
+  h1{font-size:20px;margin:0 0 6px} p{color:#94a3b8;font-size:13px;margin:0 0 20px}
+  input{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:14px}
+  button{margin-top:12px;padding:10px 16px;border:0;border-radius:8px;background:#0284c7;color:#fff;font-size:14px;cursor:pointer}
+  button.alt{background:#334155;margin-left:8px} #msg{margin-top:14px;font-size:13px;min-height:18px}
+  .err{color:#f87171}
+</style></head><body><div class="card">
+  <h1>Billar POS server</h1>
+  <p>Address of the POS server, e.g. http://localhost:8080 or http://192.168.1.24:8080</p>
+  <input id="url" placeholder="http://localhost:8080" autofocus>
+  <button id="save">Test &amp; save</button><button id="retry" class="alt">Retry</button>
+  <div id="msg"></div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const err = new URLSearchParams(location.search).get('err');
+const msg = (t, c) => { $('msg').textContent = t; $('msg').className = c || ''; };
+window.desktop.getUrl().then((u) => { $('url').value = u || ''; });
+if (err) msg('Cannot reach server (' + err + '). Retrying every 5s...', 'err');
+$('save').onclick = async () => {
+  msg('Testing...');
+  const r = await window.desktop.saveUrl($('url').value.trim());
+  if (!r.ok) msg(r.error, 'err');
+};
+$('retry').onclick = async () => { msg('Retrying...'); if (!(await window.desktop.retry())) msg('Still unreachable.', 'err'); };
+if (err) setInterval(() => window.desktop.retry(), 5000);
+</script></body></html>

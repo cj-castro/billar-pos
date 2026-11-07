@@ -48,3 +48,8 @@ docs/mobile/testing/v2/out/
 
 # Local macOS backend runtime state (pid/log) from scripts/mobile/start-local-backend.sh
 .local-backend/
+
+# Desktop shell
+desktop/node_modules/
+desktop/dist/
+!desktop/build/
