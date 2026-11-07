@@ -23,11 +23,11 @@ DESIGN NOTES
   therefore one atomic unit: it fully applies or fully rolls back. There is no
   such thing as a half-applied migration here.
 
-* A failure NEVER crashes the container. At a bar, a POS that refuses to boot is
-  worse than a POS on last week's schema. Because each file is atomic, a failure
-  leaves the database consistent at the last good migration, and every later
-  file then fails its own _applied() guard -- a clean, self-limiting cascade.
-  Use --strict on a dev machine when you want a non-zero exit instead.
+* A failed migration makes `flask apply-migrations` exit non-zero, so the
+  container stops instead of booting on a schema that does not match the models.
+  Because each file is atomic, the database is left consistent at the last good
+  migration. A runner that cannot start at all (missing manifest, unreachable
+  database) still exits 0 unless --strict is given.
 
 * lock_timeout is set so a migration waiting on a lock held by a live ticket
   gives up instead of blocking the POS indefinitely. It bounds lock WAITING
@@ -266,6 +266,8 @@ def register_migration_commands(app):
             click.echo('  !! last successful migration -- nothing is half-applied.')
             click.echo('  !! Run `flask migration-status` for the full picture.')
             click.echo('')
+            # Non-zero so entrypoint.sh (set -e) stops before gunicorn.
+            raise SystemExit(1)
 
     @app.cli.command('migration-status')
     def migration_status_cmd():
