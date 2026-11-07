@@ -1,0 +1,36 @@
+# J18: admin login -> Mas -> Sistema -> screen-system (regression for hidden-tab navigation).
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: admin
+  PASS: admin123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-overview
+    timeout: 20000
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          text: "Más"
+# iOS labels bottom tabs as one accessibility element ("Más, tab, 6 of 9"), so match by prefix (hidden tabs count too)
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Más, tab.*"
+- extendedWaitUntil:
+    visible:
+      id: screen-more
+    timeout: 10000
+- tapOn:
+    id: more-system
+- extendedWaitUntil:
+    visible:
+      id: screen-system
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: sistema

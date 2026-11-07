@@ -18,3 +18,6 @@
 #         backend/migrations/sql/001_baseline_squash.sql
 # ============================================================================
 001_baseline_squash
+002_line_item_client_request_id
+003_restore_reference_data
+004_ticket_close_request_id

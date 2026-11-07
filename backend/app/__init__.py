@@ -1229,6 +1229,18 @@ def create_app(config_class=Config):
     # ── Health check ──────────────────────────────────────────────────────────
     @app.route('/api/v1/health')
     def health():
-        return {'status': 'ok'}
+        from app.version import SERVER_VERSION
+        from app.models.setting import Setting
+        out = {'status': 'ok', 'server_version': SERVER_VERSION, 'min_mobile_version': '1.0.0',
+               'features': ['socket_handshake_auth', 'idempotent_add_item', 'idempotent_close']}
+        try:
+            row = Setting.query.get('min_mobile_version')
+            if row and row.value:
+                out['min_mobile_version'] = row.value
+        except Exception:  # noqa: BLE001 - health must never 500
+            from app.extensions import db
+            db.session.rollback()
+            out['db'] = 'error'
+        return out
 
     return app

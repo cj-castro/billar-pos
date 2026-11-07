@@ -1,0 +1,19 @@
+# Chef logs in, sees the order the seed script created and advances it to READY.
+# Prereq (host): node e2e/maestro/seed-order.mjs   (creates a table ticket with a Loaded Nachos line)
+# Run:  maestro --device emulator-5556 test e2e/maestro/kitchen-chef-flow.yaml
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: kitchen
+  PASS: kitchen123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-kds
+    timeout: 20000
+- assertVisible: Loaded Nachos
+- tapOn: Loaded Nachos        # SENT -> IN_PROGRESS
+- assertVisible: En preparación
+- tapOn: Loaded Nachos        # IN_PROGRESS -> READY
+- assertVisible: Esperando mesero
