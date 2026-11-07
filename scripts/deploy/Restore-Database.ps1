@@ -75,8 +75,8 @@ if (-not $Force) {
 }
 
 # ── Stop everything that holds a connection ──────────────────────────────────
-Step "stopping backend, scheduler, telegram-bot..."
-Invoke-Native { docker compose stop backend scheduler telegram-bot } | Out-Null
+Step "stopping backend, scheduler, telegram-bot, backup..."
+Invoke-Native { docker compose stop backend scheduler telegram-bot backup } | Out-Null
 
 # ── Copy the archive in ──────────────────────────────────────────────────────
 Step "copying dump into container..."
