@@ -64,10 +64,13 @@ def test_overrides_applied(out):
         assert e["PYTHONUTF8"] == "1" and e["PYTHONUNBUFFERED"] == "1"
     assert b["PRINT_AGENT_URL"] == "http://127.0.0.1:9191"
     assert b["SECRET_KEY"] == "sek=ret#key"
+    assert b["SMTP_USER"] == "Ñandú_épico"                      # UTF-8 survives docker -> PS 5.1 -> file
+    assert (out / "backend.env").read_bytes().count("Ñandú_épico".encode("utf-8")) == 1
     assert k["PG_HOST"] == "127.0.0.1" and k["PG_PORT"] == str(PG_PORT)
     assert "PYTHONUTF8" not in k
 
 
+@pytest.mark.admin   # ACL is applied before the write; a non-elevated process cannot then write into the dir
 def test_env_dir_acl(run_ps, tmp_path):
     d = tmp_path / "acl"
     export(run_ps, d)
@@ -79,18 +82,26 @@ def test_env_dir_acl(run_ps, tmp_path):
         lines = r.stdout.splitlines()
         assert "PROT=True" in lines
         ids = {l.split("|")[0] for l in lines if "|" in l}
-        assert ids == {"NT AUTHORITY\SYSTEM", "BUILTIN\Administrators"}, r.stdout + r.stderr
+        assert ids == {r"NT AUTHORITY\SYSTEM", r"BUILTIN\Administrators"}, r.stdout + r.stderr
+        r = subprocess.run(["powershell.exe", "-NoProfile", "-Command",
+                            f"(Get-Acl '{d}\backend.env').Access | ForEach-Object {{ $_.IdentityReference.Value }}"],
+                           capture_output=True, text=True)
+        assert set(r.stdout.split()) == {r"NT AUTHORITY\SYSTEM", r"BUILTIN\Administrators"}, r.stdout + r.stderr
     finally:  # give the owner access back so pytest can clean up
         subprocess.run(["icacls", str(d), "/reset", "/t", "/q"], capture_output=True)
 
 
 def test_import_posenv_value_with_equals(run_ps, tmp_path):
     f = tmp_path / "x.env"
-    f.write_bytes(b"# comment\n\nA=b=c#d\"e'f$g\nEMPTY=\n")
+    f.write_bytes("# comment\n\nA=b=c#d\"e'f$g\nU=Ñandú_épico\nEMPTY=\n".encode("utf-8"))
     s = tmp_path / "t.ps1"
     s.write_text(f"Import-Module '{WIN / 'PosCommon.psm1'}' -Force\nImport-PosEnv -Path '{f}'\n"
-                 "Write-Output \"A=$env:A\"\nWrite-Output \"EMPTY=[$env:EMPTY]\"\n")
+                 "[Console]::OutputEncoding = [Text.Encoding]::UTF8\n"
+                 "Write-Output \"A=$env:A\"\nWrite-Output \"U=$env:U\"\nWrite-Output \"EMPTY=[$env:EMPTY]\"\n",
+                 encoding="utf-8-sig")
     r = run_ps(str(s))
     assert r.returncode == 0, r.stderr
-    assert "A=b=c#d\"e'f$g" in r.stdout.splitlines()
-    assert "EMPTY=[]" in r.stdout.splitlines()
+    lines = r.stdout.splitlines()
+    assert "A=b=c#d\"e'f$g" in lines
+    assert "U=Ñandú_épico" in lines
+    assert "EMPTY=[]" in lines

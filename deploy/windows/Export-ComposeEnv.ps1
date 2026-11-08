@@ -1,6 +1,6 @@
 <#
 Writes backend.env / scheduler.env / backup.env: exactly what `docker compose config` resolves for each
-container's environment, plus the native-host overrides. The last step locks OutDir to SYSTEM + Administrators
+container's environment, plus the native-host overrides. The ACL is applied to OutDir BEFORE the files are written to SYSTEM + Administrators
 (-SkipAcl is for tests running non-elevated, which would otherwise lock themselves out).
 #>
 param(
@@ -17,8 +17,11 @@ if (-not $EnvFile) { $EnvFile = Join-Path $ComposeDir '.env' }
 
 # native exe: stderr is harmless noise under 'Stop', so check the exit code instead
 $ErrorActionPreference = 'Continue'
+$prevEnc = [Console]::OutputEncoding
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)   # PS 5.1 would decode docker's UTF-8 as OEM
 $json = & docker compose --project-directory $ComposeDir --env-file $EnvFile config --format json 2>$null
 $rc = $LASTEXITCODE
+[Console]::OutputEncoding = $prevEnc
 $ErrorActionPreference = 'Stop'
 if ($rc -ne 0 -or -not $json) { Write-Error "docker compose config failed (exit $rc)"; exit 1 }
 $svc = ($json -join "`n") | ConvertFrom-Json
@@ -53,13 +56,7 @@ $backup['PG_HOST'] = '127.0.0.1'
 $backup['PG_PORT'] = "$PgPort"
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-$utf8 = New-Object Text.UTF8Encoding($false)
-foreach ($pair in @(@('backend', $backend), @('scheduler', $scheduler), @('backup', $backup))) {
-    $lines = foreach ($k in $pair[1].Keys) { "$k=$($pair[1][$k])" }
-    [IO.File]::WriteAllText((Join-Path $OutDir "$($pair[0]).env"), (($lines -join "`n") + "`n"), $utf8)
-}
-
-if (-not $SkipAcl) {   # LAST step: nothing may need to read the dir as a normal user after this
+if (-not $SkipAcl) {   # before any secret is written
     $acl = New-Object Security.AccessControl.DirectorySecurity
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($sid in 'S-1-5-18', 'S-1-5-32-544') {
@@ -69,4 +66,10 @@ if (-not $SkipAcl) {   # LAST step: nothing may need to read the dir as a normal
     }
     Set-Acl -Path $OutDir -AclObject $acl
 }
+$utf8 = New-Object Text.UTF8Encoding($false)
+foreach ($pair in @(@('backend', $backend), @('scheduler', $scheduler), @('backup', $backup))) {
+    $lines = foreach ($k in $pair[1].Keys) { "$k=$($pair[1][$k])" }
+    [IO.File]::WriteAllText((Join-Path $OutDir "$($pair[0]).env"), (($lines -join "`n") + "`n"), $utf8)
+}
+
 Write-Output "wrote backend.env scheduler.env backup.env to $OutDir"
