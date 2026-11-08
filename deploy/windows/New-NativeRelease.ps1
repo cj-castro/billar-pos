@@ -33,7 +33,7 @@ function Get-Sums([string]$Dir) {
 }
 
 if ($VerifyDir) {
-    $want = @(Get-Content (Join-Path $VerifyDir 'SHA256SUMS.txt'))
+    $want = @(Get-Content -Encoding UTF8 (Join-Path $VerifyDir 'SHA256SUMS.txt'))
     $got = @(Get-Sums $VerifyDir)
     $diff = Compare-Object $want $got
     if ($diff) { $diff | ForEach-Object { Write-Host "MISMATCH $($_.SideIndicator) $($_.InputObject)" }; exit 1 }
