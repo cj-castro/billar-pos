@@ -75,6 +75,21 @@ function Step([string]$text, [scriptblock]$act) {
     if ($DryRun) { Write-Host "PLAN: $text"; return }
     Write-Host "STEP: $text"; & $act
 }
+# Runs a .ps1 with a splatted parameter table; the PLAN text is derived from the same table that is executed.
+function RunPs([string]$script, $params, [string[]]$mask = @()) {
+    $disp = $script + ' ' + (($params.Keys | ForEach-Object { "-$_ " + $(if ($mask -contains $_) { '******' } else { Q ([string]$params[$_]) }) }) -join ' ')
+    Step $disp {
+        $global:LASTEXITCODE = 0
+        & $script @params
+        if ($LASTEXITCODE -ne 0) { throw "$script failed ($LASTEXITCODE)" }
+    }
+}
+# sc delete right before re-registration (never earlier: a failed copy/pip/initdb must not leave the bar without services)
+function RemoveSvc([string]$n) {
+    if (-not (SvcExists $n)) { return }
+    Native 'sc.exe' @('delete', $n)
+    if (-not $DryRun) { WaitSvc $n $true '' }
+}
 function SvcExists([string]$n) { [bool](Get-Service -Name $n -ErrorAction SilentlyContinue) }
 function WaitSvc([string]$n, [bool]$gone, [string]$state) {
     $end = (Get-Date).AddSeconds(60)
@@ -99,14 +114,12 @@ foreach ($k in 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB') {
     if (-not [Environment]::GetEnvironmentVariable($k, 'Process')) { throw "backup.env has no $k" }
 }
 
-# ---- 1. stop and remove this prefix's existing services (reverse dependency order)
+# ---- 1. stop (only stop) this prefix's existing services, reverse dependency order; deleted/re-registered in 5 and 7
 foreach ($k in 'Web', 'Scheduler', 'Backend', 'Postgres') {
     $n = $S[$k]
     if (-not (SvcExists $n)) { continue }      # -DryRun therefore plans a fresh install unless the prefix already exists
     Native 'sc.exe' @('stop', $n) -Tolerate
     if (-not $DryRun) { WaitSvc $n $false 'Stopped' }
-    Native 'sc.exe' @('delete', $n)
-    if (-not $DryRun) { WaitSvc $n $true '' }
 }
 
 # ---- 2. layout, binaries, app, scripts
@@ -142,34 +155,31 @@ Step "ACL $($P.config): SYSTEM + Administrators only (protected), then copy back
 $venvArgs = @{ Python = (Join-Path $P.bin 'python\python.exe'); VenvDir = $P.venv; Lock = (Join-Path $P.deploy 'python\requirements-backend.lock.txt') }
 $wheels = Join-Path $ReleaseDir 'wheelhouse'
 if (Test-Path $wheels) { $venvArgs.Wheelhouse = $wheels }
-Step "New-PosVenv.ps1 -Python $($venvArgs.Python) -VenvDir $($P.venv) -Lock $($venvArgs.Lock)$(if ($venvArgs.Wheelhouse) { " -Wheelhouse $wheels" })" {
-    & (Join-Path $P.deploy 'python\New-PosVenv.ps1') @venvArgs
-    if ($LASTEXITCODE -ne 0) { throw "New-PosVenv failed ($LASTEXITCODE)" }
-}
+$venvP = [ordered]@{ Python = $venvArgs.Python; VenvDir = $venvArgs.VenvDir; Lock = $venvArgs.Lock }
+if ($venvArgs.Wheelhouse) { $venvP.Wheelhouse = $venvArgs.Wheelhouse }
+RunPs (Join-Path $P.deploy 'python\New-PosVenv.ps1') $venvP
 if ($DryRun -or -not (Test-Path $AwsExe)) {
     Native 'msiexec.exe' @('/a', (Join-Path $P.bin 'AWSCLIV2.msi'), '/qn', "TARGETDIR=$(Join-Path $P.bin 'aws')") -Tolerate:$false
 }
 
 # ---- 5. postgres: cluster (idempotent), ACL, service
-Step "Initialize-PosCluster.ps1 -PgBin $PgBin -DataDir $($P.pgdata) -Port $PgPort -DbUser $($env:POSTGRES_USER) -DbPassword ****** -DbName $($env:POSTGRES_DB)" {
-    & (Join-Path $P.deploy 'postgres\Initialize-PosCluster.ps1') -PgBin $PgBin -DataDir $P.pgdata -Port $PgPort `
-        -DbUser $env:POSTGRES_USER -DbPassword $env:POSTGRES_PASSWORD -DbName $env:POSTGRES_DB
-    if ($LASTEXITCODE -ne 0) { throw "Initialize-PosCluster failed ($LASTEXITCODE)" }
-}
+RunPs (Join-Path $P.deploy 'postgres\Initialize-PosCluster.ps1') ([ordered]@{ PgBin = $PgBin; DataDir = $P.pgdata; Port = $PgPort
+    DbUser = $env:POSTGRES_USER; DbPassword = $env:POSTGRES_PASSWORD; DbName = $env:POSTGRES_DB }) @('DbPassword')
 # NetworkService (S-1-5-20) runs the service: Modify on the data dir, read+execute on the binaries
 Native 'icacls.exe' @($P.pgdata, '/grant', '*S-1-5-20:(OI)(CI)M', '/T', '/C', '/Q')
 Native 'icacls.exe' @((Join-Path $P.bin 'pgsql'), '/grant', '*S-1-5-20:(OI)(CI)RX', '/C', '/Q')
 $pgStart = if ($StartupType -eq 'Automatic') { 'auto' } else { 'demand' }
+# NOTE: if pg_ctl's service reports a clean stop when the postmaster dies, SCM recovery (sc failure) does not fire;
+# Health-Native.ps1 (service Running check) is what detects that. sc failureflag below makes non-zero exits count as failures.
+RemoveSvc $S.Postgres
 Native (Join-Path $PgBin 'pg_ctl.exe') @('register', '-N', $S.Postgres, '-S', $pgStart, '-D', $P.pgdata, '-U', 'NT AUTHORITY\NetworkService', '-o', "-p $PgPort")
 
 # ---- 6. nginx runtime prefix <Root>\web (R14)
 foreach ($n in 'conf', 'temp', 'logs') { Step "mkdir $(Join-Path $P.web $n)" { New-Item -ItemType Directory -Force -Path (Join-Path $P.web $n) | Out-Null } }
 Step "copy $(Join-Path $P.bin 'nginx\conf\mime.types') -> $(Join-Path $P.web 'conf')" { Copy-Item (Join-Path $P.bin 'nginx\conf\mime.types') (Join-Path $P.web 'conf') -Force }
 $conf = Join-Path $P.web 'conf\pos-site.conf'
-Step "Convert-NginxSite.ps1 -Source $(Join-Path $P.app 'frontend-nginx.conf') -Out $conf -ListenPort $WebPort -BackendPort $BackendPort -DistDir $(Join-Path $P.app 'dist')" {
-    & (Join-Path $P.deploy 'nginx\Convert-NginxSite.ps1') -Source (Join-Path $P.app 'frontend-nginx.conf') -Out $conf `
-        -ListenPort $WebPort -BackendPort $BackendPort -DistDir (Join-Path $P.app 'dist')
-}
+RunPs (Join-Path $P.deploy 'nginx\Convert-NginxSite.ps1') ([ordered]@{ Source = (Join-Path $P.app 'frontend-nginx.conf'); Out = $conf
+    ListenPort = $WebPort; BackendPort = $BackendPort; DistDir = (Join-Path $P.app 'dist') })
 Native (Join-Path $P.bin 'nginx\nginx.exe') @('-p', $P.web, '-c', 'conf\nginx.conf', '-t')
 
 # ---- 7. NSSM services
@@ -187,6 +197,7 @@ $defs = @(
 )
 foreach ($d in $defs) {
     $n = $d.n
+    RemoveSvc $n
     Native $Nssm @('install', $n, $d.app)
     $log = Join-Path $P.logs "$n.log"
     $set = [ordered]@{
@@ -201,35 +212,48 @@ foreach ($d in $defs) {
 }
 foreach ($k in 'Postgres', 'Backend', 'Scheduler', 'Web') {
     Native 'sc.exe' @('failure', $S[$k], 'reset=', '86400', 'actions=', 'restart/5000/restart/5000/restart/30000')
+    Native 'sc.exe' @('failureflag', $S[$k], '1')      # recovery also on non-zero exit codes, not just crashes
 }
 
 # ---- 8. scheduled tasks (SYSTEM, run missed runs)
-function Task([string]$name, [object[]]$trig, [string]$script, [string[]]$more) {
-    $argLine = PsArgs $script $more
-    $text = ($trig | ForEach-Object { $_.Text }) -join ','
-    $plan = "Register-ScheduledTask -TaskName $name -User SYSTEM -RunLevel Highest -StartWhenAvailable -Trigger $text -Execute powershell.exe -Argument $argLine"
-    Step $plan {
-        $a = New-ScheduledTaskAction -Execute $Ps -Argument $argLine
-        $pr = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-        $st = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-            -ExecutionTimeLimit (New-TimeSpan -Hours 2) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 10)
-        Register-ScheduledTask -TaskName $name -Action $a -Principal $pr -Settings $st -Trigger @($trig | ForEach-Object { & $_.Make }) -Force | Out-Null
-    }
+# The plan is printed FROM the same CIM objects that are registered (the New-ScheduledTask* cmdlets work non-elevated).
+function TriggerText($t) {
+    $c = $t.CimClass.CimClassName
+    if ($c -eq 'MSFT_TaskDailyTrigger') { return "$c@$(([datetime]$t.StartBoundary).ToString('HH:mm'))/DaysInterval=$($t.DaysInterval)" }
+    if ($t.Delay) { return "$c+Delay=$($t.Delay)" }
+    return $c
 }
-function Daily([string]$at) { @{ Text = "Daily@$at"; Make = { New-ScheduledTaskTrigger -Daily -At $at }.GetNewClosure() } }
+function Task([string]$name, [object[]]$trig, [string]$script, [string[]]$more) {
+    $a = New-ScheduledTaskAction -Execute $Ps -Argument (PsArgs $script $more)
+    $pr = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    # No -RestartCount: it does not retry a non-zero exit. The real S3 retry is the Catchup task at the next boot.
+    $st = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+    $plan = "Register-ScheduledTask -TaskName $name -User $($pr.UserId) -RunLevel $($pr.RunLevel)" +
+        $(if ($st.StartWhenAvailable) { ' -StartWhenAvailable' } else { '' }) +
+        " -Trigger $(($trig | ForEach-Object { TriggerText $_ }) -join ',') -Execute $(Q $a.Execute) -Argument $($a.Arguments)"
+    Step $plan { Register-ScheduledTask -TaskName $name -Action $a -Principal $pr -Settings $st -Trigger $trig -Force | Out-Null }
+}
+function Daily([string]$at) { New-ScheduledTaskTrigger -Daily -At $at }
+function BootTrigger { $t = New-ScheduledTaskTrigger -AtStartup; $t.Delay = 'PT5M'; $t }
 if (-not $SkipTasks) {
     $bk = Join-Path $P.config 'backup.env'
     $s3 = Join-Path $P.deploy 'backup\backup-s3.ps1'
     $s3a = @('-EnvFile', $bk, '-PgBin', $PgBin, '-AwsExe', $AwsExe, '-StateDir', $P.state)
     Task "$Prefix-S3Backup" @(Daily '02:00') $s3 $s3a
     # 5 min after boot, so Postgres is up; the missed-02:00 case is also covered by StartWhenAvailable
-    Task "$Prefix-S3Backup-Catchup" @(@{ Text = 'AtStartup+PT5M'; Make = { $t = New-ScheduledTaskTrigger -AtStartup; $t.Delay = 'PT5M'; $t } }) $s3 ($s3a + '-CatchUp')
+    Task "$Prefix-S3Backup-Catchup" @(BootTrigger) $s3 ($s3a + '-CatchUp')
     Task "$Prefix-LocalBackup" @(Daily '03:00') (Join-Path $P.deploy 'backup\Backup-Native.ps1') `
         @('-EnvFile', $bk, '-PgBin', $PgBin, '-OutDir', $P.backups, '-Label', 'scheduled', '-KeepDays', '30')
     if ($DailyReportTask) {
         Task "$Prefix-DailyReport" @(Daily '08:00') (Join-Path $P.deploy 'backend\run-flask.ps1') `
             @('-Root', $Root, '-EnvFile', (Join-Path $P.config 'scheduler.env'), '-Command', 'daily-report')
+    } elseif (Get-ScheduledTask -TaskName "$Prefix-DailyReport" -ErrorAction SilentlyContinue) {
+        Step "Unregister-ScheduledTask -TaskName $Prefix-DailyReport -Confirm:`$false" { Unregister-ScheduledTask -TaskName "$Prefix-DailyReport" -Confirm:$false }
     }
+} else {
+    $left = @('S3Backup', 'S3Backup-Catchup', 'LocalBackup', 'DailyReport' | ForEach-Object { "$Prefix-$_" } |
+        Where-Object { Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue })
+    if ($left) { Write-Host "WARN: -SkipTasks: existing tasks left untouched: $($left -join ', ')" }
 }
 
 # ---- 9. start (dependencies first)

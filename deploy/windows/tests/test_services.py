@@ -7,7 +7,9 @@ Three groups:
     ports 55433 / 55001 / 59081 (distinct from the 55432/55000/59080 session fixtures).
 Run the admin ones from an ELEVATED shell:  python -m pytest deploy/windows/tests/test_services.py -m admin -v
 """
+import fnmatch
 import http.server
+import json
 import re
 import shutil
 import subprocess
@@ -107,6 +109,7 @@ def test_dryrun_nssm_service_settings(run_ps, tmp_path, svc):
     assert has(lines, "nssm", "set", n, "AppStdout", log)
     assert has(lines, "nssm", "set", n, "AppStderr", log)
     assert has(lines, "sc", "failure", n, "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/30000")
+    assert has(lines, "sc", "failureflag", n, "1")
 
 
 def test_dryrun_nssm_commands(run_ps, tmp_path):
@@ -128,9 +131,10 @@ def test_dryrun_postgres_service(run_ps, tmp_path):
     reg = has(lines, "pg_ctl", "register", "-N", f"{p}-Postgres")
     assert reg and has([reg], "-S", "auto") and has([reg], "-D", f"{root}\\pgdata")
     assert '"-p 5434"' in reg                                    # -o "-p <PgPort>"
-    assert has([reg], "-U", '"NT', "AUTHORITY\\NetworkService\"") or "NetworkService" in reg
+    assert ' -U "NT AUTHORITY\\NetworkService" ' in reg + " "
     assert has(lines, "sc", "failure", f"{p}-Postgres", "reset=", "86400", "actions=",
                "restart/5000/restart/5000/restart/30000")
+    assert has(lines, "sc", "failureflag", f"{p}-Postgres", "1")
     ini = [l for l in lines if "Initialize-PosCluster.ps1" in l]
     assert ini and "-Port 5434" in ini[0] and "pw_not_secret" not in ini[0], "password must not be printed"
     assert lines.index(ini[0]) < lines.index(reg), "cluster is initialised before it is registered"
@@ -153,13 +157,15 @@ def test_dryrun_scheduled_tasks(run_ps, tmp_path):
     assert set(tasks) == {f"{p}-S3Backup", f"{p}-S3Backup-Catchup", f"{p}-LocalBackup"}   # no DailyReport by default
     for name, l in tasks.items():
         assert "-User SYSTEM" in l and "-StartWhenAvailable" in l and "-RunLevel Highest" in l, name
+        assert "-Execute" in l and "powershell.exe" in l.split("-Execute")[1].split(" -Argument")[0], name
+        assert "-Argument -NoProfile -NonInteractive -ExecutionPolicy Bypass -File" in l, name
     s3 = tasks[f"{p}-S3Backup"]
-    assert "-Trigger Daily@02:00" in s3 and "backup-s3.ps1" in s3 and "-CatchUp" not in s3
+    assert "-Trigger MSFT_TaskDailyTrigger@02:00/DaysInterval=1" in s3 and "backup-s3.ps1" in s3 and "-CatchUp" not in s3
     assert "-StateDir" in s3 and f"{root}\\state" in s3 and "AWSCLIV2\\aws.exe" in s3
     cu = tasks[f"{p}-S3Backup-Catchup"]
-    assert "AtStartup" in cu and "backup-s3.ps1" in cu and "-CatchUp" in cu
+    assert "-Trigger MSFT_TaskBootTrigger+Delay=PT5M" in cu and "backup-s3.ps1" in cu and "-CatchUp" in cu
     lb = tasks[f"{p}-LocalBackup"]
-    assert "-Trigger Daily@03:00" in lb and "Backup-Native.ps1" in lb and "-KeepDays 30" in lb
+    assert "-Trigger MSFT_TaskDailyTrigger@03:00/DaysInterval=1" in lb and "Backup-Native.ps1" in lb and "-KeepDays 30" in lb
     assert f"{root}\\backups" in lb
 
 
@@ -168,7 +174,7 @@ def test_dryrun_daily_report_only_when_asked(run_ps, tmp_path):
     lines, _ = install_plan(run_ps, tmp_path, "-DailyReportTask")
     dr = [l for l in lines if l.startswith("Register-ScheduledTask") and f"{p}-DailyReport" in l]
     assert len(dr) == 1
-    assert "-Trigger Daily@08:00" in dr[0] and "run-flask.ps1" in dr[0] and "-Command daily-report" in dr[0]
+    assert "-Trigger MSFT_TaskDailyTrigger@08:00/DaysInterval=1" in dr[0] and "run-flask.ps1" in dr[0] and "-Command daily-report" in dr[0]
 
 
 def test_dryrun_skiptasks(run_ps, tmp_path):
@@ -356,7 +362,8 @@ def all_services():
 
 
 def python_children():
-    out = ps("Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*serve_windows.py*' } | "
+    """Only the backend processes of THIS install (command line under the test root), never the session native_backend."""
+    out = ps(f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like '*{ROOT}*serve_windows.py*' }} | "
              "ForEach-Object { $_.ProcessId }")
     return [int(x) for x in out.split()]
 
@@ -392,9 +399,9 @@ def stack(run_ps, web_dist, tmp_path_factory):
         "POSTGRES_USER=billiard\nPOSTGRES_PASSWORD=test_pw_not_secret\nPOSTGRES_DB=billiardbar\n"
         f"PG_HOST=127.0.0.1\nPG_PORT={PGP}\n", encoding="utf-8")
 
-    def install(startup="Automatic"):
+    def install(startup="Automatic", *extra):
         return run_ps(INSTALL, "-ReleaseDir", str(rel), "-EnvDir", str(envs), "-Root", str(ROOT), "-Prefix", PFX,
-                      "-WebPort", str(WEP), "-PgPort", str(PGP), "-BackendPort", str(BEP), "-StartupType", startup)
+                      "-WebPort", str(WEP), "-PgPort", str(PGP), "-BackendPort", str(BEP), "-StartupType", startup, *extra)
 
     def uninstall(*extra):
         return run_ps(UNINSTALL, "-Prefix", PFX, *extra)
@@ -461,18 +468,50 @@ def test_install_is_idempotent(stack):
     r = stack.install("Manual")
     assert r.returncode == 0, r.stdout + r.stderr
     assert all(sc_qc(f"{PFX}-{s}")[0] == "DEMAND_START" for s in SVC_SUFFIXES)
+    # DailyReport follows the switch: added with it, unregistered again without it
+    names = f"(Get-ScheduledTask | Where-Object TaskName -like '{PFX}-*').TaskName"
+    assert stack.install("Automatic", "-DailyReportTask").returncode == 0
+    assert f"{PFX}-DailyReport" in ps(names).split()
     r = stack.install("Automatic")
     assert r.returncode == 0, r.stdout + r.stderr
+    assert f"{PFX}-DailyReport" not in ps(names).split()
+
+
+@pytest.mark.admin
+def test_scheduled_tasks_match_plan(stack):
+    """Registered tasks read back through Get-ScheduledTask: principal, settings, trigger types/times, -CatchUp placement."""
+    out = ps(f"Get-ScheduledTask | Where-Object TaskName -like '{PFX}-*' | ForEach-Object {{ [pscustomobject]@{{ "
+             "Name=$_.TaskName; User=$_.Principal.UserId; Run=[string]$_.Principal.RunLevel; "
+             "SWA=$_.Settings.StartWhenAvailable; Args=$_.Actions[0].Arguments; "
+             "Trig=@($_.Triggers | ForEach-Object { $_.CimClass.CimClassName + '|' + $_.StartBoundary + '|' + $_.Delay }) } } | "
+             "ConvertTo-Json -Depth 4 -Compress")
+    tasks = {t["Name"]: t for t in json.loads(out)}
+    assert set(tasks) == {f"{PFX}-{n}" for n in ("S3Backup", "S3Backup-Catchup", "LocalBackup")}
+    for name, t in tasks.items():
+        assert t["User"] == "SYSTEM" and t["Run"] == "Highest" and t["SWA"] is True, name
+
+    def trig(name):
+        t = tasks[name]["Trig"]
+        return [t] if isinstance(t, str) else t
+    for name, hhmm in ((f"{PFX}-S3Backup", "T02:00"), (f"{PFX}-LocalBackup", "T03:00")):
+        assert len(trig(name)) == 1 and trig(name)[0].startswith("MSFT_TaskDailyTrigger|"), (name, trig(name))
+    cu = trig(f"{PFX}-S3Backup-Catchup")
+    assert len(cu) == 1 and cu[0].startswith("MSFT_TaskBootTrigger|") and cu[0].endswith("|PT5M"), cu
+    assert "-CatchUp" in tasks[f"{PFX}-S3Backup-Catchup"]["Args"]
+    assert "-CatchUp" not in tasks[f"{PFX}-S3Backup"]["Args"] and "-KeepDays 30" in tasks[f"{PFX}-LocalBackup"]["Args"]
 
 
 @pytest.mark.admin
 def test_does_not_touch_foreign_services(stack):
     now = all_services()
     foreign_before = {n: v for n, v in stack.before.items() if not n.startswith(PFX + "-")}
+    # existence + StartMode for every foreign service; Running state only for the named services that matter on the bar PC
+    # (trigger-start services such as wuauserv/BITS/DoSvc stop on their own and would make this gate flaky)
+    watched = ("postgresql*", "*PrintAgent*", "com.docker*", "docker*", "*rancher*", "*Rancher*")
     for n, (state, mode) in foreign_before.items():
         assert n in now, f"foreign service {n} disappeared"
         assert now[n][1] == mode, f"{n} start mode changed"
-        if state == "Running":
+        if state == "Running" and any(fnmatch.fnmatch(n, w) for w in watched):
             assert now[n][0] == "Running", f"{n} stopped"
     assert set(now) - set(stack.before) <= {n for n in now if n.startswith(PFX + "-")}
 
