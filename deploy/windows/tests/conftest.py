@@ -318,3 +318,42 @@ def native_web(native_backend, web_dist, run_ps, tmp_path_factory):
     except subprocess.TimeoutExpired:
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
     out.close()
+
+
+# ---------------------------------------------------------------- Task 7 (R3): Docker reference backend
+DOCKER_IMAGE = "billiards-backend:g0"
+
+
+@pytest.fixture(scope="session")
+def docker_backend(native_pg, restored_db, pos_venv, tmp_path_factory):
+    """R3: factory docker_backend(db_name, agent_port, host_port) -> context manager yielding the base URL of the
+    Docker reference backend (image billiards-backend:g0, its default entrypoint + gunicorn) on 127.0.0.1:host_port.
+    DB `db_name` is a fresh clone of POS_TEST_DUMP (restored_db) with the test admin; the container reaches the native
+    test cluster as host.docker.internal:55432 and the print agent as host.docker.internal:agent_port (so the mock
+    must bind 0.0.0.0). Env = the native test env values, plus TZ=America/Mexico_City as docker-compose sets.
+    Skips when docker or the image is absent. Container is removed on exit (logs saved to <tmp>/<name>.log)."""
+    if subprocess.run(["docker", "image", "inspect", DOCKER_IMAGE], capture_output=True).returncode != 0:
+        pytest.skip(f"docker or image {DOCKER_IMAGE} not available")
+    tmp = tmp_path_factory.mktemp("docker_backend")
+
+    @contextlib.contextmanager
+    def _run(db_name, agent_port, host_port):
+        dsn = restored_db(db_name)
+        ensure_admin(pos_venv, dsn)    # same admin the native side gets; seed.py is then a no-op, as on the bar
+        name = f"posparity-{db_name}"
+        envf = write_env(tmp / f"{name}.env", dsn.replace("@127.0.0.1:", "@host.docker.internal:"), 5000,
+                         f"http://host.docker.internal:{agent_port}", TZ="America/Mexico_City")
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        r = subprocess.run(["docker", "run", "-d", "--rm", "--name", name, "-p", f"127.0.0.1:{host_port}:5000",
+                                       "--env-file", str(envf), DOCKER_IMAGE], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        try:
+            ok = wait_health(host_port, 180)
+            logs = subprocess.run(["docker", "logs", name], capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace")
+            (tmp / f"{name}.log").write_text(logs.stdout + logs.stderr, encoding="utf-8")
+            assert ok, "docker backend did not become healthy:\n" + (logs.stdout + logs.stderr)[-3000:]
+            yield f"http://127.0.0.1:{host_port}"
+        finally:
+            subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    return _run
