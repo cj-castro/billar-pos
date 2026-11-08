@@ -329,10 +329,12 @@ def docker_backend(native_pg, restored_db, pos_venv, tmp_path_factory):
     """R3: factory docker_backend(db_name, agent_port, host_port) -> context manager yielding the base URL of the
     Docker reference backend (image billiards-backend:g0, its default entrypoint + gunicorn) on 127.0.0.1:host_port.
     DB `db_name` is a fresh clone of POS_TEST_DUMP (restored_db) with the test admin; the container reaches the native
-    test cluster as host.docker.internal:55432 and the print agent as host.docker.internal:agent_port (so the mock
-    must bind 0.0.0.0). Env = the native test env values, plus TZ=America/Mexico_City as docker-compose sets.
+    test cluster as host.docker.internal:55432 and the print agent as host.docker.internal:agent_port (Docker
+    Desktop forwards that to host loopback, so a mock bound to 127.0.0.1 is enough). Env = the native test env values, plus TZ=America/Mexico_City as docker-compose sets.
     Skips when docker or the image is absent. Container is removed on exit (logs saved to <tmp>/<name>.log)."""
-    if subprocess.run(["docker", "image", "inspect", DOCKER_IMAGE], capture_output=True).returncode != 0:
+    import shutil
+    if not shutil.which("docker") or subprocess.run(["docker", "image", "inspect", DOCKER_IMAGE],
+                                                    capture_output=True).returncode != 0:
         pytest.skip(f"docker or image {DOCKER_IMAGE} not available")
     tmp = tmp_path_factory.mktemp("docker_backend")
 
@@ -348,12 +350,15 @@ def docker_backend(native_pg, restored_db, pos_venv, tmp_path_factory):
                                        "--env-file", str(envf), DOCKER_IMAGE], capture_output=True, text=True)
         assert r.returncode == 0, r.stderr
         try:
-            ok = wait_health(host_port, 180)
-            logs = subprocess.run(["docker", "logs", name], capture_output=True, text=True, encoding="utf-8",
-                                  errors="replace")
-            (tmp / f"{name}.log").write_text(logs.stdout + logs.stderr, encoding="utf-8")
-            assert ok, "docker backend did not become healthy:\n" + (logs.stdout + logs.stderr)[-3000:]
+            assert wait_health(host_port, 180), "docker backend did not become healthy:\n" + _docker_logs(name, tmp)[-3000:]
             yield f"http://127.0.0.1:{host_port}"
         finally:
+            _docker_logs(name, tmp)      # keep the logs of the whole run, not just of the startup
             subprocess.run(["docker", "rm", "-f", name], capture_output=True)
     return _run
+
+
+def _docker_logs(name, tmp):
+    r = subprocess.run(["docker", "logs", name], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    (tmp / f"{name}.log").write_text(r.stdout + r.stderr, encoding="utf-8")
+    return r.stdout + r.stderr

@@ -42,7 +42,8 @@ def run_scenario(base, token, settle=None, strict=True):
         r = s.put(base + "/api/v1/settings/print_bar_tickets", json={"value": "true"}, headers=H(token), timeout=10)
         assert r.status_code == 200, r.text
     if not s.get(base + "/api/v1/cash/status", headers=H(token), timeout=10).json().get("open"):
-        s.post(base + "/api/v1/cash/open", json={"opening_fund_cents": 0}, headers=H(token), timeout=10)
+        r = s.post(base + "/api/v1/cash/open", json={"opening_fund_cents": 0}, headers=H(token), timeout=10)
+        assert r.status_code == 201, f"cash/open: {r.status_code} {r.text[:200]}"
 
     # 1. open an EXPRESS ticket (no table: no pool timer, so payloads carry no running clock)
     t = call("open", "POST", "/api/v1/tickets", 201, json={"ticket_type": "EXPRESS"}).json()
