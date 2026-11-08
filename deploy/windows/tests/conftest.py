@@ -83,6 +83,15 @@ def psql(pg, db, *args):
                  "-v", "ON_ERROR_STOP=1", *args], env=pg.env)
 
 
+def restore(pg, db, dump):
+    """pg_restore --no-owner --no-privileges; fails on any `pg_restore: error:` line (no allow-list: none seen with the
+    prod dump, so a partial restore must never pass silently)."""
+    r = _run([pg.bin / "pg_restore.exe", "--no-owner", "--no-privileges", "-h", "127.0.0.1", "-p", pg.port,
+              "-U", pg.user, "-d", db, dump], env=pg.env)
+    errs = [l for l in r.stderr.splitlines() if "pg_restore: error:" in l]
+    assert r.returncode == 0 and not errs, f"pg_restore into {db} failed (rc={r.returncode}):" + chr(10) + r.stderr
+
+
 @pytest.fixture(scope="session")
 def restored_db(native_pg):
     """Factory: restored_db(name) -> DSN of a fresh DB `name` holding POS_TEST_DUMP.
@@ -98,9 +107,7 @@ def restored_db(native_pg):
             r = psql(native_pg, "postgres", "-c",
                      f"create database {tmpl} encoding 'UTF8' lc_collate 'C' lc_ctype 'en-US' template template0")
             assert r.returncode == 0, r.stderr
-            # pg_restore may exit non-zero for harmless warnings; check the schema landed instead
-            _run([native_pg.bin / "pg_restore.exe", "--no-owner", "--no-privileges", "-h", "127.0.0.1",
-                  "-p", native_pg.port, "-U", native_pg.user, "-d", tmpl, dump], env=native_pg.env)
+            restore(native_pg, tmpl, dump)
             n = psql(native_pg, tmpl, "-Atc", "select count(*) from pg_tables where schemaname='public'")
             assert int(n.stdout.strip() or 0) > 0, "restore produced no tables"
         psql(native_pg, "postgres", "-c", f"drop database if exists {name} with (force)")

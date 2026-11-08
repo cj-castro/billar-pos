@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 import pytest
-from conftest import WIN, psql, _run
+from conftest import WIN, psql, restore, _run
 
 FIXTURES = Path(__file__).parent / "fixtures"
 INIT = str(WIN / "postgres" / "Initialize-PosCluster.ps1")
@@ -51,8 +51,7 @@ def test_restore_fingerprint_equals_source(native_pg, restored_db, tmp_path):
     assert r.returncode == 0, r.stderr
     assert psql(native_pg, "postgres", "-c",
                 "create database fp_b encoding 'UTF8' lc_collate 'C' lc_ctype 'en-US' template template0").returncode == 0
-    _run([native_pg.bin / "pg_restore.exe", "--no-owner", "--no-privileges", "-h", "127.0.0.1",
-          "-p", native_pg.port, "-U", native_pg.user, "-d", "fp_b", dump2], env=native_pg.env)
+    restore(native_pg, "fp_b", dump2)
     a, b = _fingerprint(native_pg, "fp_a"), _fingerprint(native_pg, "fp_b")
     assert a == b
     names = {row.split("|")[0].split(":")[0] for row in a}
