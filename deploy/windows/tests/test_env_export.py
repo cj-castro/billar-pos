@@ -83,8 +83,9 @@ def test_env_dir_acl(run_ps, tmp_path):
         assert "PROT=True" in lines
         ids = {l.split("|")[0] for l in lines if "|" in l}
         assert ids == {r"NT AUTHORITY\SYSTEM", r"BUILTIN\Administrators"}, r.stdout + r.stderr
+        backend_env = d / 'backend.env'
         r = subprocess.run(["powershell.exe", "-NoProfile", "-Command",
-                            f"(Get-Acl '{d}\backend.env').Access | ForEach-Object {{ $_.IdentityReference.Value }}"],
+                            f"(Get-Acl '{backend_env}').Access | ForEach-Object {{ $_.IdentityReference.Value }}"],
                            capture_output=True, text=True)
         assert set(r.stdout.split()) == {r"NT AUTHORITY\SYSTEM", r"BUILTIN\Administrators"}, r.stdout + r.stderr
     finally:  # give the owner access back so pytest can clean up

@@ -18,10 +18,13 @@ if (-not $EnvFile) { $EnvFile = Join-Path $ComposeDir '.env' }
 # native exe: stderr is harmless noise under 'Stop', so check the exit code instead
 $ErrorActionPreference = 'Continue'
 $prevEnc = [Console]::OutputEncoding
-[Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)   # PS 5.1 would decode docker's UTF-8 as OEM
-$json = & docker compose --project-directory $ComposeDir --env-file $EnvFile config --format json 2>$null
-$rc = $LASTEXITCODE
-[Console]::OutputEncoding = $prevEnc
+try {
+    [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)   # PS 5.1 would decode docker's UTF-8 as OEM
+    $json = & docker compose --project-directory $ComposeDir --env-file $EnvFile config --format json 2>$null
+    $rc = $LASTEXITCODE
+} finally {
+    [Console]::OutputEncoding = $prevEnc
+}
 $ErrorActionPreference = 'Stop'
 if ($rc -ne 0 -or -not $json) { Write-Error "docker compose config failed (exit $rc)"; exit 1 }
 $svc = ($json -join "`n") | ConvertFrom-Json
