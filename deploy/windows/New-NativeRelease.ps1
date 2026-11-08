@@ -64,7 +64,7 @@ function Git-Export([string]$tree, [string[]]$paths, [string]$dst) {
     $tar = Join-Path $tmp ([guid]::NewGuid().ToString('N') + '.tar')      # tar, not zip: Expand-Archive chokes on dotfiles
     Native 'git' (@('-C', $Repo, 'archive', '--format=tar', '-o', $tar, $tree) + $paths)
     New-Item -ItemType Directory -Force $dst | Out-Null
-    Native (Join-Path $env:SystemRoot 'System32	ar.exe') @('-xf', $tar, '-C', $dst)
+    Native (Join-Path $env:SystemRoot "System32/tar.exe") @('-xf', $tar, '-C', $dst)
     Remove-Item $tar
 }
 
