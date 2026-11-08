@@ -23,6 +23,8 @@ def test_cluster_settings(native_pg):
     assert scalar(native_pg, "select datcollate from pg_database where datname=current_database()") == "C"
     assert scalar(native_pg, "select datctype from pg_database where datname=current_database()") == "en-US"
     assert scalar(native_pg, "show server_encoding") == "UTF8"
+    assert scalar(native_pg, "show logging_collector") == "on"      # R24: service stderr is otherwise lost
+    assert scalar(native_pg, "show log_directory") == "log"
 
 
 def test_locale_matches_alpine_reference(native_pg):

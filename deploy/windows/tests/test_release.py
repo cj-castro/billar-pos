@@ -141,6 +141,7 @@ def test_release_installs_offline(release, run_ps, tmp_path):
     if not dump or not Path(dump).exists():
         pytest.skip("POS_TEST_DUMP not set (or file missing)")
     root = NATIVE_TEST / "root-rel"
+    # distinct from test_services (55433/55001/59081) and the session fixtures (55432/55000/59080) so they can coexist
     pgp, bep, wep = 55434, 55002, 59082
     envs = _envs(tmp_path, pgp, bep)
     dead = {"PIP_INDEX_URL": "http://127.0.0.1:9/simple", "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9"}

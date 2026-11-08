@@ -134,6 +134,9 @@ try {
     $sums = Get-Sums $Out
     [IO.File]::WriteAllLines((Join-Path $Out 'SHA256SUMS.txt'), [string[]]$sums, (New-Object Text.UTF8Encoding($false)))
     Write-Host "Release built: $Out ($($sums.Count) files, $Ref @ $(& git -C $Repo rev-parse --short $Ref))"
+} catch {
+    Remove-Item $Out -Recurse -Force -ErrorAction SilentlyContinue      # never leave a partial release that looks usable
+    throw
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
