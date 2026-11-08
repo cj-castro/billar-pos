@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 import pytest
-from conftest import WIN, psql, restore, _run
+from conftest import WIN, psql, restore, _run, fingerprint as _fingerprint
 
 FIXTURES = Path(__file__).parent / "fixtures"
 INIT = str(WIN / "postgres" / "Initialize-PosCluster.ps1")
@@ -32,14 +32,6 @@ def test_locale_matches_alpine_reference(native_pg):
     got = r.stdout.splitlines()
     want = (FIXTURES / "locale_reference.txt").read_text(encoding="utf-8").splitlines()
     assert got == want
-
-
-def _fingerprint(pg, dsn_db):
-    r = psql(pg, dsn_db, "-At", "-f", str(FINGERPRINT))
-    assert r.returncode == 0, r.stderr
-    rows = r.stdout.splitlines()
-    assert len(rows) > 10, "fingerprint suspiciously small"
-    return rows
 
 
 @needs_dump

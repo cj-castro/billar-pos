@@ -97,6 +97,18 @@ def restore(pg, db, dump):
     assert r.returncode == 0 and not errs, f"pg_restore into {db} failed (rc={r.returncode}):" + chr(10) + r.stderr
 
 
+FINGERPRINT = WIN / "sql" / "fingerprint.sql"
+
+
+def fingerprint(pg, db):
+    """Rows of fingerprint.sql (check_name|value) for database `db`."""
+    r = psql(pg, db, "-At", "-f", str(FINGERPRINT))
+    assert r.returncode == 0, r.stderr
+    rows = r.stdout.splitlines()
+    assert len(rows) > 10, "fingerprint suspiciously small"
+    return rows
+
+
 @pytest.fixture(scope="session")
 def restored_db(native_pg):
     """Factory: restored_db(name) -> DSN of a fresh DB `name` holding POS_TEST_DUMP.
