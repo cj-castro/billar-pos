@@ -32,6 +32,8 @@ def is_admin() -> bool:
 
 
 def pytest_collection_modifyitems(config, items):
+    # test_functional writes to app_test (served by native_backend); test_parity needs it pristine -> functional last
+    items.sort(key=lambda i: i.module.__name__ == "test_functional")
     if is_admin():
         return
     skip = pytest.mark.skip(reason="needs an elevated shell")
