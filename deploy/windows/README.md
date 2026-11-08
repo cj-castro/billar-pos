@@ -129,4 +129,13 @@ This needs its own task and review.
 
 ## 8. Verified
 
-(filled in after the full-suite run)
+2026-11-08, dev PC, non-elevated shell, `POS_TEST_DUMP` set to a prod dump:
+
+```
+deploy\windows\.native-testenv\Scripts\python -m pytest deploy/windows/tests -m "slow or not slow" -v
+=============== 95 passed, 10 skipped in 1387.97s (0:23:07) ===============
+```
+
+The 10 skipped are the `admin` tests (needs elevation, see section 7). The backend test does not import under the test
+venv (no Flask), so it was run with the backend venv: `pytest backend/tests/test_email_date_label.py` gave `2 passed`.
+Not verified here: the real service install, restart/recovery behaviour, and the offline release install (all admin tests).
