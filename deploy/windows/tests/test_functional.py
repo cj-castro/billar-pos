@@ -49,10 +49,16 @@ def test_functional_flow(native_web):
     got = []
     sio = socketio.Client()
     sio.on("ticket:updated", lambda d: got.append(("ticket:updated", d)))
+    joined = []
+    sio.on("joined", lambda d: joined.append(d))
     sio.connect(BASE, transports=["websocket"], socketio_path="/socket.io", auth={"token": tok})
     try:
         check("socket connect via ws", sio.transport() == "websocket", sio.transport())
         sio.emit("join", {"room": f"ticket:{tid}"})
+        end = time.time() + 10
+        while time.time() < end and not joined:     # wait for the join ack before the first write
+            time.sleep(0.05)
+        check("joined ack", joined, joined)
         # condition-based: wait for the first ticket:updated instead of sleeping
         key = "t11-" + uuid.uuid4().hex[:12]
         added, r1 = None, None
@@ -62,7 +68,8 @@ def test_functional_flow(native_web):
             if r1.status_code in (200, 201):
                 added = it
                 break
-        check("add item #1 -> 201", added is not None and r1.status_code == 201, f"{r1.status_code} {r1.text[:100]}")
+        assert added is not None, f"no menu item could be added: {r1.status_code} {r1.text[:200]}"
+        check("add item #1 -> 201", r1.status_code == 201, f"{r1.status_code} {r1.text[:100]}")
         r2 = requests.post(f"{API}/tickets/{tid}/items", headers={**H, "Idempotency-Key": key},
                            json={"menu_item_id": added["id"], "quantity": 1}, timeout=20)
         check("add item #2 same key -> 200 replay", r2.status_code == 200 and r2.json().get("id") == r1.json().get("id"),
