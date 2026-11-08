@@ -48,20 +48,24 @@ if (-not $Force) {
     if ($answer -cne 'RESTORE') { Write-Host 'Aborted.'; exit 0 }
 }
 
+$safety = $null
 try {
     # --- safety dump of what is there now; no safety dump, no restore ---
-    Step 'safety dump of the current database (pre-restore, never pruned)'
+    Step 'safety dump of the current database (pre-restore; KeepDays 0 here, but the nightly KeepDays-30 backup job prunes db_pre-restore_* like any db_*.dump)'
     $self = (Get-Process -Id $PID).Path
     $r = Invoke-Native $self @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
         (Join-Path $PSScriptRoot 'Backup-Native.ps1'), '-EnvFile', $EnvFile, '-PgBin', $PgBin, '-OutDir', $OutDir,
         '-Label', 'pre-restore', '-KeepDays', '0')
     $r.out | ForEach-Object { Write-Output $_ }
+    $safety = ($r.out | Where-Object { $_ -match '\.dump$' } | Select-Object -Last 1)
     if ($r.rc -ne 0) { throw 'safety dump failed -- database left untouched' }
 
     # --- refuse an unreadable dump BEFORE dropping anything ---
     $r = Invoke-Native (Join-Path $PgBin 'pg_restore.exe') @('--list', $DumpFile)
     if ($r.rc -ne 0) { throw "pg_restore --list could not read $DumpFile -- database left untouched" }
 
+    # Per plan order: services are stopped AFTER the safety dump, so writes landing between the dump and the stop are
+    # not in the safety dump (they are lost by the restore regardless).
     # --- stop whatever holds connections (only services that exist) ---
     foreach ($n in "$Prefix-Backend", "$Prefix-Scheduler") {
         if (Get-Service -Name $n -ErrorAction SilentlyContinue) {
@@ -78,7 +82,7 @@ try {
     $r = Invoke-Native $psql ($conn + @('-c', "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $(QLit $db) AND pid <> pg_backend_pid()"))
     if ($r.rc -ne 0) { throw "terminating connections failed: $($r.out)" }
     Step "dropping and recreating $db"
-    $r = Invoke-Native $psql ($conn + @('-c', "DROP DATABASE IF EXISTS $qdb"))
+    $r = Invoke-Native $psql ($conn + @('-c', "DROP DATABASE IF EXISTS $qdb WITH (FORCE)"))
     if ($r.rc -ne 0) { throw "DROP DATABASE failed -- something still holds a connection: $($r.out)" }
     $r = Invoke-Native $psql ($conn + @('-c', "CREATE DATABASE $qdb TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'en-US' OWNER $(QIdent $user)"))
     if ($r.rc -ne 0) { throw "CREATE DATABASE failed: $($r.out)" }
@@ -105,6 +109,7 @@ try {
     Write-Host "  Check the counts above, then start them." -ForegroundColor Yellow
 } catch {
     Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    if ($safety) { Write-Host "safety dump: $safety" -ForegroundColor Yellow }
     exit 1
 } finally {
     $env:PGPASSWORD = $null

@@ -13,6 +13,7 @@ Import-Module (Join-Path $PSScriptRoot '..\PosCommon.psm1') -Force
 
 $MinBytes = 10000
 $out = $null
+$verified = $false          # once true, the dump is kept whatever happens later
 $code = 0
 try {
     Import-PosEnv -Path $EnvFile
@@ -42,18 +43,28 @@ try {
     if ($rc -ne 0) { throw "pg_restore --list could not read the dump: $toc" }
     $objects = @($toc | Where-Object { "$_" -notmatch '^;' }).Count
     Write-PosLog "backup: archive OK -- $objects objects, $([math]::Round($size / 1MB, 1)) MB"
+    $verified = $true
 
+    # Prune is best effort: a locked/undeletable old file must never cost us the fresh, verified dump.
     if ($KeepDays -gt 0) {
-        $old = @(Get-ChildItem -Path $OutDir -Filter 'db_*.dump' -File |
-                 Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$KeepDays) -and $_.FullName -ne $out })
-        $old | Remove-Item -Force
-        if ($old.Count) { Write-PosLog "backup: pruned $($old.Count) dump(s) older than $KeepDays days" }
+        try {
+            $old = @(Get-ChildItem -Path $OutDir -Filter 'db_*.dump' -File |
+                     Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$KeepDays) -and $_.FullName -ne $out })
+            $n = 0
+            foreach ($f in $old) {
+                try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $n++ }
+                catch { Write-PosLog "backup: WARN: prune failed: $($_.Exception.Message)" }
+            }
+            if ($n) { Write-PosLog "backup: pruned $n dump(s) older than $KeepDays days" }
+        } catch {
+            Write-PosLog "backup: WARN: prune failed: $($_.Exception.Message)"
+        }
     } else {
         Write-PosLog 'backup: pruning disabled (-KeepDays 0)'
     }
 } catch {
     Write-PosLog "BACKUP FAILED: $($_.Exception.Message)"
-    if ($out -and (Test-Path $out)) { Remove-Item -Force $out -ErrorAction SilentlyContinue }
+    if ($out -and -not $verified -and (Test-Path $out)) { Remove-Item -Force $out -ErrorAction SilentlyContinue }
     $code = 1
 } finally {
     $env:PGPASSWORD = $null
