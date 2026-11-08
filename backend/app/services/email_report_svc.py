@@ -511,6 +511,11 @@ def _send(subject: str, html: str):
     log.info("Daily report sent → %s", ', '.join(to_addrs))
 
 
+def _date_label(d: date_type) -> str:
+    # Windows has no %-d
+    return f"{d.day} de {d.strftime('%B de %Y')}"
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -522,7 +527,7 @@ def generate_and_send_report(target_date: date_type | None = None):
         target_date = (local_now - timedelta(days=1)).date()
 
     from_dt, to_dt = _day_range(target_date)
-    date_label = target_date.strftime('%-d de %B de %Y')   # e.g. "1 de agosto de 2026"
+    date_label = _date_label(target_date)   # e.g. "1 de agosto de 2026"
 
     log.info("Building daily report for %s (%s → %s UTC)", target_date, from_dt, to_dt)
 
