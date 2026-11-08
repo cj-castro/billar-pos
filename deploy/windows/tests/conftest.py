@@ -251,3 +251,70 @@ def native_backend(native_pg, restored_db, pos_venv, pos_root, tmp_path_factory)
         url = _Url(b.url)
         url.healthy_after = b.healthy_after
         yield url
+
+
+# ---------------------------------------------------------------- Task 6: nginx front door
+WEB_PORT = 59080
+SPIKE_DIST = Path(r"E:\cache\temp\claude\9efc318728cdca4e\f7027570-54c7-44ae-8d8a-32fbc1191f79\scratchpad\native-spike\dist")
+
+
+def _dist_ok(d: Path) -> bool:
+    """A usable prod-style build: index.html present and the JS bundle points at /api/v1."""
+    js = list((d / "assets").glob("*.js")) if (d / "assets").is_dir() else []
+    return (d / "index.html").exists() and any('"/api/v1"' in f.read_text(encoding="utf-8", errors="ignore") for f in js)
+
+
+@pytest.fixture(scope="session")
+def web_dist(tmp_path_factory) -> Path:
+    """Frontend build in .native-test/dist. Fast path: copy a verified prior build of this commit; else build from a
+    temp COPY of frontend/ (never inside the repo) with the prod build args."""
+    import shutil
+    dist = NATIVE_TEST / "dist"
+    if _dist_ok(dist):
+        return dist
+    if _dist_ok(SPIKE_DIST):
+        shutil.copytree(SPIKE_DIST, dist, dirs_exist_ok=True)
+        return dist
+    work = tmp_path_factory.mktemp("fe") / "frontend"
+    shutil.copytree(REPO / "frontend", work, ignore=shutil.ignore_patterns("node_modules", "dist"))
+    env = {"VITE_API_URL": "/api/v1", "VITE_SOCKET_URL": "/"}
+    r = _run(["cmd", "/c", "npm", "ci"], cwd=work, env=env)
+    assert r.returncode == 0, r.stderr[-2000:]
+    r = _run(["cmd", "/c", "npx", "vite", "build", "--outDir", str(dist), "--emptyOutDir"], cwd=work, env=env)
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert _dist_ok(dist)
+    return dist
+
+
+@pytest.fixture(scope="session")
+def native_web(native_backend, web_dist, run_ps, tmp_path_factory):
+    """nginx 1.27.5 on 59080 -> backend 55000, config rendered by Convert-NginxSite.ps1. Yields SimpleNamespace(url, prefix, nginx, args)."""
+    import shutil
+    exe = next((NATIVE_TEST / "nginx").rglob("nginx.exe"), None)
+    if exe is None:
+        pytest.skip("run deploy/windows/tests/Setup-TestEnv.ps1 first (nginx)")
+    prefix = tmp_path_factory.mktemp("nginx")
+    (prefix / "conf").mkdir()
+    (prefix / "logs").mkdir()
+    (prefix / "temp").mkdir()   # nginx on Windows will not create its temp dir; the installer must
+    shutil.copy(exe.parent / "conf" / "mime.types", prefix / "conf" / "mime.types")
+    r = run_ps(str(WIN / "nginx" / "Convert-NginxSite.ps1"), "-Source", str(REPO / "frontend" / "nginx.conf"),
+               "-Out", str(prefix / "conf" / "pos-site.conf"), "-ListenPort", str(WEB_PORT),
+               "-BackendPort", str(BACKEND_PORT), "-DistDir", str(web_dist))
+    assert r.returncode == 0, r.stdout + r.stderr
+    args = [str(exe), "-p", str(prefix), "-c", str(prefix / "conf" / "nginx.conf")]
+    t = _run(args + ["-t"])
+    assert t.returncode == 0, t.stderr
+    out = open(prefix / "logs" / "stdout.txt", "wb")
+    p = subprocess.Popen(args, cwd=prefix, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT)
+    end = time.time() + 15
+    while time.time() < end and not port_open(WEB_PORT):
+        time.sleep(0.2)
+    assert port_open(WEB_PORT), (prefix / "logs" / "error.log").read_text(errors="replace")
+    yield SimpleNamespace(url=f"http://127.0.0.1:{WEB_PORT}", prefix=prefix, nginx=exe, args=args)
+    subprocess.run(args + ["-s", "quit"], capture_output=True)
+    try:
+        p.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
+    out.close()

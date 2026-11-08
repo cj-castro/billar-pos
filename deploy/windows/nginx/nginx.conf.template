@@ -1,0 +1,19 @@
+# Main config mirroring the nginx:1.27-alpine defaults. Rendered by Convert-NginxSite.ps1 ({{LOG_DIR}}).
+worker_processes auto;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    access_log  {{LOG_DIR}}/access.log;
+    error_log   {{LOG_DIR}}/error.log notice;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    include pos-site.conf;
+}
