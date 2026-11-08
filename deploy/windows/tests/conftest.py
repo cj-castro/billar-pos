@@ -1,6 +1,7 @@
 """Shared pytest harness for the native-windows tests.
 
-Fixtures (names are binding for later tasks): pg_bin, native_pg, restored_db(name), run_ps(script, *args, env=None).
+Fixtures (names are binding for later tasks): pg_bin, native_pg, restored_db(name), run_ps(script, *args, env=None),
+pos_venv, pos_root, native_backend (base URL str; .healthy_after = seconds to first /health 200).
 Run Setup-TestEnv.ps1 first; everything lives under deploy/windows/.native-test/.
 """
 import contextlib
@@ -208,7 +209,7 @@ def wait_health(port, timeout=60, proc=None) -> bool:
     return False
 
 
-def ensure_admin(pos_venv, pos_root, dsn):
+def ensure_admin(pos_venv, dsn):
     code = (
         "from app import create_app\nfrom app.extensions import db\nfrom app.models.user import User\n"
         "a = create_app()\nwith a.app_context():\n"
@@ -223,13 +224,19 @@ def ensure_admin(pos_venv, pos_root, dsn):
 def running_backend(pos_root, tmp, dsn, port=BACKEND_PORT, agent="http://127.0.0.1:59191", name="backend"):
     env = write_env(tmp / f"{name}.env", dsn, port, agent)
     log = tmp / f"{name}.log"
+    t0 = time.time()
     p = launch_ps(WIN / "backend" / "run-backend.ps1", "-Root", pos_root, "-EnvFile", env, log=log)
     try:
+        # wait longer than the 60 s contract so a slow start is diagnosable; the test asserts healthy_after < 60
         assert wait_health(port, 90, p), "backend did not become healthy:\n" + log.read_text(errors="replace")[-3000:]
-        yield SimpleNamespace(url=f"http://127.0.0.1:{port}", log=log, proc=p)
+        yield SimpleNamespace(url=f"http://127.0.0.1:{port}", log=log, proc=p, healthy_after=time.time() - t0)
     finally:
         kill_tree(p)
     assert not port_open(port), f"listener still on {port} after teardown"
+
+
+class _Url(str):
+    healthy_after = None
 
 
 @pytest.fixture(scope="session")
@@ -237,8 +244,10 @@ def native_backend(native_pg, restored_db, pos_venv, pos_root, tmp_path_factory)
     """R2: run-backend.ps1 against restored DB `app_test` on 127.0.0.1:55000 -> base URL. Admin login: ADMIN_USER / ADMIN_PASSWORD.
     PRINT_AGENT_URL comes from env POS_TEST_PRINT_AGENT_URL (default http://127.0.0.1:59191). Process tree killed at teardown."""
     dsn = restored_db("app_test")
-    ensure_admin(pos_venv, pos_root, dsn)
+    ensure_admin(pos_venv, dsn)
     tmp = tmp_path_factory.mktemp("native_backend")
     agent = os.environ.get("POS_TEST_PRINT_AGENT_URL", "http://127.0.0.1:59191")
     with running_backend(pos_root, tmp, dsn, BACKEND_PORT, agent, "native_backend") as b:
-        yield b.url
+        url = _Url(b.url)
+        url.healthy_after = b.healthy_after
+        yield url

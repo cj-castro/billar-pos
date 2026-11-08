@@ -8,7 +8,7 @@ import pytest
 import requests
 
 from conftest import (ADMIN_PASSWORD, ADMIN_USER, WIN, ensure_admin, kill_tree, launch_ps, port_open, running_backend,
-                      write_env, _run)
+                      write_env)
 
 BACKEND = WIN / "backend"
 pytestmark = pytest.mark.slow
@@ -28,6 +28,7 @@ def _wait_log(p, log, needle, timeout):
 def test_backend_starts_and_health_200(native_backend):
     r = requests.get(native_backend + "/api/v1/health", timeout=5)
     assert r.status_code == 200
+    assert native_backend.healthy_after < 60, f"took {native_backend.healthy_after:.1f}s to become healthy"
 
 
 def test_migrations_reported_present(native_backend, pos_root, native_pg, tmp_path):
@@ -61,19 +62,19 @@ def test_health_not_blocked_when_print_agent_blackholed(pos_venv, pos_root, rest
             conns.append(c); accepted.append(1)
     threading.Thread(target=accept, daemon=True).start()
     dsn = restored_db("app_blackhole")
-    ensure_admin(pos_venv, pos_root, dsn)
+    ensure_admin(pos_venv, dsn)
     try:
         with running_backend(pos_root, tmp_path, dsn, 55001, "http://127.0.0.1:59192", "bh") as b:
             B = b.url + "/api/v1"
-            tok = requests.post(B + "/auth/login", json={"username": ADMIN_USER, "password": ADMIN_PASSWORD}).json()["access_token"]
+            tok = requests.post(B + "/auth/login", json={"username": ADMIN_USER, "password": ADMIN_PASSWORD}, timeout=30).json()["access_token"]
             H = {"Authorization": "Bearer " + tok}
-            items = requests.get(B + "/menu/items", headers=H).json()
+            items = requests.get(B + "/menu/items", headers=H, timeout=30).json()
             items = items if isinstance(items, list) else items.get("items", [])
-            requests.post(B + "/cash/open", headers=H, json={"opening_fund_cents": 0})  # 409 if already open
-            tid = requests.post(B + "/tickets", headers=H, json={"ticket_type": "EXPRESS"}).json()["id"]
+            requests.post(B + "/cash/open", headers=H, json={"opening_fund_cents": 0}, timeout=30)  # 409 if already open
+            tid = requests.post(B + "/tickets", headers=H, json={"ticket_type": "EXPRESS"}, timeout=30).json()["id"]
             # only kitchen items fire a chit: add items until the agent socket has been hit
             for it in [i for i in items if i.get("is_active", True) and not i.get("requires_flavor")][:60]:
-                requests.post(f"{B}/tickets/{tid}/items", headers=H, json={"menu_item_id": it["id"], "quantity": 1})
+                requests.post(f"{B}/tickets/{tid}/items", headers=H, json={"menu_item_id": it["id"], "quantity": 1}, timeout=30)
                 time.sleep(0.2)
                 if accepted:
                     break
@@ -138,3 +139,17 @@ def test_tz_removed_from_child_environment(pos_root, tmp_path):
     finally:
         kill_tree(p)
     assert "TZ=<absent>" in log.read_text(encoding="utf-8", errors="replace")
+
+
+def test_missing_venv_python_fails_with_exit_1(tmp_path):
+    root = tmp_path / "root"
+    (root / "app" / "backend").mkdir(parents=True)
+    env = write_env(tmp_path / "m.env", "postgresql://x:x@127.0.0.1:1/x")
+    log = tmp_path / "m.log"
+    for script in ("run-backend.ps1", "run-scheduler.ps1"):
+        p = launch_ps(BACKEND / script, "-Root", root, "-EnvFile", env, log=log)
+        try:
+            assert p.wait(timeout=60) == 1, script
+        finally:
+            kill_tree(p)
+        assert "STARTUP FAILED at setup: python not found" in log.read_text(encoding="utf-8", errors="replace")
