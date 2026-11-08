@@ -61,11 +61,11 @@ function Copy-Dir([string]$src, [string]$dst) {
 }
 # git archive <ref>[:subdir] [paths] -> extract into $dst
 function Git-Export([string]$tree, [string[]]$paths, [string]$dst) {
-    $zip = Join-Path $tmp ([guid]::NewGuid().ToString('N') + '.zip')
-    Native 'git' (@('-C', $Repo, 'archive', '--format=zip', '-o', $zip, $tree) + $paths)
+    $tar = Join-Path $tmp ([guid]::NewGuid().ToString('N') + '.tar')      # tar, not zip: Expand-Archive chokes on dotfiles
+    Native 'git' (@('-C', $Repo, 'archive', '--format=tar', '-o', $tar, $tree) + $paths)
     New-Item -ItemType Directory -Force $dst | Out-Null
-    Expand-Archive $zip $dst -Force
-    Remove-Item $zip
+    Native (Join-Path $env:SystemRoot 'System32	ar.exe') @('-xf', $tar, '-C', $dst)
+    Remove-Item $tar
 }
 
 $Out = [IO.Path]::GetFullPath($OutDir)
