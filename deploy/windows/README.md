@@ -187,7 +187,7 @@ This needs its own task and review.
 2026-11-08, dev PC, non-elevated shell, `POS_TEST_DUMP` set to a prod dump:
 
 ```
-deploy\windows\.native-testenv\Scripts\python -m pytest deploy/windows/tests -m "slow or not slow" -v
+deploy\windows\.native-test\venv\Scripts\python -m pytest deploy/windows/tests -m "slow or not slow" -v
 =============== 95 passed, 10 skipped in 1387.97s (0:23:07) ===============
 ```
 
