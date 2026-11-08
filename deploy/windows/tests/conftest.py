@@ -3,9 +3,13 @@
 Fixtures (names are binding for later tasks): pg_bin, native_pg, restored_db(name), run_ps(script, *args, env=None).
 Run Setup-TestEnv.ps1 first; everything lives under deploy/windows/.native-test/.
 """
+import contextlib
 import ctypes
 import os
+import socket
 import subprocess
+import time
+import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -116,3 +120,125 @@ def restored_db(native_pg):
         return native_pg.dsn(name)
     return _make
 
+
+
+# ---------------------------------------------------------------- Task 5: backend launcher harness
+REPO = WIN.parents[1]
+BACKEND_PORT = 55000
+ADMIN_USER, ADMIN_PASSWORD = "goldy", "SpikeAdmin#1"     # throwaway admin created in the TEST DB only
+
+
+@pytest.fixture(scope="session")
+def pos_venv(run_ps):
+    """Pinned backend venv (Task 4 lock), built once and cached under .native-test/posvenv."""
+    d = NATIVE_TEST / "posvenv"
+    py = d / "Scripts" / "python.exe"
+    if not py.exists():
+        base = sorted((NATIVE_TEST / "python").glob("cpython-3.11*/python.exe"))
+        if not base:
+            pytest.skip("run deploy/windows/tests/Setup-TestEnv.ps1 first (uv python 3.11)")
+        r = run_ps(str(WIN / "python" / "New-PosVenv.ps1"), "-Python", str(base[0]), "-VenvDir", str(d),
+                   "-Lock", str(WIN / "python" / "requirements-backend.lock.txt"))
+        assert r.returncode == 0, r.stdout + r.stderr
+    return d
+
+
+def _junction(link: Path, target: Path):
+    link.parent.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+@pytest.fixture(scope="session")
+def pos_root(pos_venv, tmp_path_factory):
+    """R1 install layout under a temp dir: app\backend and venv are junctions to the worktree / session venv."""
+    root = tmp_path_factory.mktemp("posroot")
+    _junction(root / "app" / "backend", REPO / "backend")
+    _junction(root / "venv", pos_venv)
+    (root / "config").mkdir()
+    (root / "logs").mkdir()
+    return root
+
+
+def write_env(path: Path, dsn: str, port=BACKEND_PORT, agent="http://127.0.0.1:59191", **extra) -> Path:
+    vals = {"SECRET_KEY": "test-secret-not-real", "JWT_REFRESH_SECRET": "test-refresh-not-real",
+            "DATABASE_URL": dsn, "PRINT_AGENT_URL": agent, "POS_BIND_PORT": str(port),
+            "SMTP_HOST": "127.0.0.1", "SMTP_PORT": "1", "SMTP_USER": "u@example.test", "SMTP_PASSWORD": "x",
+            "REPORT_FROM": "u@example.test", "REPORT_TO": "v@example.test",
+            "PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1", "FLASK_APP": "wsgi.py", **extra}
+    path.write_text("".join(f"{k}={v}\n" for k, v in vals.items()), encoding="utf-8", newline="\n")
+    return path
+
+
+def launch_ps(script, *args, log: Path, env=None):
+    """Start a powershell wrapper with stdout/stderr to a FILE (never pipes: long-running children would hang a capture)."""
+    f = open(log, "wb")
+    p = subprocess.Popen(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                          "-File", str(script), *map(str, args)],
+                         stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, env={**os.environ, **(env or {})})
+    p._logfile = f
+    return p
+
+
+def kill_tree(p):
+    if p.poll() is None:
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
+        with contextlib.suppress(Exception):
+            p.wait(timeout=15)
+    p._logfile.close()
+
+
+def port_open(port, host="127.0.0.1") -> bool:
+    with contextlib.closing(socket.socket()) as s:
+        s.settimeout(0.5)
+        return s.connect_ex((host, port)) == 0
+
+
+def wait_health(port, timeout=60, proc=None) -> bool:
+    end = time.time() + timeout
+    while time.time() < end:
+        if proc is not None and proc.poll() is not None:
+            return False
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/v1/health", timeout=2) as r:
+                if r.status == 200:
+                    return True
+        except Exception:
+            time.sleep(0.5)
+    return False
+
+
+def ensure_admin(pos_venv, pos_root, dsn):
+    code = (
+        "from app import create_app\nfrom app.extensions import db\nfrom app.models.user import User\n"
+        "a = create_app()\nwith a.app_context():\n"
+        f" u = User.query.filter_by(username='{ADMIN_USER}').first() or User(username='{ADMIN_USER}', name='Test Admin', role='ADMIN')\n"
+        f" u.set_password('{ADMIN_PASSWORD}'); u.is_active = True; db.session.add(u); db.session.commit()\n")
+    r = _run([pos_venv / "Scripts" / "python.exe", "-c", code], cwd=REPO / "backend",
+             env={"DATABASE_URL": dsn, "PYTHONUTF8": "1", "SECRET_KEY": "x"})
+    assert r.returncode == 0, r.stderr
+
+
+@contextlib.contextmanager
+def running_backend(pos_root, tmp, dsn, port=BACKEND_PORT, agent="http://127.0.0.1:59191", name="backend"):
+    env = write_env(tmp / f"{name}.env", dsn, port, agent)
+    log = tmp / f"{name}.log"
+    p = launch_ps(WIN / "backend" / "run-backend.ps1", "-Root", pos_root, "-EnvFile", env, log=log)
+    try:
+        assert wait_health(port, 90, p), "backend did not become healthy:\n" + log.read_text(errors="replace")[-3000:]
+        yield SimpleNamespace(url=f"http://127.0.0.1:{port}", log=log, proc=p)
+    finally:
+        kill_tree(p)
+    assert not port_open(port), f"listener still on {port} after teardown"
+
+
+@pytest.fixture(scope="session")
+def native_backend(native_pg, restored_db, pos_venv, pos_root, tmp_path_factory):
+    """R2: run-backend.ps1 against restored DB `app_test` on 127.0.0.1:55000 -> base URL. Admin login: ADMIN_USER / ADMIN_PASSWORD.
+    PRINT_AGENT_URL comes from env POS_TEST_PRINT_AGENT_URL (default http://127.0.0.1:59191). Process tree killed at teardown."""
+    dsn = restored_db("app_test")
+    ensure_admin(pos_venv, pos_root, dsn)
+    tmp = tmp_path_factory.mktemp("native_backend")
+    agent = os.environ.get("POS_TEST_PRINT_AGENT_URL", "http://127.0.0.1:59191")
+    with running_backend(pos_root, tmp, dsn, BACKEND_PORT, agent, "native_backend") as b:
+        yield b.url
