@@ -1,10 +1,10 @@
 <#
 Downloads/reuses test tooling into deploy\windows\.native-test\ (gitignored):
   pgsql\ (PG 15 zip), nginx\ (1.27.5), python\ (uv 3.11), venv\, bin\nssm.exe, bin\aws\ (AWS CLI v2, admin-extracted).
-Reuses a spike downloads\ dir when -SpikeDownloads points at one. A failed download is reported, not fatal.
+Reuses a downloads\ dir when -SpikeDownloads (default: $env:POS_SPIKE_DOWNLOADS) points at one. A failed download is reported, not fatal.
 #>
 param(
-    [string]$SpikeDownloads = 'E:\cache\temp\claude\9efc318728cdca4e\f7027570-54c7-44ae-8d8a-32fbc1191f79\scratchpad\native-spike\downloads'
+    [string]$SpikeDownloads = $env:POS_SPIKE_DOWNLOADS
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -16,8 +16,8 @@ $failed = @()
 function Get-File($name, $url) {
     $dest = Join-Path $dl $name
     if (Test-Path $dest) { return $dest }
-    $spike = Join-Path $SpikeDownloads $name
-    if (Test-Path $spike) { Copy-Item $spike $dest; return $dest }
+    $spike = if ($SpikeDownloads) { Join-Path $SpikeDownloads $name }
+    if ($spike -and (Test-Path $spike)) { Copy-Item $spike $dest; return $dest }
     for ($i = 1; $i -le 4; $i++) {
         try { Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing; break }
         catch { if ($i -eq 4) { Remove-Item $dest -ErrorAction SilentlyContinue; throw }; Start-Sleep 5 }

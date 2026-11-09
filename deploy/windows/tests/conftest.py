@@ -270,7 +270,6 @@ def native_backend(native_pg, restored_db, pos_venv, pos_root, tmp_path_factory)
 
 # ---------------------------------------------------------------- Task 6: nginx front door
 WEB_PORT = 59080
-SPIKE_DIST = Path(r"E:\cache\temp\claude\9efc318728cdca4e\f7027570-54c7-44ae-8d8a-32fbc1191f79\scratchpad\native-spike\dist")
 
 
 def _dist_ok(d: Path) -> bool:
@@ -281,14 +280,11 @@ def _dist_ok(d: Path) -> bool:
 
 @pytest.fixture(scope="session")
 def web_dist(tmp_path_factory) -> Path:
-    """Frontend build in .native-test/dist. Fast path: copy a verified prior build of this commit; else build from a
+    """Frontend build in .native-test/dist. Reuses a verified prior build; else build from a
     temp COPY of frontend/ (never inside the repo) with the prod build args."""
     import shutil
     dist = NATIVE_TEST / "dist"
     if _dist_ok(dist):
-        return dist
-    if _dist_ok(SPIKE_DIST):
-        shutil.copytree(SPIKE_DIST, dist, dirs_exist_ok=True)
         return dist
     work = tmp_path_factory.mktemp("fe") / "frontend"
     shutil.copytree(REPO / "frontend", work, ignore=shutil.ignore_patterns("node_modules", "dist"))
