@@ -25,6 +25,8 @@ def test_cluster_settings(native_pg):
     assert scalar(native_pg, "show server_encoding") == "UTF8"
     assert scalar(native_pg, "show logging_collector") == "on"      # R24: service stderr is otherwise lost
     assert scalar(native_pg, "show log_directory") == "log"
+    assert scalar(native_pg, "show log_filename") == "postgresql-%a.log"      # M2: 7 files max, overwritten weekly
+    assert scalar(native_pg, "show log_truncate_on_rotation") == "on"
 
 
 def test_locale_matches_alpine_reference(native_pg):

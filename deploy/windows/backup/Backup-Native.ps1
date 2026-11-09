@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory)][string]$PgBin,
     [Parameter(Mandatory)][string]$OutDir,
     [string]$Label = 'manual',
-    [int]$KeepDays = 30           # 0 = never prune (use before a migration/restore)
+    [int]$KeepDays = 30,          # 0 = never prune (use before a migration/restore)
+    [string]$LogDir               # when given (scheduled run): also delete *.log* files in it older than 30 days
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '..\PosCommon.psm1') -Force
@@ -61,6 +62,16 @@ try {
         }
     } else {
         Write-PosLog 'backup: pruning disabled (-KeepDays 0)'
+    }
+    # Log housekeeping, same best-effort rule (NSSM keeps the live log open: that one is young anyway).
+    if ($LogDir -and (Test-Path -LiteralPath $LogDir)) {
+        $n = 0
+        foreach ($f in @(Get-ChildItem -LiteralPath $LogDir -Filter '*.log*' -File -ErrorAction SilentlyContinue |
+                         Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-30) })) {
+            try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $n++ }
+            catch { Write-PosLog "backup: WARN: log prune failed: $($_.Exception.Message)" }
+        }
+        if ($n) { Write-PosLog "backup: pruned $n log file(s) older than 30 days" }
     }
 } catch {
     Write-PosLog "BACKUP FAILED: $($_.Exception.Message)"

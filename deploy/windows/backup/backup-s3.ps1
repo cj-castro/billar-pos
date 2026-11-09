@@ -18,31 +18,29 @@ $Marker = Join-Path $StateDir 'last_success'
 
 function Log([string]$m) { Write-PosLog "backup: $m" }
 
-# --- entrypoint.sh: required environment (`KEY=` empty in the env file unsets the var) ---
-Import-PosEnv -Path $EnvFile
-$missing = @('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION', 'S3_BUCKET',
-             'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB') |
-    Where-Object { -not [Environment]::GetEnvironmentVariable($_, 'Process') }
-if ($missing) {
-    Log "FATAL: missing required environment: $($missing -join ' ')"
-    exit 1
-}
-
-New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
-
-# --- entrypoint.sh: catch-up only when no success in the last 24h ---
-if ($CatchUp) {
-    if ((Test-Path $Marker) -and (Get-Item $Marker).LastWriteTime -gt (Get-Date).AddMinutes(-1440)) {
-        Log 'recent backup present, skipping'
-        exit 0
-    }
-    Log 'no successful backup in the last 24h, running catch-up'
-}
-
 $lock = $null
 $tmp = $null
 $code = 0
 try {
+    # Everything is inside the try: whatever fails, the log gets `BACKUP FAILED: <reason>` and the exit code is 1.
+    # --- entrypoint.sh: required environment (`KEY=` empty in the env file unsets the var) ---
+    Import-PosEnv -Path $EnvFile
+    $missing = @('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION', 'S3_BUCKET',
+                 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB') |
+        Where-Object { -not [Environment]::GetEnvironmentVariable($_, 'Process') }
+    if ($missing) { throw "missing required environment: $($missing -join ' ')" }
+
+    New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+
+    # --- entrypoint.sh: catch-up only when no success in the last 24h ---
+    if ($CatchUp) {
+        if ((Test-Path $Marker) -and (Get-Item $Marker).LastWriteTime -gt (Get-Date).AddMinutes(-1440)) {
+            Log 'recent backup present, skipping'
+            exit 0                       # the finally block still runs
+        }
+        Log 'no successful backup in the last 24h, running catch-up'
+    }
+
     # One run at a time (schedule vs. manual vs. catch-up): exclusive open, held until finally.
     try {
         $lock = [IO.File]::Open((Join-Path $StateDir 'lock'), 'OpenOrCreate', 'ReadWrite', 'None')
@@ -72,7 +70,7 @@ try {
     $o = & (Join-Path $PgBin 'pg_restore.exe') --list $tmp 2>&1
     $rc = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
-    if ($rc -ne 0) { throw 'pg_restore --list rejected the dump' }
+    if ($rc -ne 0) { $o | ForEach-Object { Log "$_" }; throw 'pg_restore --list rejected the dump' }
 
     # Write-only IAM key: upload, never list or read back. No ACL flags.
     $ErrorActionPreference = 'Continue'

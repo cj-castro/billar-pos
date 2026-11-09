@@ -91,8 +91,29 @@ def test_restore_aborts_if_only_safety_dump_fails(lb, tmp_path):
     notdir.write_text("x")
     r = lb.restore(dump, outdir=notdir)
     assert r.returncode != 0 and "safety dump failed" in r.stdout
+    assert "safety dump:" not in r.stdout, "no safety-dump path may be printed when the safety dump itself failed (M7)"
     assert lb.fp() == before
     assert psql(lb.pg, lb.db, "-Atc", "select to_regclass('zz_junk')").stdout.strip() == "zz_junk"
+
+
+def test_scheduled_run_prunes_old_logs_only(lb, tmp_path):
+    """M2: with -LogDir, *.log* files older than 30 days go; recent logs and other files stay."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    old, old_rot, new, other = (logs / n for n in ("Old.log", "Svc-20260101.log.1", "New.log", "notes.txt"))
+    for f, days in ((old, 31), (old_rot, 45), (new, 2), (other, 90)):
+        f.write_bytes(b"x")
+        t = time.time() - days * 86400
+        os.utime(f, (t, t))
+    r = lb.backup("-Label", "p", "-LogDir", str(logs))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not old.exists() and not old_rot.exists() and new.exists() and other.exists()
+    assert "pruned 2 log file(s)" in r.stdout
+    # without -LogDir nothing outside the dump folder is touched
+    old.write_bytes(b"x")
+    os.utime(old, (time.time() - 40 * 86400,) * 2)
+    assert lb.backup("-Label", "q").returncode == 0
+    assert old.exists()
 
 
 def test_prune_failure_keeps_new_dump(lb):

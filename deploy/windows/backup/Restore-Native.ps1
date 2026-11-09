@@ -57,8 +57,8 @@ try {
         (Join-Path $PSScriptRoot 'Backup-Native.ps1'), '-EnvFile', $EnvFile, '-PgBin', $PgBin, '-OutDir', $OutDir,
         '-Label', 'pre-restore', '-KeepDays', '0')
     $r.out | ForEach-Object { Write-Output $_ }
-    $safety = ($r.out | Where-Object { $_ -match '\.dump$' } | Select-Object -Last 1)
     if ($r.rc -ne 0) { throw 'safety dump failed -- database left untouched' }
+    $safety = ($r.out | Where-Object { $_ -match '\.dump$' } | Select-Object -Last 1)      # only a dump that succeeded
 
     # --- refuse an unreadable dump BEFORE dropping anything ---
     $r = Invoke-Native (Join-Path $PgBin 'pg_restore.exe') @('--list', $DumpFile)

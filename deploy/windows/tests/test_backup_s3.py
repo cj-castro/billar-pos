@@ -132,7 +132,31 @@ def test_tiny_dump_rejected(bk, native_pg):
 def test_missing_env_fatal(bk):
     r = bk.run(drop=("S3_BUCKET",))
     assert r.returncode == 1, out(r)
-    assert "FATAL: missing required environment: S3_BUCKET" in r.stdout, out(r)
+    assert "BACKUP FAILED: missing required environment: S3_BUCKET" in r.stdout, out(r)
+
+
+def _direct(env_file, state_dir, *extra):
+    return _run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", SCRIPT,
+                 "-EnvFile", str(env_file), "-PgBin", "C:\\nowhere", "-AwsExe", str(AWS_EXE), "-StateDir", str(state_dir), *extra])
+
+
+def test_missing_env_file_logs_backup_failed(tmp_path):
+    """I2: even a missing env file must end in `BACKUP FAILED: ...` + exit 1 (the task log is the only place anyone looks)."""
+    r = _direct(tmp_path / "nope.env", tmp_path / "state")
+    assert r.returncode == 1, out(r)
+    assert "BACKUP FAILED:" in r.stdout, out(r)
+
+
+def test_unusable_state_dir_logs_backup_failed(tmp_path):
+    blocker = tmp_path / "iamafile"
+    blocker.write_text("x")
+    envf = tmp_path / "backup.env"
+    envf.write_text("".join(f"{k}=v\n" for k in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "S3_BUCKET",
+                                                  "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB")), encoding="utf-8")
+    for extra in ((), ("-CatchUp",)):
+        r = _direct(envf, blocker / "state", *extra)
+        assert r.returncode == 1, out(r)
+        assert "BACKUP FAILED:" in r.stdout, out(r)
 
 
 def test_concurrent_run_refused(bk, restored_db):
