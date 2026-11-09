@@ -92,6 +92,10 @@ try {
         Copy-Dir (Join-Path $fe 'dist') (Join-Path $Out 'app\dist')
     }
 
+    if (-not (Test-Path (Join-Path $Out 'app\dist\index.html'))) {
+        throw 'app\dist\index.html is missing: -DistDir must be the flat dist (index.html at its top level; docker cp <c>:/usr/share/nginx/html/. <dir>)'
+    }
+
     Write-Host '== bin'
     $bin = Join-Path $Out 'bin'
     New-Item -ItemType Directory -Force $bin | Out-Null

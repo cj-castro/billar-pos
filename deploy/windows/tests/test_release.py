@@ -70,6 +70,17 @@ def test_nginx_conf_is_production_frontend_conf(release):
     assert got == want
 
 
+def test_release_refuses_nested_dist(run_ps, tmp_path):
+    """M3: a `docker cp` into an existing folder yields dist\html\index.html; the build must stop, leaving nothing behind."""
+    dist = tmp_path / "dist"
+    (dist / "html").mkdir(parents=True)
+    (dist / "html" / "index.html").write_text("x")
+    out = tmp_path / "rel"
+    r = run_ps(NEW_RELEASE, "-OutDir", str(out), "-DistDir", str(dist))
+    assert r.returncode != 0 and "index.html" in r.stdout + r.stderr
+    assert not out.exists() or not any(out.iterdir())
+
+
 # ------------------------------------------------------------ SHA256SUMS (R22 c)
 def test_sha256sums_verify_every_file(release):
     listed = {}
@@ -126,7 +137,7 @@ def _envs(base: Path, pgp: int, bep: int) -> Path:
 def test_install_dryrun_against_built_release(release, run_ps, tmp_path):
     root = tmp_path / "root"
     r = run_ps(INSTALL, "-DryRun", "-ReleaseDir", str(release), "-EnvDir", str(_envs(tmp_path, 5433, 5000)),
-               "-Root", str(root), "-Prefix", PFX)
+               "-Root", str(root), "-Prefix", PFX, "-SkipTimeZoneCheck")
     assert r.returncode == 0, r.stdout + r.stderr
     plan = [l for l in r.stdout.splitlines() if l.startswith("PLAN: ")]
     assert any("New-PosVenv" in l and "wheelhouse" in l.lower() for l in plan), "wheelhouse not used by the venv step"
@@ -148,7 +159,7 @@ def test_release_installs_offline(release, run_ps, tmp_path):
     run_ps(UNINSTALL, "-Prefix", PFX)
     try:
         r = run_ps(INSTALL, "-ReleaseDir", str(release), "-EnvDir", str(envs), "-Root", str(root), "-Prefix", PFX,
-                   "-WebPort", str(wep), "-PgPort", str(pgp), "-BackendPort", str(bep), env=dead)
+                   "-WebPort", str(wep), "-PgPort", str(pgp), "-BackendPort", str(bep), "-SkipTimeZoneCheck", env=dead)
         assert r.returncode == 0, r.stdout + r.stderr
         pgbin = root / "bin" / "pgsql" / "bin"
         r = run_ps(str(WIN / "backup" / "Restore-Native.ps1"), "-EnvFile", str(envs / "backup.env"), "-PgBin", str(pgbin),

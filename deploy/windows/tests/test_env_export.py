@@ -46,6 +46,19 @@ def test_tz_stripped_for_backend_and_scheduler(out):
     assert parse(out / "backup.env")["TZ"] == "America/Mexico_City"
 
 
+def test_non_mexico_tz_is_refused(run_ps, tmp_path):
+    """I4b: stripping TZ is only parity-safe if compose resolved America/Mexico_City for backend and scheduler."""
+    envf = tmp_path / "other-tz.env"
+    envf.write_text(FIX.read_text(encoding="utf-8").replace("TZ=America/Mexico_City", "TZ=Europe/Madrid"),
+                    encoding="utf-8", newline="\n")
+    assert "TZ=Europe/Madrid" in envf.read_text(encoding="utf-8")
+    r = run_ps(str(WIN / "Export-ComposeEnv.ps1"), "-ComposeDir", str(REPO), "-OutDir", str(tmp_path / "o"),
+               "-PgPort", str(PG_PORT), "-EnvFile", str(envf), "-SkipAcl")
+    assert r.returncode != 0
+    assert "America/Mexico_City" in r.stdout + r.stderr and "Europe/Madrid" in r.stdout + r.stderr
+    assert not (tmp_path / "o" / "backend.env").exists(), "no env file may be written when the guard trips"
+
+
 def test_compose_defaults_materialised(out):
     assert parse(out / "backend.env")["CURRENCY"] == "MXN"
 

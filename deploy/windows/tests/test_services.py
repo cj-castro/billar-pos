@@ -25,6 +25,7 @@ UNINSTALL = str(WIN / "Uninstall-NativePOS.ps1")
 HEALTH = str(WIN / "Health-Native.ps1")
 SVC_SUFFIXES = ("Postgres", "Backend", "Scheduler", "Web")
 TASK_SUFFIXES = ("S3Backup", "S3Backup-Catchup", "LocalBackup", "DailyReport")
+MEXICO_TZ = "Central Standard Time (Mexico)"
 
 
 # ---------------------------------------------------------------- helpers
@@ -61,7 +62,7 @@ def install_plan(run_ps, tmp_path, *extra, prefix="BilliardsPOS-Test", root=None
     root = root or str(tmp_path / "root")
     r = run_ps(INSTALL, "-DryRun", "-ReleaseDir", str(make_release(tmp_path)), "-EnvDir", str(make_envdir(tmp_path)),
                "-Root", root, "-Prefix", prefix, "-WebPort", "8081", "-PgPort", "5434", "-BackendPort", "5001",
-               "-StartupType", startup, *extra)
+               "-StartupType", startup, "-TimeZoneId", MEXICO_TZ, *extra)
     return plan_lines(r), root
 
 
@@ -158,15 +159,19 @@ def test_dryrun_scheduled_tasks(run_ps, tmp_path):
     for name, l in tasks.items():
         assert "-User SYSTEM" in l and "-StartWhenAvailable" in l and "-RunLevel Highest" in l, name
         assert "-Execute" in l and "powershell.exe" in l.split("-Execute")[1].split(" -Argument")[0], name
-        assert "-Argument -NoProfile -NonInteractive -ExecutionPolicy Bypass -File" in l, name
+        assert "-Argument -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command" in l, name
+        # I2: all output appended to <Root>\logs\<TaskName>.log, exit code of the script propagated
+        assert f"Out-File -Append -Encoding utf8 -LiteralPath '{root}\\logs\\{name}.log'" in l, name
+        assert l.rstrip().endswith("; exit $LASTEXITCODE\""), name
+        assert "2>&1" in l and "$LASTEXITCODE = 1;" in l, name
     s3 = tasks[f"{p}-S3Backup"]
     assert "-Trigger MSFT_TaskDailyTrigger@02:00/DaysInterval=1" in s3 and "backup-s3.ps1" in s3 and "-CatchUp" not in s3
     assert "-StateDir" in s3 and f"{root}\\state" in s3 and "AWSCLIV2\\aws.exe" in s3
     cu = tasks[f"{p}-S3Backup-Catchup"]
     assert "-Trigger MSFT_TaskBootTrigger+Delay=PT5M" in cu and "backup-s3.ps1" in cu and "-CatchUp" in cu
     lb = tasks[f"{p}-LocalBackup"]
-    assert "-Trigger MSFT_TaskDailyTrigger@03:00/DaysInterval=1" in lb and "Backup-Native.ps1" in lb and "-KeepDays 30" in lb
-    assert f"{root}\\backups" in lb
+    assert "-Trigger MSFT_TaskDailyTrigger@03:00/DaysInterval=1" in lb and "Backup-Native.ps1" in lb and "-KeepDays '30'" in lb
+    assert f"{root}\\backups" in lb and f"-LogDir '{root}\\logs'" in lb      # M2: LocalBackup also prunes old logs
 
 
 def test_dryrun_daily_report_only_when_asked(run_ps, tmp_path):
@@ -174,7 +179,8 @@ def test_dryrun_daily_report_only_when_asked(run_ps, tmp_path):
     lines, _ = install_plan(run_ps, tmp_path, "-DailyReportTask")
     dr = [l for l in lines if l.startswith("Register-ScheduledTask") and f"{p}-DailyReport" in l]
     assert len(dr) == 1
-    assert "-Trigger MSFT_TaskDailyTrigger@08:00/DaysInterval=1" in dr[0] and "run-flask.ps1" in dr[0] and "-Command daily-report" in dr[0]
+    assert "-Trigger MSFT_TaskDailyTrigger@08:00/DaysInterval=1" in dr[0] and "run-flask.ps1" in dr[0] and "-Command 'daily-report'" in dr[0]
+    assert "\\logs\\BilliardsPOS-Test-DailyReport.log" in dr[0] and "exit $LASTEXITCODE" in dr[0]
 
 
 def test_dryrun_skiptasks(run_ps, tmp_path):
@@ -221,8 +227,68 @@ def test_dryrun_missing_release_part_fails(run_ps, tmp_path):
     rel = make_release(tmp_path)
     (rel / "bin" / "nssm.exe").unlink()
     r = run_ps(INSTALL, "-DryRun", "-ReleaseDir", str(rel), "-EnvDir", str(make_envdir(tmp_path)),
-               "-Root", str(tmp_path / "root"))
+               "-Root", str(tmp_path / "root"), "-SkipTimeZoneCheck")
     assert r.returncode != 0 and "nssm.exe" in (r.stdout + r.stderr)
+
+
+def test_dryrun_requires_flat_dist_index_html(run_ps, tmp_path):
+    """M3: `docker cp` into an existing folder nests html\\; a dist without index.html at its top is refused."""
+    rel = make_release(tmp_path)
+    (rel / "app" / "dist" / "index.html").unlink()
+    (rel / "app" / "dist" / "html").mkdir()
+    (rel / "app" / "dist" / "html" / "index.html").write_bytes(b"")
+    r = run_ps(INSTALL, "-DryRun", "-ReleaseDir", str(rel), "-EnvDir", str(make_envdir(tmp_path)),
+               "-Root", str(tmp_path / "root"), "-SkipTimeZoneCheck")
+    assert r.returncode != 0 and "app\\dist\\index.html" in (r.stdout + r.stderr)
+
+
+def test_install_refuses_root_with_space(run_ps, tmp_path):
+    """M4: service/task command lines are not quoted for spaces in <Root>."""
+    r = run_ps(INSTALL, "-DryRun", "-ReleaseDir", str(make_release(tmp_path)), "-EnvDir", str(make_envdir(tmp_path)),
+               "-Root", str(tmp_path / "my root"), "-SkipTimeZoneCheck")
+    assert r.returncode != 0 and "must not contain spaces" in (r.stdout + r.stderr)
+
+
+def test_install_requires_mexico_time_zone(run_ps, tmp_path):
+    """I4a: TZ is stripped from the native env, so the Windows zone must be Mexico's. -TimeZoneId injects the detected value."""
+    args = ("-DryRun", "-ReleaseDir", str(make_release(tmp_path)), "-EnvDir", str(make_envdir(tmp_path)),
+            "-Root", str(tmp_path / "root"))
+    r = run_ps(INSTALL, *args, "-TimeZoneId", "UTC")
+    assert r.returncode != 0 and "Central Standard Time (Mexico)" in (r.stdout + r.stderr) and "'UTC'" in (r.stdout + r.stderr)
+    assert not [l for l in r.stdout.splitlines() if l.startswith("PLAN: ")], "nothing may be planned before the zone check"
+    ok = run_ps(INSTALL, *args, "-TimeZoneId", "UTC", "-SkipTimeZoneCheck")
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+    ok = run_ps(INSTALL, *args, "-TimeZoneId", MEXICO_TZ)
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+
+
+def test_dryrun_acl_plan(run_ps, tmp_path):
+    """I3: <Root> protected (SYSTEM+Admins F, Users RX); secrets/dumps/logs/state without Users; pgdata gets NetworkService
+    and, only around the init, the installing user's SID. All by SID (Spanish Windows localizes the names)."""
+    lines, root = install_plan(run_ps, tmp_path)
+    S, A, U, N = "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F", "*S-1-5-32-545:(OI)(CI)RX", "*S-1-5-20:(OI)(CI)M"
+    ic = [l for l in lines if l.startswith("icacls ")]
+
+    def acl(path):
+        got = [l for l in ic if l.startswith(f"icacls {path} /inheritance:r /grant:r")]
+        assert len(got) == 1, (path, got)
+        return got[0].split(" /grant:r ")[1].split(" ")
+
+    assert acl(root) == [S, A, U]
+    for sub in ("config", "logs", "state", "backups"):
+        assert acl(f"{root}\\{sub}") == [S, A], sub
+    pg = acl(f"{root}\\pgdata")
+    assert pg[:3] == [S, A, N] and re.fullmatch(r"\*S-1-5-21(-\d+)+:\(OI\)\(CI\)M", pg[3]), pg
+    me = pg[3].split(":")[0]
+    i_acl = next(i for i, l in enumerate(lines) if l.startswith(f"icacls {root}\\pgdata /inheritance:r"))
+    i_init = next(i for i, l in enumerate(lines) if "Initialize-PosCluster.ps1" in l)
+    i_rm = lines.index(f"icacls {root}\\pgdata /remove:g {me} /C /Q")
+    assert i_acl < i_init < i_rm, "installer user must only hold pgdata access during the init"
+    # the root is locked before anything is copied into it
+    i_root = next(i for i, l in enumerate(lines) if l.startswith(f"icacls {root} /inheritance:r"))
+    assert i_root < next(i for i, l in enumerate(lines) if l.startswith("robocopy"))
+    # SIDs only: no localizable account names in the ACL plan
+    assert not re.search(r"Administrators|SYSTEM|Users|NetworkService|Authenticated", "\n".join(ic))
 
 
 # ---------------------------------------------------------------- R18: uninstall -DryRun
@@ -401,7 +467,8 @@ def stack(run_ps, web_dist, tmp_path_factory):
 
     def install(startup="Automatic", *extra):
         return run_ps(INSTALL, "-ReleaseDir", str(rel), "-EnvDir", str(envs), "-Root", str(ROOT), "-Prefix", PFX,
-                      "-WebPort", str(WEP), "-PgPort", str(PGP), "-BackendPort", str(BEP), "-StartupType", startup, *extra)
+                      "-WebPort", str(WEP), "-PgPort", str(PGP), "-BackendPort", str(BEP), "-StartupType", startup,
+                      "-SkipTimeZoneCheck", *extra)
 
     def uninstall(*extra):
         return run_ps(UNINSTALL, "-Prefix", PFX, *extra)

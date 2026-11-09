@@ -27,11 +27,20 @@ param(
     [Parameter(Mandatory)][string]$EnvDir,
     [switch]$SkipTasks,
     [switch]$DailyReportTask,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$SkipTimeZoneCheck,       # tests only: the bar PC must be on Mexico time
+    [string]$TimeZoneId               # tests only: pretend this is the Windows zone id (default: Get-TimeZone)
 )
 $ErrorActionPreference = 'Stop'
 function Abs([string]$p) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($p).TrimEnd('\') }
 $ReleaseDir = Abs $ReleaseDir; $Root = Abs $Root; $EnvDir = Abs $EnvDir
+if ($Root -match '\s') { throw "-Root must not contain spaces (service and task command lines are not quoted for them): $Root" }
+# Time parity: Docker ran the backend with TZ=America/Mexico_City; natively TZ is deliberately absent, so naive local time
+# is the Windows zone. That is only the same if the PC is on Mexico time.
+if (-not $TimeZoneId) { $TimeZoneId = (Get-TimeZone).Id }
+if (-not $SkipTimeZoneCheck -and $TimeZoneId -ne 'Central Standard Time (Mexico)') {
+    throw "Windows time zone is '$TimeZoneId', expected 'Central Standard Time (Mexico)' (= America/Mexico_City). Fix it first: Set-TimeZone -Id 'Central Standard Time (Mexico)'"
+}
 
 if (-not $DryRun) {
     $me = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -102,7 +111,7 @@ function WaitSvc([string]$n, [bool]$gone, [string]$state) {
 }
 
 # ---- 0. validate the release
-$need = @('bin\nssm.exe', 'bin\pgsql\bin\pg_ctl.exe', 'bin\nginx\nginx.exe', 'bin\python\python.exe', 'app\backend', 'app\dist',
+$need = @('bin\nssm.exe', 'bin\pgsql\bin\pg_ctl.exe', 'bin\nginx\nginx.exe', 'bin\python\python.exe', 'app\backend', 'app\dist\index.html',
           'app\frontend-nginx.conf', 'deploy\backend\run-backend.ps1', 'deploy\python\requirements-backend.lock.txt')
 foreach ($n in $need) { if (-not (Test-Path (Join-Path $ReleaseDir $n))) { throw "ReleaseDir is missing $n" } }
 if (-not ((Test-Path (Join-Path $ReleaseDir 'bin\AWSCLIV2.msi')) -or (Test-Path (Join-Path $ReleaseDir 'bin\aws\Amazon\AWSCLIV2\aws.exe')))) {
@@ -122,10 +131,22 @@ foreach ($k in 'Web', 'Scheduler', 'Backend', 'Postgres') {
     if (-not $DryRun) { WaitSvc $n $false 'Stopped' }
 }
 
-# ---- 2. layout, binaries, app, scripts
+# ---- 2. layout, ACLs, binaries, app, scripts
+# LocalSystem services and SYSTEM tasks execute code from <Root>, so nobody but SYSTEM/Administrators may write there
+# (C:\ gives Authenticated Users Modify by default). SIDs, not names: Spanish Windows localizes the names.
+$SID = @{ System = '*S-1-5-18'; Admins = '*S-1-5-32-544'; Users = '*S-1-5-32-545'; NetSvc = '*S-1-5-20' }
+function Acl([string]$path, [string[]]$grants) {      # protected (inheritance off), explicit entries replaced
+    Native 'icacls.exe' (@($path, '/inheritance:r', '/grant:r') + $grants)
+}
+function LockedAcl([string]$path, [string[]]$extra = @()) {      # SYSTEM + Administrators only (+ extra)
+    Acl $path (@("$($SID.System):(OI)(CI)F", "$($SID.Admins):(OI)(CI)F") + $extra)
+}
+Step "mkdir $Root" { New-Item -ItemType Directory -Force -Path $Root | Out-Null }
+Acl $Root @("$($SID.System):(OI)(CI)F", "$($SID.Admins):(OI)(CI)F", "$($SID.Users):(OI)(CI)RX")      # first: before anything is copied in
 foreach ($n in 'app', 'bin', 'config', 'logs', 'state', 'backups', 'deploy') {
     Step "mkdir $($P[$n])" { New-Item -ItemType Directory -Force -Path $P[$n] | Out-Null }
 }
+foreach ($n in 'config', 'logs', 'state', 'backups') { LockedAcl $P[$n] }      # full dumps and secrets: no Users access
 function Copy-Tree([string]$src, [string]$dst, [string[]]$extra = @()) {
     if ((Abs $src) -eq (Abs $dst)) { return }
     Native 'robocopy.exe' (@($src, $dst, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/NP', '/R:2', '/W:1') + $extra) -OkMax 7
@@ -136,16 +157,8 @@ Copy-Tree (Join-Path $ReleaseDir 'app\dist') (Join-Path $P.app 'dist') @('/PURGE
 Step "copy $ReleaseDir\app\frontend-nginx.conf -> $($P.app)" { Copy-Item (Join-Path $ReleaseDir 'app\frontend-nginx.conf') $P.app -Force }
 Copy-Tree (Join-Path $ReleaseDir 'deploy') $P.deploy @('/XD', '.native-test', 'tests', '__pycache__')
 
-# ---- 3. config: locked ACL first, then the secrets
-Step "ACL $($P.config): SYSTEM + Administrators only (protected), then copy backend.env scheduler.env backup.env" {
-    New-Item -ItemType Directory -Force -Path $P.config | Out-Null
-    $acl = New-Object Security.AccessControl.DirectorySecurity
-    $acl.SetAccessRuleProtection($true, $false)
-    foreach ($sid in 'S-1-5-18', 'S-1-5-32-544') {
-        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
-            (New-Object Security.Principal.SecurityIdentifier $sid), 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
-    }
-    Set-Acl -Path $P.config -AclObject $acl
+# ---- 3. config: the folder was locked in step 2, now the secrets
+Step "copy backend.env scheduler.env backup.env -> $($P.config) (already SYSTEM + Administrators only, see step 2)" {
     if ((Abs $EnvDir) -ne (Abs $P.config)) {
         foreach ($n in 'backend.env', 'scheduler.env', 'backup.env') { Copy-Item (Join-Path $EnvDir $n) (Join-Path $P.config $n) -Force }
     }
@@ -163,8 +176,18 @@ if ($DryRun -or -not (Test-Path $AwsExe)) {
 }
 
 # ---- 5. postgres: cluster (idempotent), ACL, service
-RunPs (Join-Path $P.deploy 'postgres\Initialize-PosCluster.ps1') ([ordered]@{ PgBin = $PgBin; DataDir = $P.pgdata; Port = $PgPort
-    DbUser = $env:POSTGRES_USER; DbPassword = $env:POSTGRES_PASSWORD; DbName = $env:POSTGRES_DB }) @('DbPassword')
+# pgdata: SYSTEM + Administrators + NetworkService (Modify). initdb/pg_ctl drop the Administrators group from their token
+# (Postgres refuses to run privileged), so the installing user's own SID gets Modify for the init only and loses it right after.
+$meSid = '*' + [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$tempGrant = $meSid -ne $SID.System
+Step "mkdir $($P.pgdata)" { New-Item -ItemType Directory -Force -Path $P.pgdata | Out-Null }
+LockedAcl $P.pgdata (@("$($SID.NetSvc):(OI)(CI)M") + $(if ($tempGrant) { "${meSid}:(OI)(CI)M" } else { @() }))
+try {
+    RunPs (Join-Path $P.deploy 'postgres\Initialize-PosCluster.ps1') ([ordered]@{ PgBin = $PgBin; DataDir = $P.pgdata; Port = $PgPort
+        DbUser = $env:POSTGRES_USER; DbPassword = $env:POSTGRES_PASSWORD; DbName = $env:POSTGRES_DB }) @('DbPassword')
+} finally {
+    if ($tempGrant) { Native 'icacls.exe' @($P.pgdata, '/remove:g', $meSid, '/C', '/Q') }
+}
 # NetworkService (S-1-5-20) runs the service: Modify on the data dir, read+execute on the binaries
 Native 'icacls.exe' @($P.pgdata, '/grant', '*S-1-5-20:(OI)(CI)M', '/T', '/C', '/Q')
 Native 'icacls.exe' @((Join-Path $P.bin 'pgsql'), '/grant', '*S-1-5-20:(OI)(CI)RX', '/C', '/Q')
@@ -223,8 +246,16 @@ function TriggerText($t) {
     if ($t.Delay) { return "$c+Delay=$($t.Delay)" }
     return $c
 }
+# Task output goes to <Root>\logs\<TaskName>.log (BACKUP FAILED / OK: lines); the task still exits with the script's code.
+# `$LASTEXITCODE = 1` first, so a script that never ran (missing file) is a failure, not a silent 0.
+function PsLit([string]$s) { "'" + $s.Replace("'", "''") + "'" }
+function TaskArgs([string]$script, [string[]]$more, [string]$log) {
+    $call = (@(PsLit $script) + @($more | ForEach-Object { if ($_ -match '^-[A-Za-z]+$') { $_ } else { PsLit $_ } })) -join ' '
+    $cmd = '$LASTEXITCODE = 1; & ' + $call + ' 2>&1 | Out-File -Append -Encoding utf8 -LiteralPath ' + (PsLit $log) + '; exit $LASTEXITCODE'
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ' + (Q $cmd)
+}
 function Task([string]$name, [object[]]$trig, [string]$script, [string[]]$more) {
-    $a = New-ScheduledTaskAction -Execute $Ps -Argument (PsArgs $script $more)
+    $a = New-ScheduledTaskAction -Execute $Ps -Argument (TaskArgs $script $more (Join-Path $P.logs "$name.log"))
     $pr = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     # No -RestartCount: it does not retry a non-zero exit. The real S3 retry is the Catchup task at the next boot.
     $st = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2)
@@ -243,7 +274,7 @@ if (-not $SkipTasks) {
     # 5 min after boot, so Postgres is up; the missed-02:00 case is also covered by StartWhenAvailable
     Task "$Prefix-S3Backup-Catchup" @(BootTrigger) $s3 ($s3a + '-CatchUp')
     Task "$Prefix-LocalBackup" @(Daily '03:00') (Join-Path $P.deploy 'backup\Backup-Native.ps1') `
-        @('-EnvFile', $bk, '-PgBin', $PgBin, '-OutDir', $P.backups, '-Label', 'scheduled', '-KeepDays', '30')
+        @('-EnvFile', $bk, '-PgBin', $PgBin, '-OutDir', $P.backups, '-Label', 'scheduled', '-KeepDays', '30', '-LogDir', $P.logs)
     if ($DailyReportTask) {
         Task "$Prefix-DailyReport" @(Daily '08:00') (Join-Path $P.deploy 'backend\run-flask.ps1') `
             @('-Root', $Root, '-EnvFile', (Join-Path $P.config 'scheduler.env'), '-Command', 'daily-report')

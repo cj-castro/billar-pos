@@ -48,6 +48,13 @@ $backend['PRINT_AGENT_URL'] = 'http://127.0.0.1:9191'
 $scheduler = Get-ServiceEnv 'scheduler'
 Set-DbHost $scheduler
 
+# The strip below is only a no-op for behaviour if Docker really ran Mexico time; any other value means the native
+# install (which uses the Windows zone, checked by the installer) would silently differ.
+foreach ($pair in @(@('backend', $backend), @('scheduler', $scheduler))) {
+    if ($pair[1]['TZ'] -ne 'America/Mexico_City') {
+        throw "compose resolves TZ='$($pair[1]['TZ'])' for $($pair[0]); expected exactly America/Mexico_City. Native services run on the Windows zone (Central Standard Time (Mexico)) with TZ absent -- resolve this before cutover."
+    }
+}
 foreach ($h in $backend, $scheduler) {
     $h.Remove('TZ')   # a Windows TZ makes naive time UTC; the Docker TZ must not leak
     $h['PYTHONUTF8'] = '1'
