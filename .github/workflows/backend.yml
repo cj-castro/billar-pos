@@ -1,0 +1,33 @@
+name: backend
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', 'scripts/ci/**', '.github/workflows/backend.yml']
+  pull_request:
+    paths: ['backend/**', 'scripts/ci/**', '.github/workflows/backend.yml']
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: billiard
+          POSTGRES_PASSWORD: billiard
+          POSTGRES_DB: billar_scratch_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U billiard" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://billiard:billiard@localhost:5432/billar_scratch_ci
+      TZ: America/Mexico_City
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r backend/requirements.txt
+      - run: scripts/ci/run_backend_tests.sh

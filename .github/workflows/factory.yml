@@ -1,0 +1,94 @@
+# Software Factory, stage 1: the Developer agent.
+#
+#   * Label an issue `factory`  -> Claude implements it on a branch and opens a PR.
+#   * Comment `@claude ...` on an issue or PR -> Claude answers / makes the change.
+#
+# Needs ONE repo secret: ANTHROPIC_API_KEY (or swap in claude_code_oauth_token
+# with secrets.CLAUDE_CODE_OAUTH_TOKEN for a Claude subscription).
+# The agent follows CLAUDE.md. Humans still review and merge every PR.
+name: factory
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: factory-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  develop:
+    if: github.event_name == 'issues' && github.event.label.name == 'factory'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: billiard
+          POSTGRES_PASSWORD: billiard
+          POSTGRES_DB: billar_scratch_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U billiard" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DATABASE_URL: postgresql://billiard:billiard@localhost:5432/billar_scratch_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # The issue text is read with `gh`, never interpolated here, so
+          # issue content cannot inject into the workflow itself.
+          prompt: |
+            You are the Developer agent of this repo's software factory.
+            Implement GitHub issue #${{ github.event.issue.number }}.
+            1. Read it: gh issue view ${{ github.event.issue.number }} --comments
+               If it is too vague to implement safely, comment your questions
+               on the issue and stop.
+            2. Follow CLAUDE.md. Create branch factory/issue-${{ github.event.issue.number }}.
+            3. Implement the change WITH tests. Run the relevant checks
+               (backend: pip install -r backend/requirements.txt, then
+               scripts/ci/run_backend_tests.sh -- DATABASE_URL already points
+               at an empty scratch Postgres; frontend: npm ci && npm run build).
+            4. Commit, push, and open a PR with gh pr create whose body
+               starts with "Closes #${{ github.event.issue.number }}", explains
+               what changed and how it was tested, and lists anything in the
+               CLAUDE.md "High-risk areas" that the PR touches.
+          claude_args: |
+            --model claude-opus-5-5
+            --max-turns 60
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh pr create:*),Bash(pip install:*),Bash(python:*),Bash(python3:*),Bash(npm ci:*),Bash(npm run build:*),Bash(npx tsc:*),Bash(scripts/ci/run_backend_tests.sh:*),Bash(flask:*),Bash(ls:*),Bash(cat:*)"
+
+  mention:
+    if: >-
+      github.event_name != 'issues' &&
+      contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --model claude-opus-5-5
+            --max-turns 30

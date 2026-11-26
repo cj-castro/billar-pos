@@ -1,0 +1,15 @@
+# Backend test modules that CI runs on every PR (scripts/ci/run_backend_tests.sh).
+#
+# Only modules that pass on a FRESH database (init-db + seed.py + migrations)
+# are listed. The others look up real Bola 8 menu/inventory items by name, or
+# need a live server on :8090, so they need a sanitized fixture dataset first.
+# When you make a test self-contained, add it here.
+test_apply_migrations_exit
+test_close_required_total
+test_manifest_baseline
+test_modifier_promotions
+test_money_columns
+test_pool_free_time
+test_promo_time_window
+test_promotions
+test_stock_check_threshold
