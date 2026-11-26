@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { PesoInput } from '../../components/PesoInput'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
@@ -239,12 +240,10 @@ export default function TableManagementPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs text-slate-500 mb-1">Rate (pesos/hr)</label>
-                        <input type="number" min={0}
-                          value={poolEdits?.rate_cents ?? poolBase.rate_cents}
-                          onChange={e => patchPool(r.id, 'rate_cents', e.target.value)}
-                          className="w-full bg-slate-700 rounded-lg px-2 py-1.5 text-xs" />
-                        <div className="text-xs text-slate-500 mt-0.5">= ${(Number(poolEdits?.rate_cents ?? poolBase.rate_cents) / 100).toFixed(2)}/hr</div>
+                        <label className="block text-xs text-slate-500 mb-1">Tarifa (pesos por hora)</label>
+                        <PesoInput className="text-xs" placeholder="86"
+                          cents={poolEdits?.rate_cents ?? poolBase.rate_cents}
+                          onChange={c => patchPool(r.id, 'rate_cents', String(c))} />
                       </div>
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">Free First (min)</label>
@@ -367,11 +366,10 @@ export default function TableManagementPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Rate (pesos/hr) — e.g. 8600 = $86/hr</label>
-                    <input type="number" min={0} value={addForm.rate_cents}
-                      onChange={e => setAddForm(f => ({ ...f, rate_cents: Number(e.target.value) }))}
-                      className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm" />
-                    <div className="text-xs text-slate-500 mt-0.5">= ${(addForm.rate_cents / 100).toFixed(2)} / hour</div>
+                    <label className="block text-xs text-slate-500 mb-1">Tarifa (pesos por hora)</label>
+                    <PesoInput className="text-sm" placeholder="86"
+                      cents={addForm.rate_cents}
+                      onChange={c => setAddForm(f => ({ ...f, rate_cents: c }))} />
                   </div>
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Free First Minutes (0 = no promo)</label>

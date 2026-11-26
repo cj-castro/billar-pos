@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { PesoInput } from '../../components/PesoInput'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
 
@@ -96,17 +97,10 @@ export default function PoolTableConfigPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Rate (pesos / hr)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={cur.rate_cents}
-                    onChange={(e) => patch(row.resource_id, 'rate_cents', e.target.value)}
-                    className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm"
-                  />
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    = ${(Number(cur.rate_cents) / 100).toFixed(2)} / hr
-                  </div>
+                  <label className="block text-xs text-slate-400 mb-1">Tarifa (pesos por hora)</label>
+                  <PesoInput className="text-sm" placeholder="86"
+                    cents={cur.rate_cents}
+                    onChange={(c) => patch(row.resource_id, 'rate_cents', String(c))} />
                 </div>
                 <div>
                   <label className="block text-xs text-slate-400 mb-1">Free First Minutes (promo)</label>

@@ -44,6 +44,14 @@ fresh installs could not seed units (`unit_catalog.allows_fraction` had no
 database default), and his test now sets the owner-only `waiter_can_close_ticket`
 as admin.
 
+**Final round (2026-11-26, afternoon, `main` + pesos price fields + migration-status fix):**
+both upgrade paths from the production-like dump pass (script order 20/20 then
+boot; startup-only 20 applied), second boot is a no-op, invariants all 0, all 21
+suites + migration-exit pass on the upgraded copy, fresh install seeds and both
+mobile live suites pass (31 + 21), frontend builds, no secrets in tracked files.
+`flask migration-status` no longer reports 027–039 as "unknown" (they live in
+the 001 squash) — expect `21/21 applied, 0 pending` on the bar machine.
+
 Original rehearsal (before the merge):
 
 Against a production-like copy (backup taken right before 040: schema at 039,

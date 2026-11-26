@@ -11,6 +11,7 @@ import { useSocket } from '../../hooks/useSocket'
 import { useAuthStore } from '../../stores/authStore'
 import { useUnitCatalog } from '../../hooks/useUnitCatalog'
 import { formatMXN, formatUnitCost } from '../../utils/money'
+import { PesoInput } from '../../components/PesoInput'
 import { CostEntry, packMissing } from '../../components/CostEntry'
 import PortionDialog from '../../components/PortionDialog'
 
@@ -659,8 +660,9 @@ export default function InventoryPage() {
         price_cents: menuForm.price_cents, requires_flavor: menuForm.requires_flavor, sort_order: 0,
       })
       await client.post('/inventory/insumos-base', {
+        // A shot item is stocked in ml: one sale is one pour (50 ml), not 1 ml.
         menu_item_id: res.data.id, inventory_item_id: addToMenu.id,
-        quantity: 1, deduction_unit_key: addToMenu.base_unit_key,
+        quantity: addToMenu.pour_ml || 1, deduction_unit_key: addToMenu.base_unit_key,
       })
       toast.success(`"${addToMenu.name}" añadido al menú ✅`)
       qc.invalidateQueries({ queryKey: ['all-items'] })
@@ -1609,7 +1611,9 @@ export default function InventoryPage() {
               <h2 className="text-lg font-bold">🍽️ Agregar al Menú</h2>
               <p className="text-slate-400 text-sm mt-1">
                 <span className="text-white font-semibold">{addToMenu.name}</span>
-                {' '}— al vender se descuenta 1 {getUnitName(addToMenu.base_unit_key)}
+                {' '}— al vender se descuenta {addToMenu.pour_ml
+                  ? <>1 shot ({fmtQty(addToMenu.pour_ml)} ml)</>
+                  : <>1 {getUnitName(addToMenu.base_unit_key)}</>}
               </p>
             </div>
             <div className="p-5 space-y-4">
@@ -1624,14 +1628,9 @@ export default function InventoryPage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Precio de venta (centavos) *</label>
-                <div className="flex items-center gap-2">
-                  <input type="number" min={0} value={menuForm.price_cents}
-                    onChange={e => setMenuForm({ ...menuForm, price_cents: parseInt(e.target.value) || 0 })}
-                    className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono"
-                    placeholder="ej. 5000 = $50.00" />
-                  <span className="text-slate-400 text-sm">{formatMXN(menuForm.price_cents)}</span>
-                </div>
+                <label className="text-xs text-slate-400 block mb-1">Precio de venta (pesos) *</label>
+                <PesoInput cents={menuForm.price_cents} placeholder="ej. 166"
+                  onChange={c => setMenuForm({ ...menuForm, price_cents: c })} />
               </div>
               <div className="flex items-center gap-3">
                 <input type="checkbox" id="add-flavor" checked={menuForm.requires_flavor}

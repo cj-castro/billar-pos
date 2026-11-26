@@ -58,6 +58,9 @@ from .extensions import db
 
 _OK_NOTICE = re.compile(r'\b(\d+[a-z]?)\s+OK\b\s*[-—]*\s*(.*)', re.IGNORECASE)
 
+# Versions folded into 001_baseline_squash: 027, 027b ... 039.
+_SQUASHED_INTO_BASELINE = re.compile(r'^0(2[7-9]|3[0-9])[a-z]?$')
+
 
 def _sql_dir() -> str:
     """backend/migrations/sql, resolved relative to this file.
@@ -317,7 +320,11 @@ def register_migration_commands(app):
 
         # Versions in the database that the manifest doesn't know about. Means
         # the code is older than the database -- a downgrade or a bad copy.
-        unknown = sorted(done - {version_of(s) for s in stems})
+        # 027..039 are not unknown: they were squashed into 001_baseline_squash
+        # (2026-11-03), and every install migrated before that still has their
+        # rows. Without this exclusion every such install got a false alarm.
+        unknown = sorted(v for v in done - {version_of(s) for s in stems}
+                         if not _SQUASHED_INTO_BASELINE.match(v))
         if unknown:
             click.echo('')
             click.echo('  !! Database reports migrations this build does not ship: '

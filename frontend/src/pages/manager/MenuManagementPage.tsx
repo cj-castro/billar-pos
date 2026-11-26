@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { PesoInput } from '../../components/PesoInput'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
@@ -347,11 +348,9 @@ export default function MenuManagementPage() {
                                   <input className="flex-1 min-w-[120px] bg-slate-700 rounded px-2 py-1 text-sm"
                                     placeholder="Nombre"
                                     value={editItem.name} onChange={e => setEditItem({ ...editItem, name: e.target.value })} />
-                                  <input type="number" min={0}
-                                    className="w-24 bg-slate-700 rounded px-2 py-1 text-sm text-right font-mono"
-                                    placeholder="Precio (¢)"
-                                    value={editItem.price_cents}
-                                    onChange={e => setEditItem({ ...editItem, price_cents: parseInt(e.target.value) || 0 })} />
+                                  <PesoInput className="w-28 text-sm" placeholder="Precio"
+                                    cents={editItem.price_cents}
+                                    onChange={c => setEditItem({ ...editItem, price_cents: c })} />
                                   <select
                                     className="bg-slate-700 rounded px-2 py-1 text-sm"
                                     value={editItem.category_id}
@@ -734,13 +733,9 @@ export default function MenuManagementPage() {
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" placeholder="ej. Alitas de pollo" />
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Precio (centavos) *</label>
-                <div className="flex items-center gap-2">
-                  <input type="number" min={0} value={newItem.price_cents}
-                    onChange={e => setNewItem({ ...newItem, price_cents: parseInt(e.target.value) || 0 })}
-                    className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 font-mono" placeholder="1200" />
-                  <span className="text-slate-400 text-sm">= {cents(newItem.price_cents)}</span>
-                </div>
+                <label className="text-xs text-slate-400 block mb-1">Precio (pesos) *</label>
+                <PesoInput cents={newItem.price_cents} placeholder="ej. 120"
+                  onChange={c => setNewItem({ ...newItem, price_cents: c })} />
               </div>
               <div className="flex items-center gap-3">
                 <input type="checkbox" id="req-flavor" checked={newItem.requires_flavor}
