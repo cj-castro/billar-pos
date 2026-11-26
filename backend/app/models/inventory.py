@@ -17,6 +17,11 @@ from datetime import datetime, timezone
 from app.extensions import db
 
 
+def _num(v):
+    """NUMERIC -> JSON number. Decimal would serialize as a string and break the UI."""
+    return None if v is None else float(v)
+
+
 # ── Unit Catalog ──────────────────────────────────────────────────────────────
 
 class UnitCatalog(db.Model):
@@ -32,6 +37,9 @@ class UnitCatalog(db.Model):
     name_es = db.Column(db.String(100), nullable=False)
     name_en = db.Column(db.String(100), nullable=False)
     active  = db.Column(db.Boolean, nullable=False, default=True)
+    # False = counted unit (botella, caballito, pieza...): manual entries must be
+    # whole numbers. True = measured unit (ml, gramo...). Migration 041.
+    allows_fraction = db.Column(db.Boolean, nullable=False, default=False)
 
     def to_dict(self):
         return {
@@ -39,6 +47,7 @@ class UnitCatalog(db.Model):
             'name_es': self.name_es,
             'name_en': self.name_en,
             'active':  self.active,
+            'allows_fraction': self.allows_fraction,
         }
 
 
@@ -48,7 +57,8 @@ class InventoryItem(db.Model):
     """A single tracked inventory item.
 
     stock_quantity is always expressed in base_unit_key units (e.g. ml, botella).
-    unit_cost_cents is the weighted average cost per one base unit, in centavos.
+    unit_cost_cents is the weighted average cost per one base unit, in centavos
+    with 4 decimals (NUMERIC(14,4), migration 044): 3.1746 = $0.031746 per ml.
     purchase_pack_size converts purchase units to base units:
       - Bohemia: base_unit='botella', purchase_unit='caja', pack_size=12 → 1 caja = 12 botellas
       - Clamato: base_unit='ml', purchase_unit='botella', pack_size=1000 → 1 botella = 1000 ml
@@ -75,7 +85,7 @@ class InventoryItem(db.Model):
                                     nullable=False)
     stock_quantity      = db.Column(db.Numeric(12, 4), nullable=False, default=0)
     low_stock_threshold = db.Column(db.Numeric(12, 4), nullable=False, default=0)
-    unit_cost_cents     = db.Column(db.Integer, nullable=False, default=0)
+    unit_cost_cents     = db.Column(db.Numeric(14, 4), nullable=False, default=0)
 
     purchase_unit_key   = db.Column(db.String(50),
                                     db.ForeignKey('unit_catalog.key', ondelete='RESTRICT'))
@@ -87,7 +97,17 @@ class InventoryItem(db.Model):
                                     db.ForeignKey('inventory_items.id', ondelete='SET NULL'))
 
     is_active           = db.Column(db.Boolean, nullable=False, default=True)
+    # SIMPLE | CONVERTIBLE (opens into a child) | DERIVED (only exists by
+    # opening a parent) | BULK | PORTION. In the table since migration 029 but
+    # was missing here, so ORM-created items always landed as SIMPLE.
+    stock_nature        = db.Column(db.String(20), nullable=False, default='SIMPLE')
     purchase_cost_cents = db.Column(db.Integer)                 # last paid cost per purchase unit
+    # Standard serving of the item, in portion_unit_key. For an open spirit (ml,
+    # batch E2) it is the standard pour = "1 shot". In the table since the baseline.
+    portion_size        = db.Column(db.Numeric(12, 4))
+    portion_unit_key    = db.Column(db.String(50))
+    # Pack portioned in house from this raw item (batch E8, migration 056).
+    portion_source_id   = db.Column(db.String(36), db.ForeignKey('inventory_items.id'))
     created_at          = db.Column(db.DateTime(timezone=True),
                                     default=lambda: datetime.now(timezone.utc))
     updated_at          = db.Column(db.DateTime(timezone=True),
@@ -98,6 +118,23 @@ class InventoryItem(db.Model):
                                     remote_side='InventoryItem.id')
     base_unit     = db.relationship('UnitCatalog', foreign_keys=[base_unit_key])
     purchase_unit = db.relationship('UnitCatalog', foreign_keys=[purchase_unit_key])
+
+    def _open_bottles(self):
+        """How many bottles of this open spirit are open right now (batch E2)."""
+        if self.stock_nature != 'DERIVED' or self.base_unit_key != 'ml' or not self.id:
+            return None
+        from sqlalchemy import text as _text
+        return db.session.execute(_text(
+            "SELECT count(*) FROM open_bottles WHERE shot_item_id = :i AND finished_at IS NULL"),
+            {'i': self.id}).scalar()
+
+    def _bottle_ml(self):
+        """ml per bottle (the active BOTTLE_TO_SHOT conversion), bottles only."""
+        if self.item_type != 'BOTTLE' or not self.id:
+            return None
+        conv = InventoryConversion.query.filter_by(
+            from_item_id=self.id, is_active=True, conversion_type='BOTTLE_TO_SHOT').first()
+        return float(conv.ratio) if conv else None
 
     def to_dict(self):
         qty = float(self.stock_quantity) if self.stock_quantity is not None else 0
@@ -112,11 +149,24 @@ class InventoryItem(db.Model):
             'base_unit_key':       self.base_unit_key,
             'stock_quantity':      qty,
             'low_stock_threshold': thr,
-            'unit_cost_cents':     self.unit_cost_cents,
+            'unit_cost_cents':     _num(self.unit_cost_cents),
             'purchase_unit_key':   self.purchase_unit_key,
             'purchase_pack_size':  float(self.purchase_pack_size),
             'purchase_cost_cents': self.purchase_cost_cents,
             'shots_per_bottle':    self.shots_per_bottle,
+            # ml model (049): the open item's standard pour, and a bottle's size
+            # only for what comes out of a bottle (DERIVED); sauces / Clamato
+            # also use portion_size in ml but are servings, not shots
+            'pour_ml':             (float(self.portion_size) if self.base_unit_key == 'ml'
+                                    and self.stock_nature == 'DERIVED'
+                                    and self.portion_size else None),
+            'bottle_ml':           self._bottle_ml(),
+            'open_bottles':        self._open_bottles(),
+            # portioning (E8): a pack's raw item and weight
+            'stock_nature':        self.stock_nature,
+            'portion_source_id':   self.portion_source_id,
+            'portion_size':        float(self.portion_size) if self.portion_size else None,
+            'portion_unit_key':    self.portion_unit_key,
             'yields_item_id':      self.yields_item_id,
             'is_active':           self.is_active,
             'is_low':              qty <= thr,
@@ -144,7 +194,7 @@ class InventoryMovement(db.Model):
     event_type          = db.Column(db.String(30), nullable=False)
     quantity_delta      = db.Column(db.Numeric(12, 4), nullable=False)
     quantity_after      = db.Column(db.Numeric(12, 4))          # NULL for pre-migration rows
-    unit_cost_cents     = db.Column(db.Integer)                 # WAC snapshot
+    unit_cost_cents     = db.Column(db.Numeric(14, 4))          # WAC snapshot (centavos, 4 dp)
     purchase_quantity   = db.Column(db.Numeric(12, 4))          # RESTOCK: purchase units
     purchase_unit_key   = db.Column(db.String(50),
                                     db.ForeignKey('unit_catalog.key', ondelete='RESTRICT'))
@@ -166,7 +216,7 @@ class InventoryMovement(db.Model):
             'event_type':          self.event_type,
             'quantity_delta':      float(self.quantity_delta),
             'quantity_after':      float(self.quantity_after) if self.quantity_after is not None else None,
-            'unit_cost_cents':     self.unit_cost_cents,
+            'unit_cost_cents':     _num(self.unit_cost_cents),
             'purchase_quantity':   float(self.purchase_quantity) if self.purchase_quantity else None,
             'purchase_unit_key':   self.purchase_unit_key,
             'purchase_cost_cents': self.purchase_cost_cents,
@@ -343,7 +393,7 @@ class SaleItemCost(db.Model):
                                       db.ForeignKey('insumos_base.id', ondelete='SET NULL'))
 
     quantity_deducted = db.Column(db.Numeric(12, 4), nullable=False)
-    unit_cost_cents   = db.Column(db.Integer, nullable=False)
+    unit_cost_cents   = db.Column(db.Numeric(14, 4), nullable=False)   # centavos, 4 dp
     total_cost_cents  = db.Column(db.Integer, nullable=False)
     recorded_at       = db.Column(db.DateTime(timezone=True),
                                   default=lambda: datetime.now(timezone.utc))
@@ -356,7 +406,7 @@ class SaleItemCost(db.Model):
             'inventory_movement_id': self.inventory_movement_id,
             'insumos_base_id':       self.insumos_base_id,
             'quantity_deducted':     float(self.quantity_deducted),
-            'unit_cost_cents':       self.unit_cost_cents,
+            'unit_cost_cents':       _num(self.unit_cost_cents),
             'total_cost_cents':      self.total_cost_cents,
             'recorded_at':           self.recorded_at.isoformat() if self.recorded_at else None,
         }

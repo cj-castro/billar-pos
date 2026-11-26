@@ -11,6 +11,8 @@ export interface ResourceState {
   active_ticket_id: string | null
   customer_name?: string | null
   timer_start?: string
+  /** account on the table, its pool time stopped (batch E7) */
+  timer_paused?: boolean
   timer_session_id?: string
   pool_config?: { billing_mode: string; rate_cents: number; promo_free_minutes: number }
   sort_order: number

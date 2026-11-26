@@ -1,5 +1,6 @@
 import os
 import json
+import uuid
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
@@ -20,6 +21,7 @@ from app.models.promotion import Promotion, TicketPromoDecision
 from app.models.waiting_list import WaitingListEntry
 from app.services import audit_svc, billing, inventory_svc, promotion_svc, settings_svc
 from app.config import Config
+from app.services.venue_svc import bar_tz
 
 PRINT_AGENT_URL = os.environ.get('PRINT_AGENT_URL', 'http://host.docker.internal:9191')
 
@@ -446,10 +448,19 @@ def add_item(ticket_id):
     # but a full pack or bottle is on the shelf, fn_ensure_available opens one
     # and writes the CONVERSION_OUT/IN pair against this user. Without it the
     # sale is refused with stock physically present.
+    #
+    # The line id is generated BEFORE the check so any bottle/pack the check
+    # opens is written with reference_id = this line. Without it the
+    # CONVERSION_OUT/IN pair was untraceable to the order that caused it.
+    line_item_id = str(uuid.uuid4())
     shortages = inventory_svc.check_stock_for_item(
-        menu_item, data.get('modifiers', []), quantity, performed_by=user_id
+        menu_item, data.get('modifiers', []), quantity,
+        performed_by=user_id, reference_id=line_item_id,
     )
     if shortages:
+        # Undo any partial conversion the check made for the items it COULD
+        # cover; nothing of this request may persist.
+        db.session.rollback()
         items_str = ', '.join(f"{s['name']} (disponible: {s['available']}, necesario: {s['needed']})" for s in shortages)
         return jsonify({
             'error': 'OUT_OF_STOCK',
@@ -458,6 +469,7 @@ def add_item(ticket_id):
         }), 422
 
     line_item = TicketLineItem(
+        id=line_item_id,
         ticket_id=ticket_id,
         menu_item_id=menu_item.id,
         item_name=menu_item.name,
@@ -571,7 +583,17 @@ def void_item(ticket_id, item_id):
     """
     user_id = get_jwt_identity()
     data = request.get_json() or {}
-    reason = data.get('reason', '')
+    reason = (data.get('reason') or '').strip()
+    # A void needs a real reason (batch E5): "Void" by default hid comps and moves.
+    if not reason or reason.lower() == 'void':
+        return jsonify({'error': 'REASON_REQUIRED',
+                        'message': 'Elige el motivo de la anulación.'}), 422
+    # What happened to the product (batch E). Missing = WASTED: a screen that
+    # doesn't ask (an old tab still open after the update) must not invent stock.
+    disposition = (data.get('disposition') or inventory_svc.WASTED).upper()
+    if disposition not in (inventory_svc.RETURNED, inventory_svc.WASTED):
+        return jsonify({'error': 'INVALID_DISPOSITION',
+                        'message': "disposition must be 'RETURNED' or 'WASTED'"}), 422
 
     if 'manager_id' in data:
         return jsonify({
@@ -614,9 +636,13 @@ def void_item(ticket_id, item_id):
 
     before = item.to_dict()
 
-    # Reverse inventory if item was sent
-    if item.status not in ('STAGED',):
-        inventory_svc.reverse_for_line_item(item, manager_id)
+    # Sent items: put back on the shelf, or write off as waste. Staged items
+    # never left stock.
+    if item.status != 'STAGED':
+        inventory_svc.reverse_for_line_item(item, manager_id, disposition=disposition, reason=reason)
+        item.void_disposition = disposition
+    else:
+        item.void_disposition = 'NONE'
 
     item.status = 'VOIDED'
     item.voided_at = datetime.now(timezone.utc)
@@ -636,7 +662,8 @@ def void_item(ticket_id, item_id):
 
     audit_svc.log(user_id, 'ITEM_VOID', 'line_item', item_id,
                   before=before,
-                  after={'status': 'VOIDED', 'reason': reason, 'approved_by': manager_id},
+                  after={'status': 'VOIDED', 'reason': reason, 'approved_by': manager_id,
+                         'disposition': item.void_disposition},
                   ip_address=request.remote_addr)
     db.session.commit()
 
@@ -649,9 +676,10 @@ def void_item(ticket_id, item_id):
 def update_item_quantity(ticket_id, item_id):
     """Change the quantity of an existing line item.
 
-    Inventory is re-synced by reversing the original deduction and consuming
-    again at the new quantity, so ingredient stock and the COGS rows in
-    sale_item_costs always reflect what was actually served. Quantity promos
+    Inventory moves by the difference only: added units are deducted (by the
+    requester), removed units are given back as RETURNED or WASTED (body
+    'disposition', default WASTED), so stock and the COGS rows in
+    sale_item_costs reflect what was actually served. Quantity promos
     are recomputed afterwards, so bumping a bucket from 1 to 2 makes a 2x1
     fire without the waiter adding a second line.
 
@@ -679,10 +707,17 @@ def update_item_quantity(ticket_id, item_id):
     if item.status == 'VOIDED':
         return jsonify({'error': 'ITEM_VOIDED',
                         'message': 'Cannot change the quantity of a voided item'}), 409
+    if item.comped_at is not None:
+        return jsonify({'error': 'ITEM_COMPED',
+                        'message': 'Es cortesía: quítale la cortesía para cambiar la cantidad.'}), 409
 
     old_qty = int(item.quantity or 1)
     if new_qty == old_qty:
         return jsonify(item.to_dict())
+    disposition = (data.get('disposition') or inventory_svc.WASTED).upper()
+    if disposition not in (inventory_svc.RETURNED, inventory_svc.WASTED):
+        return jsonify({'error': 'INVALID_DISPOSITION',
+                        'message': "disposition must be 'RETURNED' or 'WASTED'"}), 422
 
     # ── Manager authorization for value-reducing changes ──────────────────────
     # HOTFIX: this previously accepted any 'manager_id' string from the request
@@ -720,21 +755,23 @@ def update_item_quantity(ticket_id, item_id):
     before = item.to_dict()
 
     try:
-        # Re-sync inventory: undo the original deduction, drop its COGS rows so
-        # they cannot be double counted at close, then deduct at the new qty.
+        # Move only the difference (batch E). This used to reverse the whole
+        # line and sell it again -- churning the ledger (4 reversals per voided
+        # line) and crediting the re-sale to the manager who approved it.
+        #   up:   deduct the added units, by whoever asked for them
+        #   down: give back the removed units -- returned or wasted, like a void
         if item.status != 'STAGED':
-            inventory_svc.reverse_for_line_item(item, performed_by)
-            SaleItemCost.query.filter_by(ticket_line_item_id=item.id).delete(
-                synchronize_session=False)
-            db.session.flush()
+            if new_qty > old_qty:
+                inventory_svc.consume_for_line_item(item, user_id, units=new_qty - old_qty)
+            else:
+                inventory_svc.reverse_for_line_item(
+                    item, performed_by, disposition=disposition,
+                    units=old_qty - new_qty, of_units=old_qty)
 
         item.quantity = new_qty
         if new_qty > old_qty:
             item.needs_reprint = True
         db.session.flush()
-
-        if item.status != 'STAGED':
-            inventory_svc.consume_for_line_item(item, performed_by)
     except ValueError as e:
         db.session.rollback()
         msg = str(e)
@@ -802,11 +839,20 @@ def send_order(ticket_id):
     if not staged:
         return jsonify({'error': 'NO_STAGED_ITEMS', 'message': 'No staged items to send'}), 400
 
-    for item in staged:
-        item.status = 'SENT'
-        item.sent_at = now
-        inventory_svc.consume_for_line_item(item, user_id)
-        audit_svc.log(user_id, 'ITEM_SENT', 'line_item', item.id, after={'status': 'SENT'})
+    try:
+        for item in staged:
+            item.status = 'SENT'
+            item.sent_at = now
+            inventory_svc.consume_for_line_item(item, user_id)
+            audit_svc.log(user_id, 'ITEM_SENT', 'line_item', item.id, after={'status': 'SENT'})
+    except ValueError as e:
+        # All-or-nothing: one short item sends nothing, and the waiter gets the
+        # same OUT_OF_STOCK answer add_item gives instead of a bare 500.
+        db.session.rollback()
+        msg = str(e)
+        if msg.startswith('OUT_OF_STOCK:'):
+            return jsonify({'error': 'OUT_OF_STOCK', 'message': msg}), 422
+        return jsonify({'error': 'INVENTORY_ERROR', 'message': msg}), 422
 
     ticket.version += 1
     db.session.commit()
@@ -937,6 +983,10 @@ def transfer_ticket(ticket_id):
 def close_ticket(ticket_id):
     user_id = get_jwt_identity()
     data = request.get_json() or {}
+    _t = Ticket.query.get(ticket_id)
+    if _t is not None and (_t.ticket_type or '') == 'STAFF':
+        return jsonify({'error': 'STAFF_TICKET',
+                        'message': 'El consumo de personal no se cobra: usa "Cerrar consumo".'}), 409
     payment_type = data.get('payment_type')        # CASH or CARD (primary)
     tip_source = data.get('tip_source')             # CASH, CARD, SPLIT
     payment_type_2 = data.get('payment_type_2')    # optional second payment
@@ -1096,7 +1146,8 @@ def close_ticket(ticket_id):
                 """),
                 {'ids': tuple(legacy_menu_ids)}
             ).mappings().all()
-            legacy_cost = {r['menu_item_id']: int(r['unit_cost_cents']) for r in recipe_rows}
+            # unit cost is NUMERIC since 044: round to whole centavos, don't truncate
+            legacy_cost = {r['menu_item_id']: int(round(r['unit_cost_cents'] or 0)) for r in recipe_rows}
 
         for li in active_items:
             if li.id in sic_by_line:
@@ -1122,79 +1173,52 @@ def close_ticket(ticket_id):
 @tickets_bp.route('/<ticket_id>/timer/<session_id>', methods=['PATCH'])
 @jwt_required()
 def edit_timer(ticket_id, session_id):
+    """Correct a pool session's start / end (batch E7). A logged-in manager, or
+    anyone with a manager PIN in the body. A reason is required."""
+    from app.services import ticket_ops_svc
     claims = get_jwt()
-    if claims.get('role') not in ('MANAGER', 'ADMIN'):
-        return jsonify({'error': 'FORBIDDEN'}), 403
-
     user_id = get_jwt_identity()
     data = request.get_json() or {}
+    approver_id = user_id if claims.get('role') in ('MANAGER', 'ADMIN') else None
+    if approver_id is None:
+        approver, err = _approver_from_pin(data, session_id)
+        if err:
+            return err
+        approver_id = approver.id
 
     session = PoolTimerSession.query.get_or_404(session_id)
     if session.ticket_id != ticket_id:
         return jsonify({'error': 'NOT_FOUND'}), 404
-
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
     before = session.to_dict()
 
-    # Timestamps arrive as ISO strings from the manager UI. They must be
-    # parsed defensively and forced tz-aware: the columns are TIMESTAMPTZ, so a
-    # naive value makes billing.calculate_charge subtract an offset-naive from
-    # an offset-aware datetime, raising TypeError and 500-ing mid-transaction.
+    # Timestamps arrive as ISO strings; naive ones are venue-local (what the
+    # manager typed) and normalised to UTC -- the columns are TIMESTAMPTZ.
     def _parse_ts(raw, field):
         try:
             parsed = datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
         except (ValueError, TypeError):
-            raise ValueError(f'{field} must be an ISO-8601 datetime')
+            raise ValueError(f'INVALID_TIMESTAMP: {field} debe ser fecha y hora')
         if parsed.tzinfo is None:
-            # Naive input is interpreted as venue-local time, which is what the
-            # manager typed, then normalised to UTC for storage.
-            parsed = parsed.replace(tzinfo=ZoneInfo(Config.TZ))
+            parsed = parsed.replace(tzinfo=bar_tz())
         return parsed.astimezone(timezone.utc)
 
     try:
-        new_start = _parse_ts(data['start_time'], 'start_time') if 'start_time' in data else session.start_time
-        new_end = (_parse_ts(data['end_time'], 'end_time')
-                   if data.get('end_time') else session.end_time)
-    except ValueError as exc:
-        return jsonify({'error': 'INVALID_TIMESTAMP', 'message': str(exc)}), 422
+        new_start = _parse_ts(data['start_time'], 'inicio') if data.get('start_time') else session.start_time
+        new_end = _parse_ts(data['end_time'], 'fin') if data.get('end_time') else session.end_time
+        ticket_ops_svc.edit_session(ticket, session, new_start, new_end, data.get('reason'))
+    except ValueError as e:
+        db.session.rollback()
+        code, _, msg = str(e).partition(': ')
+        return jsonify({'error': code, 'message': msg or code}), 422
 
-    if new_start is None:
-        return jsonify({'error': 'INVALID_TIMESTAMP',
-                        'message': 'La hora de inicio es obligatoria.'}), 422
-    if new_end is not None and new_end <= new_start:
-        return jsonify({'error': 'INVALID_TIME_RANGE',
-                        'message': 'La hora de fin debe ser posterior a la de inicio.'}), 422
-
-    now = datetime.now(timezone.utc)
-    if new_start > now:
-        return jsonify({'error': 'INVALID_TIME_RANGE',
-                        'message': 'La hora de inicio no puede estar en el futuro.'}), 422
-    if new_end is not None and new_end > now:
-        return jsonify({'error': 'INVALID_TIME_RANGE',
-                        'message': 'La hora de fin no puede estar en el futuro.'}), 422
-
-    session.start_time = new_start
-    session.end_time = new_end
-
-    if session.end_time:
-        result = billing.calculate_charge(
-            session.start_time, session.end_time,
-            session.billing_mode, session.rate_cents,
-            session.effective_free_seconds(session.end_time)
-        )
-        session.duration_seconds = result['duration_seconds']
-        session.charge_cents = result['charge_cents']
-
-    session.is_manual_edit = True
-    session.manual_edit_reason = data.get('reason', '')
-
-    ticket = Ticket.query.get(ticket_id)
-    if ticket:
-        ticket.recalculate_totals()
-        ticket.version += 1
-
+    ticket.recalculate_totals()
+    ticket.version += 1
     audit_svc.log(user_id, 'TIMER_MANUAL_EDIT', 'pool_timer', session_id,
-                  before=before, after=session.to_dict(), reason=data.get('reason'))
+                  before=before, after={**session.to_dict(), 'approved_by': approver_id},
+                  reason=session.manual_edit_reason)
     db.session.commit()
+    socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
     return jsonify(session.to_dict())
 
 
@@ -1211,6 +1235,10 @@ def set_discount(ticket_id):
     pct = data.get('pct', 0)
     if not isinstance(pct, (int, float)) or pct < 0 or pct > 100:
         return jsonify({'error': 'pct must be 0–100'}), 422
+    reason = (data.get('reason') or '').strip()
+    if pct > 0 and (not reason or reason == 'Manual discount by manager'):
+        return jsonify({'error': 'REASON_REQUIRED',
+                        'message': 'Escribe el motivo del descuento.'}), 422
 
     ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
     if ticket.status != 'OPEN':
@@ -1218,13 +1246,14 @@ def set_discount(ticket_id):
 
     before_pct = ticket.manual_discount_pct or 0
     ticket.manual_discount_pct = int(pct)
+    ticket.discount_reason = reason if pct > 0 else None
     ticket.recalculate_totals()
     ticket.version += 1
 
     audit_svc.log(user_id, 'DISCOUNT_APPLIED', 'ticket', ticket_id,
                   before={'manual_discount_pct': before_pct},
                   after={'manual_discount_pct': int(pct)},
-                  reason=data.get('reason', ''))
+                  reason=reason)
     db.session.commit()
     _emit_floor_update()
     return jsonify(ticket.to_dict())
@@ -1551,10 +1580,10 @@ def list_reopened_tickets():
 @tickets_bp.route('/active-express', methods=['GET'])
 @jwt_required()
 def list_active_express():
-    """Return all OPEN EXPRESS and DELIVERY tickets (no table assigned)."""
+    """Return all OPEN tickets with no table: EXPRESS, DELIVERY and STAFF orders."""
     tickets = (Ticket.query
                .filter(Ticket.status == 'OPEN',
-                       Ticket.ticket_type.in_(['EXPRESS', 'DELIVERY']))
+                       Ticket.ticket_type.in_(['EXPRESS', 'DELIVERY', 'STAFF']))
                .order_by(Ticket.opened_at.asc())
                .all())
     return jsonify([t.to_dict(include_items=False, include_timer=False) for t in tickets])
@@ -1887,3 +1916,303 @@ def reprint_ticket(ticket_id):
     }, room='manager')
 
     return jsonify({'ok': False, 'job_id': job.id, 'error': err_msg}), 500
+
+
+# ── Cortesías y consumo de personal (batch E5) ───────────────────────────────
+
+def _approver_from_pin(data, item_id=None):
+    from app.api.auth import verify_manager_pin
+    pin = (data.get('pin') or '').strip()
+    if not pin:
+        return None, (jsonify({'error': 'MANAGER_REQUIRED', 'message': 'Se requiere el PIN de un gerente'}), 403)
+    approver = verify_manager_pin(pin)
+    if approver is None:
+        audit_svc.log(get_jwt_identity(), 'MANAGER_PIN_FAILED', 'line_item', item_id, ip_address=request.remote_addr)
+        db.session.commit()
+        return None, (jsonify({'error': 'INVALID_PIN', 'message': 'PIN incorrecto'}), 401)
+    return approver, None
+
+
+def _svc_error(e):
+    code, _, msg = str(e).partition(': ')
+    status = 403 if isinstance(e, PermissionError) else (409 if code in (
+        'TICKET_CLOSED', 'ALREADY_COMPED', 'NOT_COMPED', 'ITEM_VOIDED', 'NOT_FOR_STAFF') else 422)
+    return jsonify({'error': code, 'message': msg or code}), status
+
+
+@tickets_bp.route('/comp-reasons', methods=['GET'])
+@jwt_required()
+def comp_reasons():
+    from app.services import comp_svc
+    return jsonify({'cortesia': list(comp_svc.COMP_REASONS), 'personal': list(comp_svc.STAFF_REASONS)})
+
+
+@tickets_bp.route('/<ticket_id>/items/<item_id>/comp', methods=['POST'])
+@jwt_required()
+def comp_item(ticket_id, item_id):
+    """Cortesía: serve this line free. Body {pin, reason}."""
+    from app.services import comp_svc
+    data = request.get_json() or {}
+    approver, err = _approver_from_pin(data, item_id)
+    if err:
+        return err
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    item = TicketLineItem.query.get_or_404(item_id)
+    if item.ticket_id != ticket.id:
+        return jsonify({'error': 'NOT_FOUND'}), 404
+    try:
+        res = comp_svc.comp_line(ticket, item, approver, data.get('reason'))
+    except (ValueError, PermissionError) as e:
+        db.session.rollback()
+        return _svc_error(e)
+    db.session.flush()
+    promotion_svc.recompute_quantity_promos(ticket)
+    ticket.recalculate_totals()
+    ticket.version += 1
+    audit_svc.log(get_jwt_identity(), 'ITEM_COMP', 'line_item', item_id,
+                  after={**res, 'approved_by': approver.id}, reason=res['reason'],
+                  ip_address=request.remote_addr)
+    db.session.commit()
+    socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
+    return jsonify(ticket.to_dict())
+
+
+@tickets_bp.route('/<ticket_id>/items/<item_id>/comp', methods=['DELETE'])
+@jwt_required()
+def uncomp_item(ticket_id, item_id):
+    """Undo a cortesía before the ticket closes. Body {pin}."""
+    from app.services import comp_svc
+    data = request.get_json() or {}
+    approver, err = _approver_from_pin(data, item_id)
+    if err:
+        return err
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    item = TicketLineItem.query.get_or_404(item_id)
+    if item.ticket_id != ticket.id:
+        return jsonify({'error': 'NOT_FOUND'}), 404
+    try:
+        before = comp_svc.uncomp_line(ticket, item)
+    except ValueError as e:
+        db.session.rollback()
+        return _svc_error(e)
+    db.session.flush()
+    promotion_svc.recompute_quantity_promos(ticket)
+    ticket.recalculate_totals()
+    ticket.version += 1
+    audit_svc.log(get_jwt_identity(), 'ITEM_UNCOMP', 'line_item', item_id, before=before,
+                  after={'approved_by': approver.id}, ip_address=request.remote_addr)
+    db.session.commit()
+    socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
+    return jsonify(ticket.to_dict())
+
+
+@tickets_bp.route('/staff', methods=['POST'])
+@jwt_required()
+def open_staff_ticket():
+    """Consumo de personal: open a STAFF order. Body {pin, staff_user_id, reason}."""
+    from app.models.cash_session import CashSession
+    from app.services import comp_svc
+    data = request.get_json() or {}
+    approver, err = _approver_from_pin(data)
+    if err:
+        return err
+    if not CashSession.query.filter_by(status='OPEN').first():
+        return jsonify({'error': 'BAR_CLOSED', 'message': 'El bar no está abierto.'}), 403
+    try:
+        t = comp_svc.open_staff_ticket(get_jwt_identity(), data.get('staff_user_id'), approver, data.get('reason'))
+    except ValueError as e:
+        db.session.rollback()
+        return _svc_error(e)
+    audit_svc.log(get_jwt_identity(), 'STAFF_TICKET_OPEN', 'ticket', t.id,
+                  after={'staff_user_id': t.staff_user_id, 'reason': t.staff_reason, 'approved_by': approver.id})
+    db.session.commit()
+    _emit_floor_update()
+    return jsonify(t.to_dict()), 201
+
+
+@tickets_bp.route('/<ticket_id>/staff-close', methods=['POST'])
+@jwt_required()
+def close_staff_ticket(ticket_id):
+    """Close a staff order (no payment). Body {pin?}: the owner's PIN only when
+    it goes over the daily allowance."""
+    from app.services import comp_svc
+    data = request.get_json() or {}
+    approver = None
+    if (data.get('pin') or '').strip():
+        approver, err = _approver_from_pin(data)
+        if err:
+            return err
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    try:
+        st = comp_svc.close_staff_ticket(ticket, get_jwt_identity(), approver)
+    except (ValueError, PermissionError) as e:
+        db.session.rollback()
+        return _svc_error(e)
+    audit_svc.log(get_jwt_identity(), 'STAFF_TICKET_CLOSE', 'ticket', ticket_id,
+                  after={**st, 'approved_by': approver.id if approver else None})
+    db.session.commit()
+    _emit_floor_update()
+    socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
+    return jsonify(ticket.to_dict())
+
+
+@tickets_bp.route('/staff-members', methods=['GET'])
+@jwt_required()
+def staff_members():
+    """Who a staff order can be for: active employees, names only."""
+    from app.models.user import User
+    users = User.query.filter_by(is_active=True).order_by(User.name).all()
+    return jsonify([{'id': u.id, 'name': u.name, 'role': u.role} for u in users])
+
+
+# ── E7: stop / start pool time without closing the account ───────────────────
+
+@tickets_bp.route('/<ticket_id>/timer/stop', methods=['POST'])
+@jwt_required()
+def stop_timer(ticket_id):
+    """Players stopped; the account stays open on its table."""
+    from app.services import ticket_ops_svc
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    try:
+        s = ticket_ops_svc.stop_timer(ticket)
+    except ValueError as e:
+        db.session.rollback()
+        code, _, msg = str(e).partition(': ')
+        return jsonify({'error': code, 'message': msg}), 409
+    ticket.recalculate_totals()
+    ticket.version += 1
+    audit_svc.log(get_jwt_identity(), 'TIMER_STOP', 'pool_timer', s.id,
+                  after={'end_time': s.end_time.isoformat(), 'charge_cents': s.charge_cents, 'ticket_open': True})
+    db.session.commit()
+    _emit_floor_update()
+    socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
+    return jsonify(ticket.to_dict())
+
+
+@tickets_bp.route('/<ticket_id>/timer/start', methods=['POST'])
+@jwt_required()
+def start_timer(ticket_id):
+    """They play again: a new session on the same table."""
+    from app.services import ticket_ops_svc
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    try:
+        s = ticket_ops_svc.start_timer(ticket)
+    except ValueError as e:
+        db.session.rollback()
+        code, _, msg = str(e).partition(': ')
+        return jsonify({'error': code, 'message': msg}), 409
+    ticket.version += 1
+    audit_svc.log(get_jwt_identity(), 'TIMER_START', 'pool_timer', s.id,
+                  after={'resource_id': s.resource_id, 'promo_free_seconds': s.promo_free_seconds, 'new_session': True})
+    db.session.commit()
+    _emit_floor_update()
+    socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
+    return jsonify(ticket.to_dict())
+
+
+# ── E6: move lines to another account ─────────────────────────────────────────
+
+@tickets_bp.route('/<ticket_id>/move-items', methods=['POST'])
+@jwt_required()
+def move_items(ticket_id):
+    """Body {items: [{id, quantity}], target_ticket_id | new_account_name, reason?}.
+    Moves lines (or part of their quantity) instead of void + retype."""
+    from app.services import ticket_ops_svc
+    data = request.get_json() or {}
+    user_id = get_jwt_identity()
+    source = Ticket.query.with_for_update().get_or_404(ticket_id)
+    if data.get('target_ticket_id'):
+        target = Ticket.query.with_for_update().get(data['target_ticket_id'])
+        if target is None:
+            return jsonify({'error': 'NOT_FOUND', 'message': 'No existe esa cuenta'}), 404
+    else:
+        name = (data.get('new_account_name') or '').strip()
+        if not name:
+            return jsonify({'error': 'TARGET_REQUIRED', 'message': 'Elige la cuenta destino o escribe el nombre de la nueva'}), 422
+        target = Ticket(resource_id=None, ticket_type='EXPRESS', opened_by=user_id, customer_name=name)
+        db.session.add(target)
+        db.session.flush()
+    moves = []
+    for it in data.get('items') or []:
+        li = TicketLineItem.query.get(it.get('id'))
+        if li is None:
+            return jsonify({'error': 'NOT_FOUND', 'message': 'Artículo no encontrado'}), 404
+        moves.append((li, it.get('quantity')))
+    try:
+        done = ticket_ops_svc.move_lines(source, target, moves)
+    except ValueError as e:
+        db.session.rollback()
+        code, _, msg = str(e).partition(': ')
+        return jsonify({'error': code, 'message': msg or code}), 422
+    for t in (source, target):
+        promotion_svc.recompute_quantity_promos(t)
+        t.recalculate_totals()
+        t.version = (t.version or 0) + 1
+    audit_svc.log(user_id, 'ITEMS_MOVED', 'ticket', source.id,
+                  after={'to_ticket': target.id, 'moved': done}, reason=(data.get('reason') or '').strip() or None)
+    db.session.commit()
+    _emit_floor_update()
+    for t in (source, target):
+        socketio.emit('ticket:updated', {'ticket_id': t.id}, room=f'ticket:{t.id}')
+    return jsonify({'source': source.to_dict(), 'target': {'id': target.id, 'customer_name': target.customer_name,
+                                                           'resource_code': target.resource.code if target.resource else None},
+                    'moved': done})
+
+
+@tickets_bp.route('/move-targets', methods=['GET'])
+@jwt_required()
+def move_targets():
+    """Open customer accounts a line can move to (no staff orders)."""
+    ts = (Ticket.query.filter(Ticket.status == 'OPEN', Ticket.ticket_type != 'STAFF')
+          .order_by(Ticket.opened_at).all())
+    return jsonify([{'id': t.id, 'resource_code': t.resource.code if t.resource else None,
+                     'customer_name': t.customer_name, 'ticket_type': t.ticket_type,
+                     'total_cents': t.total_cents or 0} for t in ts])
+
+
+@tickets_bp.route('/<ticket_id>/timer/free', methods=['POST'])
+@jwt_required()
+def give_free_time(ticket_id):
+    """Free table time without a promotion. Body {minutes, reason, pin}."""
+    from app.services import ticket_ops_svc
+    data = request.get_json() or {}
+    approver, err = _approver_from_pin(data)
+    if err:
+        return err
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    try:
+        s = ticket_ops_svc.grant_free_time(ticket, approver, data.get('minutes'), data.get('reason'))
+    except (ValueError, PermissionError) as e:
+        db.session.rollback()
+        return _svc_error(e)
+    ticket.recalculate_totals()
+    ticket.version += 1
+    audit_svc.log(get_jwt_identity(), 'POOL_FREE_TIME', 'pool_timer', s.id,
+                  after={'minutes': s.manual_free_seconds // 60, 'approved_by': approver.id},
+                  reason=s.manual_free_reason)
+    db.session.commit()
+    socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
+    return jsonify(ticket.to_dict())
+
+
+@tickets_bp.route('/<ticket_id>/timer/free', methods=['DELETE'])
+@jwt_required()
+def remove_free_time(ticket_id):
+    from app.services import ticket_ops_svc
+    data = request.get_json() or {}
+    approver, err = _approver_from_pin(data)
+    if err:
+        return err
+    ticket = Ticket.query.with_for_update().get_or_404(ticket_id)
+    try:
+        s = ticket_ops_svc.remove_free_time(ticket)
+    except ValueError as e:
+        db.session.rollback()
+        return _svc_error(e)
+    ticket.recalculate_totals()
+    ticket.version += 1
+    audit_svc.log(get_jwt_identity(), 'POOL_FREE_TIME_REMOVED', 'pool_timer', s.id,
+                  after={'approved_by': approver.id})
+    db.session.commit()
+    socketio.emit('ticket:updated', {'ticket_id': ticket_id}, room=f'ticket:{ticket_id}')
+    return jsonify(ticket.to_dict())

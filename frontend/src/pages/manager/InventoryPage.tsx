@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
@@ -9,7 +10,9 @@ import { useEscKey } from '../../hooks/useEscKey'
 import { useSocket } from '../../hooks/useSocket'
 import { useAuthStore } from '../../stores/authStore'
 import { useUnitCatalog } from '../../hooks/useUnitCatalog'
-import { formatMXN } from '../../utils/money'
+import { formatMXN, formatUnitCost } from '../../utils/money'
+import { CostEntry, packMissing } from '../../components/CostEntry'
+import PortionDialog from '../../components/PortionDialog'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,6 +32,16 @@ interface InventoryItem {
   purchase_cost_cents: number | null
   shots_per_bottle: number | null
   yields_item_id: string | null
+  /** open-spirit item (ml): the standard pour = "1 shot" (batch E2) */
+  pour_ml: number | null
+  /** bottle: its size in ml */
+  bottle_ml: number | null
+  /** open spirit: bottles open right now */
+  open_bottles: number | null
+  /** pack portioned in house from this raw item (E8) */
+  portion_source_id: string | null
+  portion_size: number | null
+  stock_nature?: string
   is_active: boolean
   is_low: boolean
 }
@@ -61,7 +74,8 @@ const EVENT_TYPE_COLORS: Record<string, string> = {
 // Weighted average cost formula — mirrors backend exactly
 function computeWAC(oldQty: number, oldWacCents: number, deltaQty: number, incomingCostCents: number): number {
   if (oldQty <= 0) return incomingCostCents
-  return Math.round((oldQty * oldWacCents + deltaQty * incomingCostCents) / (oldQty + deltaQty))
+  // exact, like the backend (unit cost carries 4 decimals of a centavo since 044)
+  return (oldQty * oldWacCents + deltaQty * incomingCostCents) / (oldQty + deltaQty)
 }
 
 function fmtQty(qty: number): string {
@@ -134,7 +148,110 @@ const BLANK_NEW = {
   name: '', sku: '', supplier: '', category: 'beer', item_type: 'STANDARD',
   base_unit_key: 'botella', stock_quantity: '', low_stock_threshold: '6',
   initial_cost_pesos: '', purchase_unit_key: '', purchase_pack_size: '1',
-  shots_per_bottle: '', yields_item_id: '',
+  shots_per_bottle: '', yields_item_id: '', bottle_ml: '', pour_ml: '50',
+}
+
+/** Pack size when the unit pair changes: same unit -> 1; a different unit ->
+ *  keep a real count, otherwise empty so it must be typed (never a silent 1). */
+const packFor = (base: string, purchase: string, current: string) =>
+  !purchase || purchase === base ? '1' : (parseFloat(current) > 1 ? current : '')
+
+/** Whole shots in an amount of ml (floor: a 20 ml remainder is not a shot). */
+const shotsIn = (ml: number, pour: number | null | undefined) =>
+  pour && pour > 0 ? Math.floor(ml / pour + 1e-9) : 0
+
+const WEIGHT_UNITS = ['kilogramo', 'gramo', 'litro', 'ml']
+const PACK_UNITS = ['pieza', 'paquete', 'porcion']
+
+/** Raw items a pack can be cut from: stocked by weight / volume; same category first. */
+function rawCandidates(items: InventoryItem[], selfId: string | undefined, category: string) {
+  return items
+    .filter(i => WEIGHT_UNITS.includes(i.base_unit_key) && !i.portion_source_id && i.id !== selfId
+                 && i.is_active && i.stock_nature !== 'DERIVED')
+    .sort((a, b) => (a.category === category ? 0 : 1) - (b.category === category ? 0 : 1) || a.name.localeCompare(b.name))
+}
+
+/**
+ * On a RAW item (kg / g / l / ml): the packs portioned from it (batch E8).
+ * Linking happens on the pack (portion_source_id + weight), right away.
+ */
+function RawPacksSection({ raw, items, onChanged }: {
+  raw: InventoryItem; items: InventoryItem[]; onChanged: () => void
+}) {
+  const [pick, setPick] = useState('')
+  const [size, setSize] = useState('')
+  const [busy, setBusy] = useState(false)
+  const g = ['litro', 'ml'].includes(raw.base_unit_key) ? 'ml' : 'g'
+  const linked = items.filter(i => i.portion_source_id === raw.id && i.is_active)
+  const candidates = items
+    .filter(i => PACK_UNITS.includes(i.base_unit_key) && !i.portion_source_id && i.is_active
+                 && i.item_type === 'STANDARD' && i.id !== raw.id)
+    .sort((a, b) => (a.category === raw.category ? 0 : 1) - (b.category === raw.category ? 0 : 1) || a.name.localeCompare(b.name))
+  const link = async (packId: string, grams: number | null) => {
+    setBusy(true)
+    try {
+      await client.patch(`/inventory/${packId}`, grams ? { portion_source_id: raw.id, portion_size: grams }
+                                                       : { portion_source_id: null })
+      toast.success(grams ? 'Paquete ligado' : 'Paquete desligado')
+      setPick(''); setSize('')
+      onChanged()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'No se pudo')
+    } finally { setBusy(false) }
+  }
+  return (
+    <div className="rounded-xl border border-orange-800 bg-orange-950/20 p-3 space-y-2">
+      <div className="text-xs font-semibold text-orange-200">🔪 Paquetes que salen de este producto</div>
+      {linked.length === 0 && <div className="text-xs text-slate-400">Ninguno todavía. Agrega los paquetes que porcionas (p. ej. Alitas 300gr, 300 {g}).</div>}
+      {linked.map(p => (
+        <div key={p.id} className="flex items-center justify-between text-sm">
+          <span>{p.name} <span className="text-slate-400">· {p.portion_size} {g}</span></span>
+          <button type="button" disabled={busy} onClick={() => link(p.id, null)}
+            className="text-xs text-slate-400 hover:text-red-300">Quitar</button>
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <select value={pick} onChange={e => setPick(e.target.value)}
+          className="flex-1 min-w-0 bg-slate-700 border border-slate-600 rounded-lg px-2 py-1.5 text-sm text-white">
+          <option value="">— elegir paquete —</option>
+          {candidates.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+        </select>
+        <input type="number" min={1} value={size} onChange={e => setSize(e.target.value)} placeholder={g}
+          className="w-20 bg-slate-700 border border-slate-600 rounded-lg px-2 py-1.5 text-sm" />
+        <button type="button" disabled={busy || !pick || !(parseFloat(size) > 0)} onClick={() => link(pick, parseFloat(size))}
+          className="px-3 py-1.5 rounded-lg bg-orange-700 hover:bg-orange-600 text-sm font-semibold disabled:opacity-40">Agregar</button>
+      </div>
+      <p className="text-[11px] text-slate-500">El paquete se cuenta en paquetes y ya no se reabastece: sale de 🔪 Porcionar.</p>
+    </div>
+  )
+}
+
+/** Bottle size + standard pour (batch E2: opened spirits are tracked in ml). */
+function BottleSizeFields({ bottle, pour, onChange }: {
+  bottle: string; pour: string; onChange: (bottle: string, pour: string) => void
+}) {
+  const b = parseFloat(bottle), p = parseFloat(pour)
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-xs text-slate-400 block">Tamaño de botella (ml)
+          <input type="number" min={50} step={1} value={bottle} placeholder="750"
+            onChange={e => onChange(e.target.value, pour)}
+            className="mt-1 w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+        </label>
+        <label className="text-xs text-slate-400 block">Shot estándar (ml)
+          <input type="number" min={5} step={1} value={pour} placeholder="50"
+            onChange={e => onChange(bottle, e.target.value)}
+            className="mt-1 w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+        </label>
+      </div>
+      <p className="text-[11px] text-slate-500 mt-1">
+        {b > 0 && p > 0
+          ? <>Rinde <span className="text-amber-300 font-semibold">{shotsIn(b, p)} shots</span> por botella. Las recetas pueden usar otras cantidades (doble, un chorrito de 20 ml…).</>
+          : 'Con el tamaño podrás abrir la botella y vender shots y bebidas preparadas. Vacío = solo se vende la botella cerrada.'}
+      </p>
+    </div>
+  )
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -145,7 +262,7 @@ export default function InventoryPage() {
   const socket = useSocket()
   const user = useAuthStore(s => s.user)
   const isAdmin = user?.role === 'ADMIN'
-  const { units, getUnitName } = useUnitCatalog()
+  const { units, getUnitName, qtyStep } = useUnitCatalog()
 
   // list UI
   const [tab, setTab] = useState('all')
@@ -162,7 +279,13 @@ export default function InventoryPage() {
   const [restocking, setRestocking] = useState<InventoryItem | null>(null)
   const [adjusting, setAdjusting] = useState<InventoryItem | null>(null)
   const [openingBottle, setOpeningBottle] = useState<InventoryItem | null>(null)
+  const [portioning, setPortioning] = useState<InventoryItem | null>(null)   // batch E8
   const [openingBox, setOpeningBox] = useState<InventoryItem | null>(null)
+  // Set when the server answers 409 STILL_HAS_UNITS (our list was stale);
+  // the next click then confirms.
+  const [openStillMsg, setOpenStillMsg] = useState<string | null>(null)
+  // Sizes vary between purchases: ask for THIS bottle's size, pre-filled.
+  const [openSize, setOpenSize] = useState('')
   const [viewingMovements, setViewingMovements] = useState<InventoryItem | null>(null)
   const [showCatalog, setShowCatalog] = useState(false)
   const [showSupplierCatalog, setShowSupplierCatalog] = useState(false)
@@ -176,6 +299,10 @@ export default function InventoryPage() {
   const [restockPortionCount, setRestockPortionCount] = useState('')
   const [restockTotalCostPesos, setRestockTotalCostPesos] = useState('')
   const [restockNote, setRestockNote] = useState('')
+  // Batch E4: every purchase carries its price. Owner-only exception for goods
+  // that came free; a price far from the last one asks before saving.
+  const [restockFree, setRestockFree] = useState(false)
+  const [priceCheckMsg, setPriceCheckMsg] = useState<string | null>(null)
 
   // adjust form
   const [adjustType, setAdjustType] = useState('MANUAL_ADJUSTMENT')
@@ -262,21 +389,39 @@ export default function InventoryPage() {
 
   // ── Filtered list ──────────────────────────────────────────────────────────
 
+  // Shots / loose cigarettes are not managed on their own: they only exist by
+  // opening their bottle / box. They are folded into the parent's row instead
+  // of getting a row (and a Reabastecer button) of their own.
+  const childOf = useMemo(() => {
+    const byId = new Map(items.map(i => [i.id, i]))
+    const m = new Map<string, InventoryItem>()          // parent id -> child
+    for (const i of items) {
+      if ((i.item_type === 'BOTTLE' || i.item_type === 'CIG_BOX') && i.shots_per_bottle && i.yields_item_id) {
+        const c = byId.get(i.yields_item_id)
+        if (c) m.set(i.id, c)
+      }
+    }
+    return m
+  }, [items])
+  const childIds = useMemo(() => new Set([...childOf.values()].map(c => c.id)), [childOf])
+  const isOpenedChild = (item: InventoryItem | null) => !!item && childIds.has(item.id)
+
   const filtered = useMemo(() => {
-    let list = items
+    let list = items.filter(i => !childIds.has(i.id))
     if (tab !== 'all') list = list.filter(i => i.category === tab)
-    if (lowStockOnly)  list = list.filter(i => i.is_low)
+    if (lowStockOnly)  list = list.filter(i => i.is_low || !!childOf.get(i.id)?.is_low)
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase()
-      list = list.filter(i =>
+      const matches = (i: InventoryItem) =>
         i.name.toLowerCase().includes(q) ||
         (i.sku ?? '').toLowerCase().includes(q) ||
         (i.supplier ?? '').toLowerCase().includes(q) ||
         i.category.toLowerCase().includes(q)
-      )
+      // Searching for a shot finds its bottle.
+      list = list.filter(i => matches(i) || (childOf.has(i.id) && matches(childOf.get(i.id)!)))
     }
     return list
-  }, [items, tab, lowStockOnly, debouncedSearch])
+  }, [items, tab, lowStockOnly, debouncedSearch, childOf, childIds])
 
   // ── Restock WAC preview (client-side) ─────────────────────────────────────
 
@@ -287,7 +432,7 @@ export default function InventoryPage() {
       const portions = parseFloat(restockPortionCount)
       const totalCentavos = Math.round(parseFloat(restockTotalCostPesos || '0') * 100)
       if (!portions || portions <= 0) return null
-      const costPerPortion = Math.round(totalCentavos / portions)
+      const costPerPortion = totalCentavos / portions
       const newWAC = computeWAC(restocking.stock_quantity, restocking.unit_cost_cents, portions, costPerPortion)
       return { delta: portions, costPerBase: costPerPortion, newWAC }
     } else {
@@ -296,7 +441,7 @@ export default function InventoryPage() {
       const packSize = parseFloat(restockPackOverride || String(restocking.purchase_pack_size)) || 1
       if (!purchaseQty || purchaseQty <= 0) return null
       const delta = purchaseQty * packSize
-      const costPerBase = Math.round(costCents / packSize)
+      const costPerBase = costCents / packSize
       const newWAC = computeWAC(restocking.stock_quantity, restocking.unit_cost_cents, delta, costPerBase)
       return { delta, costPerBase, newWAC }
     }
@@ -307,6 +452,10 @@ export default function InventoryPage() {
   const handleCreate = async () => {
     if (!newItem.name.trim()) return toast.error('Se requiere un nombre')
     if (!newItem.base_unit_key) return toast.error('Se requiere unidad base')
+    if (packMissing(newItem.base_unit_key, newItem.purchase_unit_key, newItem.purchase_pack_size))
+      return toast.error(`¿Cuántas ${getUnitName(newItem.base_unit_key).toLowerCase()} trae la ${getUnitName(newItem.purchase_unit_key).toLowerCase()}?`)
+    if (parseFloat(newItem.stock_quantity || '0') > 0 && !(parseFloat(newItem.initial_cost_pesos || '0') > 0))
+      return toast.error('Con existencia inicial, escribe cuánto costó')
     setSaving(true)
     try {
       const payload: any = {
@@ -316,16 +465,25 @@ export default function InventoryPage() {
         base_unit_key: newItem.base_unit_key,
         stock_quantity: parseFloat(newItem.stock_quantity as any) || 0,
         low_stock_threshold: parseFloat(newItem.low_stock_threshold as any) || 0,
-        unit_cost_cents: Math.round(parseFloat(newItem.initial_cost_pesos || '0') * 100),
+        // Price of ONE purchase unit (a case, a 3,780 ml bottle). The backend
+        // divides by units-per-case, exactly. Without a purchase unit it is the
+        // price of one base unit.
+        ...(parseFloat(newItem.initial_cost_pesos) > 0
+          ? { purchase_cost_cents: Math.round(parseFloat(newItem.initial_cost_pesos) * 100) } : {}),
       }
       if (newItem.sku.trim())      payload.sku = newItem.sku.trim()
       if (newItem.supplier.trim()) payload.supplier = newItem.supplier.trim()
       if (newItem.purchase_unit_key) payload.purchase_unit_key = newItem.purchase_unit_key
       if (newItem.purchase_pack_size) payload.purchase_pack_size = parseFloat(newItem.purchase_pack_size) || 1
-      if (newItem.shots_per_bottle) payload.shots_per_bottle = parseInt(newItem.shots_per_bottle)
+      if (newItem.item_type === 'BOTTLE') {
+        if (newItem.bottle_ml) { payload.bottle_ml = parseInt(newItem.bottle_ml); payload.pour_ml = parseFloat(newItem.pour_ml) || 50 }
+      } else if (newItem.shots_per_bottle) payload.shots_per_bottle = parseInt(newItem.shots_per_bottle)
       if (newItem.yields_item_id)   payload.yields_item_id = newItem.yields_item_id
       await client.post('/inventory', payload)
-      toast.success(`${newItem.name} añadido`)
+      toast.success(payload.bottle_ml
+        ? `${newItem.name} añadido — se puede abrir (${shotsIn(payload.bottle_ml, payload.pour_ml)} shots de ${payload.pour_ml} ml)`
+        : payload.shots_per_bottle ? `${newItem.name} añadido — se puede abrir (${payload.shots_per_bottle} por caja)`
+        : `${newItem.name} añadido`)
       qc.invalidateQueries({ queryKey: ['inventory'] })
       setShowNew(false); setNewItem({ ...BLANK_NEW })
     } catch (err: any) {
@@ -335,6 +493,8 @@ export default function InventoryPage() {
 
   const handleEdit = async () => {
     if (!editForm.name.trim()) return toast.error('Se requiere un nombre')
+    if (packMissing(editForm.base_unit_key, editForm.purchase_unit_key, editForm.purchase_pack_size))
+      return toast.error(`¿Cuántas ${getUnitName(editForm.base_unit_key).toLowerCase()} trae la ${getUnitName(editForm.purchase_unit_key).toLowerCase()}? (más de 1)`)
     setSaving(true)
     try {
       const payload: any = {
@@ -348,8 +508,15 @@ export default function InventoryPage() {
         purchase_unit_key: editForm.purchase_unit_key || null,
         purchase_pack_size: parseFloat(editForm.purchase_pack_size) || 1,
         purchase_cost_cents: editForm.purchase_cost_pesos ? Math.round(parseFloat(editForm.purchase_cost_pesos) * 100) : null,
-        shots_per_bottle: editForm.shots_per_bottle ? parseInt(editForm.shots_per_bottle) : null,
         yields_item_id: editForm.yields_item_id || null,
+        ...((editForm.portion_source_id || editing?.portion_source_id)
+          ? { portion_source_id: editForm.portion_source_id || null,
+              ...(editForm.portion_source_id ? { portion_size: parseFloat(editForm.portion_size) || null } : {}) }
+          : {}),
+        ...(editForm.item_type === 'BOTTLE'
+          ? { bottle_ml: editForm.bottle_ml ? parseInt(editForm.bottle_ml) : null,
+              ...(editForm.bottle_ml ? { pour_ml: parseFloat(editForm.pour_ml) || 50 } : {}) }
+          : { shots_per_bottle: editForm.shots_per_bottle ? parseInt(editForm.shots_per_bottle) : null }),
       }
       await client.patch(`/inventory/${editing!.id}`, payload)
       toast.success('Artículo actualizado')
@@ -360,23 +527,27 @@ export default function InventoryPage() {
     } finally { setSaving(false) }
   }
 
-  const handleRestock = async () => {
+  const handleRestock = async (confirmPrice = false) => {
     if (!restocking) return
+    if (restockFree && !restockNote.trim()) { toast.error('Escribe por qué entra sin costo (p. ej. cortesía del proveedor)'); return }
     setSaving(true)
     try {
       const isFood = restocking.category === 'food'
-      let payload: any = { reason: restockNote || undefined }
+      let payload: any = { reason: restockNote || undefined,
+                           ...(restockFree ? { sin_costo: true } : {}),
+                           ...(confirmPrice ? { confirm_price: true } : {}) }
 
       if (isFood) {
         const portions = parseFloat(restockPortionCount)
         if (!portions || portions <= 0) { toast.error('Se requiere cantidad de porciones > 0'); return }
         payload.portion_count = portions
         payload.total_purchase_cost_cents = Math.round(parseFloat(restockTotalCostPesos || '0') * 100)
+        if (!restockFree && payload.total_purchase_cost_cents <= 0) { toast.error('Escribe cuánto costó esta compra'); return }
       } else {
         const qty = parseFloat(restockPurchaseQty)
         if (!qty || qty <= 0) { toast.error('Se requiere cantidad > 0'); return }
         const costCents = Math.round(parseFloat(restockCostPesos || '0') * 100)
-        if (costCents < 0) { toast.error('El costo no puede ser negativo'); return }
+        if (!restockFree && costCents <= 0) { toast.error('Escribe cuánto costó (precio de la caja o de la pieza)'); return }
         payload.purchase_quantity = qty
         payload.unit_cost_per_purchase_unit_cents = costCents
         if (restockPackOverride) payload.pack_size_override = parseFloat(restockPackOverride)
@@ -388,8 +559,11 @@ export default function InventoryPage() {
       setRestocking(null)
       setRestockPurchaseQty(''); setRestockCostPesos(''); setRestockPackOverride('')
       setRestockPortionCount(''); setRestockTotalCostPesos(''); setRestockNote('')
+      setRestockFree(false); setPriceCheckMsg(null)
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Error al reabastecer')
+      if (err.response?.status === 409 && err.response?.data?.error === 'PRICE_CHECK') {
+        setPriceCheckMsg(err.response.data.message)       // ask, then resend with confirm_price
+      } else toast.error(err.response?.data?.message || 'Error al reabastecer')
     } finally { setSaving(false) }
   }
 
@@ -418,15 +592,30 @@ export default function InventoryPage() {
     } finally { setSaving(false) }
   }
 
+  /** Shots / loose cigarettes still on hand from the item this bottle/box opens into. */
+  const remainingFor = (parent: InventoryItem | null): number => {
+    if (!parent?.yields_item_id) return 0
+    const c = items.find(i => i.id === parent.yields_item_id)
+    const left = Number(c?.stock_quantity ?? 0)
+    return c?.pour_ml ? shotsIn(left, c.pour_ml) : left   // ml items: whole shots left
+  }
+
   const handleOpenBottle = async () => {
     if (!openingBottle) return
     setSaving(true)
     try {
-      await client.post(`/inventory/${openingBottle.id}/open-bottle`)
-      toast.success(`🍾 +${openingBottle.shots_per_bottle} copas añadidas`)
+      const { data } = await client.post(`/inventory/${openingBottle.id}/open-bottle`,
+        { confirm_remaining: remainingFor(openingBottle) > 0 || !!openStillMsg,
+          ...(openSize ? { size_ml: parseFloat(openSize) } : {}) })
+      toast.success(`🍾 +${data?.shots_added ?? openingBottle.shots_per_bottle} shots${data?.ml_added ? ` (${fmtQty(data.ml_added)} ml)` : ''} en ${data?.shots?.name ?? 'inventario'}`)
       qc.invalidateQueries({ queryKey: ['inventory'] })
-      setOpeningBottle(null)
-    } catch (err: any) { toast.error(err.response?.data?.message || 'Error') }
+      setOpeningBottle(null); setOpenStillMsg(null)
+    } catch (err: any) {
+      if (err.response?.status === 409 && err.response?.data?.error === 'STILL_HAS_UNITS') {
+        setOpenStillMsg(err.response.data.message)
+        qc.invalidateQueries({ queryKey: ['inventory'] })
+      } else toast.error(err.response?.data?.message || 'Error')
+    }
     finally { setSaving(false) }
   }
 
@@ -434,12 +623,18 @@ export default function InventoryPage() {
     if (!openingBox) return
     setSaving(true)
     try {
-      await client.post(`/inventory/${openingBox.id}/open-box`)
+      await client.post(`/inventory/${openingBox.id}/open-box`,
+        { confirm_remaining: remainingFor(openingBox) > 0 || !!openStillMsg })
       toast.success(`🚬 +${openingBox.shots_per_bottle} cigarros disponibles`)
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['open-boxes'] })
-      setOpeningBox(null)
-    } catch (err: any) { toast.error(err.response?.data?.message || 'Error') }
+      setOpeningBox(null); setOpenStillMsg(null)
+    } catch (err: any) {
+      if (err.response?.status === 409 && err.response?.data?.error === 'STILL_HAS_UNITS') {
+        setOpenStillMsg(err.response.data.message)
+        qc.invalidateQueries({ queryKey: ['inventory'] })
+      } else toast.error(err.response?.data?.message || 'Error')
+    }
     finally { setSaving(false) }
   }
 
@@ -486,6 +681,10 @@ export default function InventoryPage() {
       purchase_unit_key: item.purchase_unit_key ?? '',
       purchase_pack_size: String(item.purchase_pack_size),
       shots_per_bottle: item.shots_per_bottle ? String(item.shots_per_bottle) : '',
+      bottle_ml: item.bottle_ml ? String(item.bottle_ml) : '',
+      portion_source_id: item.portion_source_id ?? '',
+      portion_size: item.portion_size ? String(item.portion_size) : '',
+      pour_ml: String(items.find(i => i.id === item.yields_item_id)?.pour_ml ?? 50),
       yields_item_id: item.yields_item_id ?? '',
       purchase_cost_pesos: item.purchase_cost_cents ? String((item.purchase_cost_cents / 100).toFixed(2)) : '',
     })
@@ -502,8 +701,8 @@ export default function InventoryPage() {
     setRestocking(item)
   }
 
-  const openAdjust = (item: InventoryItem) => {
-    setAdjustType('MANUAL_ADJUSTMENT'); setAdjustDelta('')
+  const openAdjust = (item: InventoryItem, type?: 'WASTE' | 'COUNT_ADJUSTMENT') => {
+    setAdjustType(type ?? (isOpenedChild(item) ? 'WASTE' : 'MANUAL_ADJUSTMENT')); setAdjustDelta('')
     setAdjustCounted(String(item.stock_quantity)); setAdjustWaste('')
     setAdjustReason('')
     setAdjusting(item)
@@ -535,6 +734,10 @@ export default function InventoryPage() {
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-xl font-bold">📦 {t('inventory.title')}</h1>
           <div className="flex gap-2">
+            <Link to="/manager/bar-count"
+              className="bg-amber-800 hover:bg-amber-700 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-100">
+              🍾 Conteo de barra
+            </Link>
             {isAdmin && (
               <button onClick={() => setShowCatalog(true)}
                 className="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300">
@@ -615,6 +818,9 @@ export default function InventoryPage() {
             const inMenu = (menuItems as any[]).some((m: any) =>
               m.name.toLowerCase() === item.name.toLowerCase()
             )
+            const child = childOf.get(item.id) ?? null
+            const packsOf = items.filter(i => i.portion_source_id === item.id && i.is_active)
+            const rawOf = item.portion_source_id ? items.find(i => i.id === item.portion_source_id) : null
             return (
               <div key={item.id}
                 className={`bg-slate-800 rounded-xl px-3 py-2.5 flex items-center gap-3 border ${item.is_low ? 'border-red-700' : 'border-slate-700'}`}>
@@ -625,7 +831,7 @@ export default function InventoryPage() {
                     <span className="font-semibold text-sm leading-tight">{item.name}</span>
                     {item.is_low && <span className="text-[10px] text-red-400 font-bold bg-red-900/40 px-1.5 py-0.5 rounded">⚠ bajo</span>}
                     {item.item_type === 'BOTTLE' && item.shots_per_bottle && (
-                      <span className="text-[10px] text-amber-400">🍾 {item.shots_per_bottle}c</span>
+                      <span className="text-[10px] text-amber-400">🍾 {item.bottle_ml ? `${fmtQty(item.bottle_ml)} ml · ` : ''}{item.shots_per_bottle} shots</span>
                     )}
                     {item.item_type === 'CIG_BOX' && item.shots_per_bottle && (
                       <span className="text-[10px] text-orange-400">🚬 {item.shots_per_bottle}</span>
@@ -633,8 +839,53 @@ export default function InventoryPage() {
                   </div>
                   <div className="text-xs text-slate-500 leading-tight mt-0.5">
                     {getUnitName(item.base_unit_key)} · {CATEGORY_LABELS[item.category]?.replace(/^.+ /, '') ?? item.category}
-                    {item.unit_cost_cents > 0 && <span className="ml-2">{formatMXN(item.unit_cost_cents)}/u</span>}
+                    {item.unit_cost_cents > 0 && <span className="ml-2">{formatUnitCost(item.unit_cost_cents)}/{getUnitName(item.base_unit_key).toLowerCase()}</span>}
                   </div>
+                  {packsOf.length > 0 && (
+                    <div className="mt-1 text-xs text-orange-200/80">
+                      ↳ {packsOf.map(p => `${p.name}: ${fmtQty(p.stock_quantity)}`).join(' · ')}
+                    </div>
+                  )}
+                  {rawOf && item.portion_size && (
+                    <div className="mt-0.5 text-[11px] text-slate-500">paquete de {fmtQty(item.portion_size)} {['litro', 'ml'].includes(rawOf.base_unit_key) ? 'ml' : 'g'}</div>
+                  )}
+                  {child && (() => {
+                    const isBox = item.item_type === 'CIG_BOX'
+                    const noun = isBox ? 'sueltos' : 'shots'
+                    const left = Number(child.stock_quantity)
+                    const pour = child.pour_ml
+                    const shotsLeft = pour ? shotsIn(left, pour) : left
+                    const childInMenu = (menuItems as any[]).some((m: any) =>
+                      m.name.toLowerCase() === child.name.toLowerCase())
+                    return (
+                      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-xs">
+                        <span className={left > 0 ? (isBox ? 'text-orange-300' : 'text-amber-300') : 'text-slate-500'}
+                          title={child.name}>
+                          ↳ {shotsLeft >= 1
+                            ? <><span className="font-mono font-bold">{fmtQty(shotsLeft)}</span> {noun} abiertos
+                                {pour ? <span className="text-slate-400"> · {fmtQty(left)} ml</span> : null}
+                                {child.open_bottles && child.open_bottles > 1
+                                  ? <span className="text-slate-400"> · {child.open_bottles} botellas abiertas</span> : null}</>
+                            : left > 0 && pour
+                              ? <>Quedan {fmtQty(left)} ml (menos de un shot) — usa 🍾 Abrir botella</>
+                              : <>Sin {noun} abiertos — usa {isBox ? '🚬 Abrir caja' : '🍾 Abrir botella'}</>}
+                        </span>
+                        <button onClick={() => openAdjust(child, 'WASTE')} title={`Merma de ${noun} (derrame, rotura)`}
+                          className="bg-slate-700 hover:bg-red-800 px-1.5 py-0.5 rounded text-[11px] text-slate-300">Merma</button>
+                        <button onClick={() => openAdjust(child, 'COUNT_ADJUSTMENT')} title={`Conteo de ${noun} en la ${isBox ? 'caja' : 'botella'} abierta`}
+                          className="bg-slate-700 hover:bg-violet-800 px-1.5 py-0.5 rounded text-[11px] text-slate-300">Conteo</button>
+                        <button onClick={() => setViewingMovements(child)} title="Movimientos"
+                          className="bg-slate-700 hover:bg-slate-600 px-1.5 py-0.5 rounded text-[11px] text-slate-300">📋</button>
+                        <button onClick={() => openEdit(child)} title={`Editar ${child.name}`}
+                          className="bg-slate-700 hover:bg-sky-700 px-1.5 py-0.5 rounded text-[11px]">✏️</button>
+                        {childInMenu
+                          ? <span className="text-[10px] text-emerald-400 font-semibold" title="En el menú">✅</span>
+                          : <button onClick={() => { setAddToMenu(child); setMenuForm({ category_id: '', price_cents: 0, requires_flavor: false }) }}
+                              title={`Agregar "${child.name}" al menú para poder venderlo`}
+                              className="bg-emerald-900/60 hover:bg-emerald-800 px-1.5 py-0.5 rounded text-[11px] text-emerald-200">🍽️ Vender {noun}</button>}
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 {/* Stock badge */}
@@ -646,17 +897,25 @@ export default function InventoryPage() {
                 {/* Action buttons — all horizontal */}
                 <div className="flex items-center gap-1 flex-shrink-0">
                   {item.item_type === 'BOTTLE' && item.shots_per_bottle && item.yields_item_id && (
-                    <button onClick={() => setOpeningBottle(item)} title="Abrir botella"
+                    <button onClick={() => { setOpeningBottle(item); setOpenSize(String(item.bottle_ml ?? 750)) }} title="Abrir botella"
                       className="bg-amber-700 hover:bg-amber-600 px-2 py-1 rounded text-xs font-bold">🍾</button>
                   )}
                   {item.item_type === 'CIG_BOX' && item.shots_per_bottle && item.yields_item_id && (
                     <button onClick={() => setOpeningBox(item)} title="Abrir caja"
                       className="bg-orange-700 hover:bg-orange-600 px-2 py-1 rounded text-xs font-bold">🚬</button>
                   )}
+                  {packsOf.length > 0 && (
+                    <button onClick={() => setPortioning(item)} title="Porcionar"
+                      className="bg-orange-700 hover:bg-orange-600 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">🔪 Porcionar</button>
+                  )}
+                  {rawOf ? (
+                    <span className="text-[11px] text-orange-300 whitespace-nowrap" title={`Se produce porcionando ${rawOf.name}`}>🔪 de {rawOf.name}</span>
+                  ) : (
                   <button onClick={() => openRestock(item)}
                     className="bg-emerald-700 hover:bg-emerald-600 px-2.5 py-1 rounded text-xs font-bold text-emerald-100 whitespace-nowrap">
                     📦 Reabastecer
                   </button>
+                  )}
                   <button onClick={() => openAdjust(item)} title="Ajustar stock"
                     className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs text-slate-300">
                     ⚡
@@ -702,7 +961,7 @@ export default function InventoryPage() {
               <div className="space-y-3">
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">{t('inventory.portionCount')} *</label>
-                  <input type="number" min={0.01} step="any" value={restockPortionCount}
+                  <input type="number" min={qtyStep(restocking.base_unit_key) === 1 ? 1 : 0.01} step={qtyStep(restocking.base_unit_key)} value={restockPortionCount}
                     onChange={e => setRestockPortionCount(e.target.value)}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
                     placeholder="ej. 45" autoFocus />
@@ -710,7 +969,7 @@ export default function InventoryPage() {
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">{t('inventory.totalBatchCost')} *</label>
                   <input type="number" min={0} step="0.01" value={restockTotalCostPesos}
-                    onChange={e => setRestockTotalCostPesos(e.target.value)}
+                    onChange={e => { setRestockTotalCostPesos(e.target.value); setPriceCheckMsg(null) }}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
                     placeholder="0.00" />
                   <p className="text-xs text-slate-500 mt-1">⚠ Verifica el precio actual antes de registrar.</p>
@@ -718,10 +977,10 @@ export default function InventoryPage() {
                 {restockPreview && (
                   <div className="bg-slate-700/50 rounded-lg p-3 text-sm space-y-1">
                     <div className="text-slate-400">
-                      Costo por porción: <span className="text-white font-semibold">{formatMXN(restockPreview.costPerBase)}</span>
+                      Costo por porción: <span className="text-white font-semibold">{formatUnitCost(restockPreview.costPerBase)}</span>
                     </div>
                     <div className="text-emerald-300 font-semibold">
-                      {t('inventory.newWAC')}: {formatMXN(restockPreview.newWAC)}/{getUnitName(restocking.base_unit_key)}
+                      {t('inventory.newWAC')}: {formatUnitCost(restockPreview.newWAC)}/{getUnitName(restocking.base_unit_key)}
                     </div>
                   </div>
                 )}
@@ -734,7 +993,7 @@ export default function InventoryPage() {
                     <label className="text-xs text-slate-400 block mb-1">
                       Cantidad ({restocking.purchase_unit_key ? getUnitName(restocking.purchase_unit_key) : getUnitName(restocking.base_unit_key)}) *
                     </label>
-                    <input type="number" min={0.01} step="any" value={restockPurchaseQty}
+                    <input type="number" min={qtyStep(restocking.purchase_unit_key || restocking.base_unit_key) === 1 ? 1 : 0.01} step={qtyStep(restocking.purchase_unit_key || restocking.base_unit_key)} value={restockPurchaseQty}
                       onChange={e => setRestockPurchaseQty(e.target.value)}
                       className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
                       placeholder="ej. 5" autoFocus />
@@ -763,7 +1022,7 @@ export default function InventoryPage() {
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">{t('inventory.costPerPurchaseUnit')} *</label>
                   <input type="number" min={0} step="0.01" value={restockCostPesos}
-                    onChange={e => setRestockCostPesos(e.target.value)}
+                    onChange={e => { setRestockCostPesos(e.target.value); setPriceCheckMsg(null) }}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
                     placeholder="0.00" />
                   <p className="text-xs text-slate-500 mt-1">⚠ Verifica el precio actual antes de registrar.</p>
@@ -772,10 +1031,10 @@ export default function InventoryPage() {
                 {restockPreview && restockCostPesos && (
                   <div className="bg-slate-700/50 rounded-lg p-3 text-sm space-y-1">
                     <div className="text-slate-400">
-                      Por {getUnitName(restocking.base_unit_key)}: <span className="text-white font-semibold">{formatMXN(restockPreview.costPerBase)}</span>
+                      Por {getUnitName(restocking.base_unit_key)}: <span className="text-white font-semibold">{formatUnitCost(restockPreview.costPerBase)}</span>
                     </div>
                     <div className="text-emerald-300 font-semibold">
-                      {t('inventory.newWAC')}: {formatMXN(restockPreview.newWAC)}/{getUnitName(restocking.base_unit_key)}
+                      {t('inventory.newWAC')}: {formatUnitCost(restockPreview.newWAC)}/{getUnitName(restocking.base_unit_key)}
                     </div>
                   </div>
                 )}
@@ -783,18 +1042,37 @@ export default function InventoryPage() {
             )}
 
             <div className="mt-3">
-              <label className="text-xs text-slate-400 block mb-1">Nota (opcional)</label>
+              {isAdmin && (
+                <label className="flex items-center gap-2 text-xs text-slate-300 mb-2">
+                  <input type="checkbox" checked={restockFree} onChange={e => { setRestockFree(e.target.checked); setPriceCheckMsg(null) }} />
+                  Entró sin costo (cortesía del proveedor) — solo dueño, con motivo
+                </label>
+              )}
+              <label className="text-xs text-slate-400 block mb-1">{restockFree ? 'Motivo *' : 'Nota (opcional)'}</label>
               <input value={restockNote} onChange={e => setRestockNote(e.target.value)}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
-                placeholder="ej. Pedido de proveedor" />
+                placeholder={restockFree ? 'ej. 2 cajas de cortesía de la cervecería' : 'ej. Pedido de proveedor'} />
             </div>
 
+            {priceCheckMsg && (
+              <div className="mt-3 text-sm bg-amber-900/40 border border-amber-600 text-amber-100 rounded-lg px-3 py-2">
+                ⚠️ {priceCheckMsg}
+              </div>
+            )}
+
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setRestocking(null)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
-              <button onClick={handleRestock} disabled={saving}
-                className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-bold disabled:opacity-50">
-                {saving ? 'Guardando…' : 'Registrar'}
-              </button>
+              <button onClick={() => { setRestocking(null); setRestockFree(false); setPriceCheckMsg(null) }} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              {(() => {
+                const isFood = restocking.category === 'food'
+                const priced = restockFree || parseFloat((isFood ? restockTotalCostPesos : restockCostPesos) || '0') > 0
+                return (
+                  <button onClick={() => handleRestock(!!priceCheckMsg)} disabled={saving || !priced}
+                    title={priced ? '' : 'Escribe cuánto costó'}
+                    className={`flex-1 py-2 rounded-lg font-bold disabled:opacity-50 ${priceCheckMsg ? 'bg-amber-600 hover:bg-amber-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
+                    {saving ? 'Guardando…' : priceCheckMsg ? 'Sí, el precio es correcto' : priced ? 'Registrar' : 'Falta el precio'}
+                  </button>
+                )
+              })()}
             </div>
           </div>
         </div>
@@ -808,15 +1086,29 @@ export default function InventoryPage() {
             <p className="text-slate-400 text-sm mb-4">
               {adjusting.name} · {fmtQty(adjusting.stock_quantity)} {getUnitName(adjusting.base_unit_key)}
             </p>
+            {adjusting.pour_ml ? (
+              <p className="text-xs text-amber-300/90 -mt-2 mb-3">
+                En ml: 1 shot = {fmtQty(adjusting.pour_ml)} ml · hay {shotsIn(Number(adjusting.stock_quantity), adjusting.pour_ml)} shots
+                ({fmtQty(adjusting.stock_quantity)} ml). Media botella de {fmtQty((items.find(i => i.yields_item_id === adjusting.id)?.bottle_ml) ?? 750)} ml
+                = {fmtQty(((items.find(i => i.yields_item_id === adjusting.id)?.bottle_ml) ?? 750) / 2)} ml.
+              </p>
+            ) : null}
+            {isOpenedChild(adjusting) && (
+              <p className="text-xs text-amber-200/90 bg-amber-900/30 border border-amber-800 rounded-lg px-3 py-2 -mt-2 mb-4">
+                Solo aumentan al abrir una {adjusting.item_type === 'CIG_SINGLE' ? 'caja' : 'botella'}.
+                {!isAdmin && ' El conteo solo puede bajar; para subirlo, pide al administrador.'}
+              </p>
+            )}
 
             <div className="mb-3">
               <label className="text-xs text-slate-400 block mb-1">Tipo de ajuste</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className={`grid gap-2 ${isOpenedChild(adjusting) ? 'grid-cols-2' : 'grid-cols-3'}`}>
                 {[
                   { value: 'MANUAL_ADJUSTMENT', label: t('inventory.manualAdj'),   color: 'sky' },
                   { value: 'WASTE',              label: t('inventory.waste'),        color: 'red' },
                   { value: 'COUNT_ADJUSTMENT',   label: t('inventory.physicalCount'), color: 'violet' },
-                ].map(({ value, label, color }) => (
+                ].filter(o => !(isOpenedChild(adjusting) && o.value === 'MANUAL_ADJUSTMENT'))
+                 .map(({ value, label, color }) => (
                   <button key={value} onClick={() => setAdjustType(value)}
                     className={`py-2 px-1 rounded-lg text-xs font-semibold border transition-colors ${
                       adjustType === value
@@ -832,7 +1124,7 @@ export default function InventoryPage() {
             {adjustType === 'MANUAL_ADJUSTMENT' && (
               <div className="mb-3">
                 <label className="text-xs text-slate-400 block mb-1">Cambio (+ o -)</label>
-                <input type="number" step="any" value={adjustDelta} onChange={e => setAdjustDelta(e.target.value)}
+                <input type="number" step={qtyStep(adjusting.base_unit_key)} value={adjustDelta} onChange={e => setAdjustDelta(e.target.value)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
                   placeholder={`+10 o -5 ${getUnitName(adjusting.base_unit_key)}`} autoFocus />
               </div>
@@ -843,7 +1135,7 @@ export default function InventoryPage() {
                 <label className="text-xs text-slate-400 block mb-1">
                   Cantidad a dar de baja ({getUnitName(adjusting.base_unit_key)})
                 </label>
-                <input type="number" min={0.01} step="any" value={adjustWaste}
+                <input type="number" min={qtyStep(adjusting.base_unit_key) === 1 ? 1 : 0.01} step={qtyStep(adjusting.base_unit_key)} value={adjustWaste}
                   onChange={e => setAdjustWaste(e.target.value)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
                   placeholder="ej. 1" autoFocus />
@@ -855,7 +1147,7 @@ export default function InventoryPage() {
                 <label className="text-xs text-slate-400 block mb-1">
                   Cantidad contada ({getUnitName(adjusting.base_unit_key)})
                 </label>
-                <input type="number" min={0} step="any" value={adjustCounted}
+                <input type="number" min={0} step={qtyStep(adjusting.base_unit_key)} value={adjustCounted}
                   onChange={e => setAdjustCounted(e.target.value)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
                   autoFocus />
@@ -887,6 +1179,14 @@ export default function InventoryPage() {
         </div>
       )}
 
+      {portioning && (
+        <PortionDialog raw={portioning as any}
+          packs={items.filter(i => i.portion_source_id === portioning.id && i.is_active) as any}
+          isOwner={isAdmin}
+          onDone={() => { setPortioning(null); qc.invalidateQueries({ queryKey: ['inventory'] }) }}
+          onCancel={() => setPortioning(null)} />
+      )}
+
       {/* ── Open Bottle Modal ─────────────────────────────────────────────── */}
       {openingBottle && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
@@ -897,14 +1197,32 @@ export default function InventoryPage() {
             </p>
             <p className="text-sm text-slate-400 mb-5">
               Consume 1 botella sellada y añade{' '}
-              <span className="text-amber-300 font-bold">{openingBottle.shots_per_bottle} copas</span> al inventario.
+              <span className="text-amber-300 font-bold">{openingBottle.shots_per_bottle} shots
+                {openingBottle.bottle_ml ? ` (${fmtQty(openingBottle.bottle_ml)} ml)` : ''}</span> al inventario.
               Botellas restantes: <span className="font-bold text-white">{fmtQty(openingBottle.stock_quantity)}</span>
             </p>
+            {openingBottle.bottle_ml && (
+              <label className="block text-xs text-slate-400 mb-4 -mt-2">Tamaño de esta botella (ml)
+                <input type="number" min={50} max={5000} step={1} value={openSize}
+                  onChange={e => setOpenSize(e.target.value)}
+                  className="mt-1 w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+                <span className="block mt-1 text-slate-500">
+                  {openingBottle.bottle_ml && parseFloat(openSize) !== openingBottle.bottle_ml
+                    ? `Distinta a la habitual (${fmtQty(openingBottle.bottle_ml)} ml): solo para esta botella.`
+                    : 'Cámbialo si esta botella es de otro tamaño (p. ej. 1000 ml).'}
+                </span>
+              </label>
+            )}
+            {(remainingFor(openingBottle) > 0 || openStillMsg) && (
+              <p className="text-sm font-bold text-amber-200 bg-amber-900/40 border border-amber-600 rounded-lg px-3 py-2 -mt-2 mb-4">
+                ⚠️ {openStillMsg ?? `Todavía quedan ${fmtQty(remainingFor(openingBottle))} shots, ¿abrir otra?`}
+              </p>
+            )}
             <div className="flex gap-3">
-              <button onClick={() => setOpeningBottle(null)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => { setOpeningBottle(null); setOpenStillMsg(null) }} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
               <button onClick={handleOpenBottle} disabled={saving || openingBottle.stock_quantity < 1}
                 className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg font-bold disabled:opacity-50 text-slate-900">
-                Abrir Botella
+                {remainingFor(openingBottle) > 0 || openStillMsg ? 'Sí, abrir otra' : 'Abrir Botella'}
               </button>
             </div>
           </div>
@@ -924,11 +1242,16 @@ export default function InventoryPage() {
               <span className="text-orange-300 font-bold">{openingBox.shots_per_bottle} cigarros</span>.
               Cajas restantes: <span className="font-bold text-white">{fmtQty(openingBox.stock_quantity)}</span>
             </p>
+            {(remainingFor(openingBox) > 0 || openStillMsg) && (
+              <p className="text-sm font-bold text-orange-200 bg-orange-900/40 border border-orange-600 rounded-lg px-3 py-2 -mt-2 mb-4">
+                ⚠️ {openStillMsg ?? `Todavía quedan ${fmtQty(remainingFor(openingBox))} cigarros sueltos, ¿abrir otra?`}
+              </p>
+            )}
             <div className="flex gap-3">
-              <button onClick={() => setOpeningBox(null)} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
+              <button onClick={() => { setOpeningBox(null); setOpenStillMsg(null) }} className="flex-1 py-2 border border-slate-600 rounded-lg">Cancelar</button>
               <button onClick={handleOpenBox} disabled={saving || openingBox.stock_quantity < 1}
                 className="flex-1 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-bold disabled:opacity-50">
-                Abrir Caja
+                {remainingFor(openingBox) > 0 || openStillMsg ? 'Sí, abrir otra' : 'Abrir Caja'}
               </button>
             </div>
           </div>
@@ -968,12 +1291,13 @@ export default function InventoryPage() {
                   </select>
                 </div>
                 <UnitSelect label={`${t('inventory.baseUnit')} *`} value={newItem.base_unit_key}
-                  onChange={v => setNewItem({ ...newItem, base_unit_key: v })} />
+                  onChange={v => setNewItem({ ...newItem, base_unit_key: v,
+                    purchase_pack_size: packFor(v, newItem.purchase_unit_key, newItem.purchase_pack_size) })} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">Cant. Inicial</label>
-                  <input type="number" min={0} step="any" value={newItem.stock_quantity}
+                  <label className="text-xs text-slate-400 block mb-1">Cant. Inicial{newItem.base_unit_key ? ` (${getUnitName(newItem.base_unit_key).toLowerCase()})` : ''}</label>
+                  <input type="number" min={0} step={qtyStep(newItem.base_unit_key)} value={newItem.stock_quantity}
                     onChange={e => setNewItem({ ...newItem, stock_quantity: e.target.value })}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
                 </div>
@@ -984,24 +1308,19 @@ export default function InventoryPage() {
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">{t('inventory.initialCost')}</label>
-                <input type="number" min={0} step="0.01" value={newItem.initial_cost_pesos}
-                  onChange={e => setNewItem({ ...newItem, initial_cost_pesos: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
-                  placeholder="ej. 25.50 (por unidad base)" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <UnitSelect label={t('inventory.purchaseUnit')} value={newItem.purchase_unit_key}
-                  onChange={v => setNewItem({ ...newItem, purchase_unit_key: v })} />
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">{t('inventory.packSize')}</label>
-                  <input type="number" min={0.0001} step="any" value={newItem.purchase_pack_size}
-                    onChange={e => setNewItem({ ...newItem, purchase_pack_size: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
-                    placeholder="ej. 12 (botellas/caja)" />
-                </div>
-              </div>
+              {/* How it is bought, then its price per purchase unit. */}
+              <UnitSelect label={`${t('inventory.purchaseUnit')} (cómo lo compras)`} value={newItem.purchase_unit_key}
+                onChange={v => setNewItem({ ...newItem, purchase_unit_key: v,
+                                            purchase_pack_size: packFor(newItem.base_unit_key, v, newItem.purchase_pack_size) })} />
+              <CostEntry
+                pricePesos={newItem.initial_cost_pesos}
+                onPrice={v => setNewItem({ ...newItem, initial_cost_pesos: v })}
+                packSize={newItem.purchase_pack_size}
+                onPackSize={newItem.purchase_unit_key
+                  ? (v => setNewItem({ ...newItem, purchase_pack_size: v })) : undefined}
+                baseUnitName={newItem.base_unit_key ? getUnitName(newItem.base_unit_key) : 'unidad'}
+                purchaseUnitName={newItem.purchase_unit_key ? getUnitName(newItem.purchase_unit_key) : null}
+                baseUnitKey={newItem.base_unit_key} purchaseUnitKey={newItem.purchase_unit_key || null} />
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Tipo de artículo</label>
                 <select value={newItem.item_type} onChange={e => setNewItem({ ...newItem, item_type: e.target.value })}
@@ -1012,9 +1331,13 @@ export default function InventoryPage() {
                   <option value="CIG_SINGLE">Cigarro individual</option>
                 </select>
               </div>
+              {newItem.item_type === 'BOTTLE' && (
+                <BottleSizeFields bottle={newItem.bottle_ml} pour={newItem.pour_ml}
+                  onChange={(b, p) => setNewItem({ ...newItem, bottle_ml: b, pour_ml: p })} />
+              )}
               {(newItem.item_type === 'BOTTLE' || newItem.item_type === 'CIG_BOX') && (
                 <>
-                  <div>
+                  {newItem.item_type === 'CIG_BOX' && <div>
                     <label className="text-xs text-slate-400 block mb-1">
                       {newItem.item_type === 'CIG_BOX' ? 'Cigarros por caja' : 'Shots por botella'}
                     </label>
@@ -1022,16 +1345,21 @@ export default function InventoryPage() {
                       onChange={e => setNewItem({ ...newItem, shots_per_bottle: e.target.value })}
                       className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2"
                       placeholder={newItem.item_type === 'CIG_BOX' ? '20' : '15'} />
-                  </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {newItem.item_type === 'CIG_BOX'
+                        ? 'Con este dato podrás abrir la caja y vender cigarros sueltos. Vacío = solo se vende la caja completa.'
+                        : 'Con este dato podrás abrir la botella y vender shots. Vacío = solo se vende la botella cerrada.'}
+                    </p>
+                  </div>}
                   <div>
                     <label className="text-xs text-slate-400 block mb-1">
                       {newItem.item_type === 'CIG_BOX' ? 'Artículo individual que produce' : 'Copa/Shot que produce'}
                     </label>
                     <select value={newItem.yields_item_id} onChange={e => setNewItem({ ...newItem, yields_item_id: e.target.value })}
                       className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
-                      <option value="">— Sin vincular —</option>
+                      <option value="">— Crear automáticamente —</option>
                       {items.filter(i =>
-                        newItem.item_type === 'CIG_BOX' ? i.item_type === 'CIG_SINGLE' : i.item_type === 'STANDARD'
+                        newItem.item_type === 'CIG_BOX' ? i.item_type === 'CIG_SINGLE' : i.item_type === 'STANDARD' && i.base_unit_key === 'ml'
                       ).map(i => <option key={i.id} value={i.id}>{i.name} ({getUnitName(i.base_unit_key)})</option>)}
                     </select>
                   </div>
@@ -1054,7 +1382,7 @@ export default function InventoryPage() {
           <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-sky-700 my-4">
             <h2 className="font-bold mb-1 text-sky-300">✏️ Editar Artículo</h2>
             <p className="text-xs text-slate-400 mb-4">
-              WAC actual: <span className="text-white">{formatMXN(editing.unit_cost_cents)}/{getUnitName(editing.base_unit_key)}</span>
+              WAC actual: <span className="text-white">{formatUnitCost(editing.unit_cost_cents)}/{getUnitName(editing.base_unit_key)}</span>
               {' '}· Para actualizar el costo, usa Reabastecer.
             </p>
             <div className="space-y-3">
@@ -1121,25 +1449,55 @@ export default function InventoryPage() {
                   <option value="CIG_SINGLE">Cigarro individual</option>
                 </select>
               </div>
+              {editForm.item_type === 'STANDARD' && WEIGHT_UNITS.includes(editForm.base_unit_key) && editing && (
+                <RawPacksSection raw={editing} items={items}
+                  onChanged={() => qc.invalidateQueries({ queryKey: ['inventory'] })} />
+              )}
+              {editForm.item_type === 'STANDARD' && !WEIGHT_UNITS.includes(editForm.base_unit_key) && (
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-xs text-slate-400 block">Se porciona de (crudo)
+                    <select value={editForm.portion_source_id ?? ''} onChange={e => setEditForm({ ...editForm, portion_source_id: e.target.value })}
+                      className="mt-1 w-full bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm text-white">
+                      <option value="">— no se porciona —</option>
+                      {rawCandidates(items, editing?.id, editForm.category)
+                        .map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                    </select>
+                  </label>
+                  {editForm.portion_source_id && (
+                    <label className="text-xs text-slate-400 block">Peso por paquete (g / ml)
+                      <input type="number" min={1} value={editForm.portion_size ?? ''} placeholder="300"
+                        onChange={e => setEditForm({ ...editForm, portion_size: e.target.value })}
+                        className="mt-1 w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+                    </label>
+                  )}
+                  {editForm.portion_source_id && (
+                    <p className="col-span-2 text-[11px] text-slate-500">
+                      Se cuenta en paquetes y no se reabastece: sale de 🔪 Porcionar el crudo, que se compra por caja en kg.
+                    </p>
+                  )}
+                </div>
+              )}
+              {editForm.item_type === 'BOTTLE' && (
+                <BottleSizeFields bottle={editForm.bottle_ml} pour={editForm.pour_ml}
+                  onChange={(b, p) => setEditForm({ ...editForm, bottle_ml: b, pour_ml: p })} />
+              )}
               {(editForm.item_type === 'BOTTLE' || editForm.item_type === 'CIG_BOX') && (
                 <>
-                  <div>
-                    <label className="text-xs text-slate-400 block mb-1">
-                      {editForm.item_type === 'CIG_BOX' ? 'Cigarros por caja' : 'Shots por botella'}
-                    </label>
+                  {editForm.item_type === 'CIG_BOX' && <div>
+                    <label className="text-xs text-slate-400 block mb-1">Cigarros por caja</label>
                     <input type="number" min={1} value={editForm.shots_per_bottle}
                       onChange={e => setEditForm({ ...editForm, shots_per_bottle: e.target.value })}
                       className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
-                  </div>
+                  </div>}
                   <div>
                     <label className="text-xs text-slate-400 block mb-1">
                       {editForm.item_type === 'CIG_BOX' ? 'Artículo individual' : 'Copa/Shot producido'}
                     </label>
                     <select value={editForm.yields_item_id} onChange={e => setEditForm({ ...editForm, yields_item_id: e.target.value })}
                       className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
-                      <option value="">— Sin vincular —</option>
+                      <option value="">— Crear automáticamente —</option>
                       {items.filter(i =>
-                        editForm.item_type === 'CIG_BOX' ? i.item_type === 'CIG_SINGLE' : i.item_type === 'STANDARD' && i.id !== editing.id
+                        editForm.item_type === 'CIG_BOX' ? i.item_type === 'CIG_SINGLE' : i.item_type === 'STANDARD' && i.base_unit_key === 'ml' && i.id !== editing.id
                       ).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
                     </select>
                   </div>
@@ -1168,7 +1526,7 @@ export default function InventoryPage() {
                 <h2 className="font-bold">📋 {t('inventory.movements')}: {viewingMovements.name}</h2>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Stock actual: {fmtQty(viewingMovements.stock_quantity)} {getUnitName(viewingMovements.base_unit_key)}
-                  {viewingMovements.unit_cost_cents > 0 && ` · WAC: ${formatMXN(viewingMovements.unit_cost_cents)}`}
+                  {viewingMovements.unit_cost_cents > 0 && ` · WAC: ${formatUnitCost(viewingMovements.unit_cost_cents)}`}
                 </p>
               </div>
               <button onClick={() => setViewingMovements(null)} className="text-slate-400 hover:text-white text-xl px-2">✕</button>
@@ -1219,7 +1577,7 @@ export default function InventoryPage() {
                             {m.quantity_after != null ? `${fmtQty(m.quantity_after)} ${unitLabel}` : '—'}
                           </td>
                           <td className="py-2 text-right text-xs text-slate-400 pr-2">
-                            {m.unit_cost_cents != null ? formatMXN(m.unit_cost_cents) : '—'}
+                            {m.unit_cost_cents != null ? formatUnitCost(m.unit_cost_cents) : '—'}
                           </td>
                           <td className="py-2 text-xs text-slate-400 whitespace-nowrap pr-2">
                             {m.performer_name ?? '—'}

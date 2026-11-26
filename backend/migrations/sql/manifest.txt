@@ -18,3 +18,20 @@
 #         backend/migrations/sql/001_baseline_squash.sql
 # ============================================================================
 001_baseline_squash
+040_bottle_conversion_fixes
+041_whole_number_units
+042_analytics_correct_numbers
+043_honest_margins
+044_exact_unit_cost
+045_venue_timezone
+046_business_day
+047_drop_unused_views
+048_honest_voids
+049_spirits_in_ml
+050_open_bottles_bar_count
+051_drop_old_purchase_forecast
+052_purchase_unit_sanity
+053_stock_unit_from_recipes
+054_comps_staff_consumption
+055_manual_free_pool_time
+056_portioning

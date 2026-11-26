@@ -25,7 +25,9 @@ from app.extensions import db
 from app.config import Config
 
 log = logging.getLogger(__name__)
-LOCAL_TZ = ZoneInfo(Config.TZ)
+# The bar's timezone, from venue settings (batch D1). Call bar_tz() at use
+# time -- the owner can change it in Ajustes without a restart.
+from app.services.venue_svc import bar_tz  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -41,11 +43,10 @@ def _pesos(cents) -> str:
 
 
 def _day_range(d: date_type):
-    """Return (from_utc, to_utc) covering the full local-timezone day."""
-    tz = LOCAL_TZ
-    start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=tz)
-    end   = datetime(d.year, d.month, d.day, 23, 59, 59, 999999, tzinfo=tz)
-    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+    """Return (from_utc, to_utc) covering BUSINESS day `d` (closing-hour cutoff)."""
+    from app.services.venue_svc import business_day_bounds
+    start, end = business_day_bounds(d)
+    return start, end - timedelta(microseconds=1)
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +147,7 @@ def _peak_hours(f, t) -> list:
         FROM tickets
         WHERE status = 'CLOSED' AND closed_at BETWEEN :f AND :t
         GROUP BY 1 ORDER BY 1
-    """), {'f': f, 't': t, 'tz': Config.TZ}).mappings().all()
+    """), {'f': f, 't': t, 'tz': str(bar_tz())}).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -223,6 +224,30 @@ def _td(val, align='right', bold=False, color=''):
     return f'<td style="{style}">{val}</td>'
 
 
+def _regalo(f, t) -> dict:
+    """Cortesías and staff consumption of the day, at cost (batch E5)."""
+    if not db.session.execute(text("SELECT to_regclass('public.v_consumo_sin_venta') IS NOT NULL")).scalar():
+        return {}
+    rows = db.session.execute(text("""
+        SELECT tipo, COUNT(*) AS n, COALESCE(SUM(costo_cents), 0) AS costo, COALESCE(SUM(valor_lista_cents), 0) AS lista
+          FROM v_consumo_sin_venta WHERE closed_at BETWEEN :f AND :t GROUP BY tipo"""), {'f': f, 't': t}).mappings().all()
+    return {r['tipo']: dict(r) for r in rows}
+
+
+def _regalo_section(regalo) -> str:
+    if not regalo:
+        return ''
+    def line(tipo, label):
+        r = regalo.get(tipo)
+        return (f"<tr>{_td(label, 'left', bold=True)}{_td(int(r['n']))}{_td(_pesos(r['lista']))}"
+                f"{_td(_pesos(r['costo']), bold=True)}</tr>") if r else ''
+    body = line('CORTESIA', '🎁 Cortesías') + line('PERSONAL', '🍽 Consumo de personal')
+    return _section('🎁 Sin venta (a costo)', f'''
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tr>{_th('', 'left')}{_th('Artículos')}{_th('Precio de lista')}{_th('Costo')}</tr>{body}
+      </table>''')
+
+
 def _section(title, content):
     return f'''
     <div style="margin-bottom:28px;">
@@ -237,7 +262,7 @@ def _no_data_row(cols):
             f'font-style:italic;text-align:center;">Sin datos para este período</td></tr>')
 
 
-def _build_html(date_label, summary, products, hours, staff_data, pool) -> str:
+def _build_html(date_label, summary, products, hours, staff_data, pool, regalo=None) -> str:
     net      = _int(summary['net_cents'])
     gross    = _int(summary['gross_cents'])
     disc     = _int(summary['discount_cents'])
@@ -417,7 +442,7 @@ def _build_html(date_label, summary, products, hours, staff_data, pool) -> str:
     best_product = f"{products[0]['item_name']} ({_pesos(products[0]['gross_cents'])})" if products else '—'
     best_staff   = f"{staff_data[0]['staff_name']} ({_pesos(staff_data[0]['total_sales_cents'])})" if staff_data else '—'
 
-    generated_at = datetime.now(LOCAL_TZ).strftime('%d/%m/%Y %H:%M')
+    generated_at = datetime.now(bar_tz()).strftime('%d/%m/%Y %H:%M')
 
     return f'''<!DOCTYPE html>
 <html lang="es">
@@ -466,6 +491,7 @@ def _build_html(date_label, summary, products, hours, staff_data, pool) -> str:
     {_section('🍺 Top Productos (por venta bruta)', products_table)}
     {_section('👥 Rendimiento del Personal', staff_table)}
     {_section('🎱 Mesas de Billar', pool_table)}
+    {_regalo_section(regalo)}
 
     <div style="margin-top:24px;padding-top:18px;border-top:1px solid #E2E8F0;
                 text-align:center;color:#94A3B8;font-size:11px;">
@@ -517,7 +543,7 @@ def _send(subject: str, html: str):
 
 def generate_and_send_report(target_date: date_type | None = None):
     """Collect yesterday's data, build the HTML email, and send it."""
-    local_now = datetime.now(LOCAL_TZ)
+    local_now = datetime.now(bar_tz())
     if target_date is None:
         target_date = (local_now - timedelta(days=1)).date()
 
@@ -532,7 +558,7 @@ def generate_and_send_report(target_date: date_type | None = None):
     staff    = _staff(from_dt, to_dt)
     pool     = _pool_tables(from_dt, to_dt)
 
-    html     = _build_html(date_label, summ, prods, hrs, staff, pool)
+    html     = _build_html(date_label, summ, prods, hrs, staff, pool, _regalo(from_dt, to_dt))
     subject  = f"📊 Reporte de Ventas — {date_label}"
 
     _send(subject, html)

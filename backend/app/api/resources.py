@@ -90,6 +90,11 @@ def list_resources():
             if session:
                 d['timer_start'] = session.start_time.isoformat()
                 d['timer_session_id'] = session.id
+            else:
+                # Account still on the table but its time is stopped (batch E7).
+                d['timer_paused'] = PoolTimerSession.query.filter(
+                    PoolTimerSession.ticket_id == active.id,
+                    PoolTimerSession.status != 'CANCELLED').count() > 0
         if r.type == 'POOL_TABLE':
             cfg = PoolTableConfig.query.get(r.id)
             d['pool_config'] = cfg.to_dict() if cfg else None

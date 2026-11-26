@@ -40,9 +40,78 @@ from app.models.inventory import (
     InventoryItem, InventoryMovement, InsumoBase,
     UnitCatalog, SaleItemCost, OpenCigaretteBox,
 )
-from app.services import inventory_svc, audit_svc
+from app.services import inventory_svc, audit_svc, cost_svc
 
 inventory_bp = Blueprint('inventory', __name__)
+
+
+# ── Every purchase carries its price (batch E4) ───────────────────────────────
+# A restock (or a new item with starting stock) at $0 is how 82% of the cost
+# rows ended up empty and why the purchase forecast can't price its list. So:
+#   * the price is required and must be > 0;
+#   * the one exception is goods that really came free (a supplier "cortesía"):
+#     body {"sin_costo": true, "reason": "..."} -- owner only, reason required,
+#     audited as INVENTORY_RESTOCK_FREE;
+#   * a price more than 3x or under 1/3 of what was last paid needs
+#     {"confirm_price": true} -- catches $4,500 typed for $450.
+PRICE_JUMP = Decimal(3)
+
+
+def _free_goods(claims, data):
+    """None if the request is a normal priced purchase, else an error response or True."""
+    if not data.get('sin_costo'):
+        return None
+    if claims.get('role') != 'ADMIN':
+        return jsonify({'error': 'FORBIDDEN',
+                        'message': 'Solo el dueño puede registrar mercancía sin costo (cortesía).'}), 403
+    if not (data.get('reason') or '').strip():
+        return jsonify({'error': 'REASON_REQUIRED',
+                        'message': 'Escribe por qué entra sin costo (p. ej. cortesía del proveedor).'}), 422
+    return True
+
+
+def _price_check(item, new_unit_cost, data):
+    """409 PRICE_CHECK when the new per-unit price is far from the last one."""
+    old = Decimal(str(item.unit_cost_cents or 0))
+    new = Decimal(str(new_unit_cost or 0))
+    if old <= 0 or new <= 0 or data.get('confirm_price'):
+        return None
+    ratio = new / old
+    if ratio <= PRICE_JUMP and ratio >= 1 / PRICE_JUMP:
+        return None
+    times = f'{ratio:.1f}× más' if ratio > 1 else f'{(1 / ratio):.1f}× menos'
+    return jsonify({
+        'error': 'PRICE_CHECK',
+        'message': (f'Este precio es {times} de lo que pagaste la última vez '
+                    f'(${old / 100:,.2f} por unidad, ahora ${new / 100:,.2f}). ¿Es correcto?'),
+        'previous_unit_cost_cents': float(old), 'new_unit_cost_cents': float(new),
+    }), 409
+
+
+def _d_or_none(v):
+    return Decimal(str(v)).normalize() if v not in (None, '') else None
+
+
+def _yield_input(item_type, data) -> tuple:
+    """(units per parent, pour ml) from a create/edit body.
+
+    BOTTLE (ml since 049): 'bottle_ml' + 'pour_ml'. An old client that still
+    sends only 'shots_per_bottle' gets shots x pour (default 50 ml) -- so
+    "15 shots" keeps meaning a 750 ml bottle. CIG_BOX: 'shots_per_bottle' is
+    cigarettes per box, unchanged.
+    """
+    if item_type != 'BOTTLE':
+        return data.get('shots_per_bottle') or None, None
+    pour = data.get('pour_ml') or None
+    if data.get('bottle_ml'):
+        return data['bottle_ml'], pour
+    if data.get('shots_per_bottle'):
+        p = pour or inventory_svc.DEFAULT_POUR_ML
+        try:
+            return int(data['shots_per_bottle']) * int(p), p
+        except (TypeError, ValueError):
+            return data['shots_per_bottle'], pour        # configure_yield reports it
+    return None, pour
 
 VALID_CATEGORIES = ('beer', 'spirit', 'mixer', 'food', 'cigarette', 'other')
 VALID_ITEM_TYPES = ('STANDARD', 'BOTTLE', 'CIG_BOX', 'CIG_SINGLE')
@@ -116,7 +185,8 @@ def create_unit():
         return jsonify({'error': 'VALIDATION', 'message': 'name_en is required'}), 422
 
     try:
-        unit = inventory_svc.create_unit(key, name_es, name_en)
+        unit = inventory_svc.create_unit(key, name_es, name_en,
+                                         allows_fraction=bool(data.get('allows_fraction', False)))
         db.session.commit()
         return jsonify(unit.to_dict()), 201
     except IntegrityError:
@@ -144,6 +214,8 @@ def update_unit(key):
         fields['name_en'] = (data['name_en'] or '').strip()
     if 'active' in data:
         fields['active'] = bool(data['active'])
+    if 'allows_fraction' in data:
+        fields['allows_fraction'] = bool(data['allows_fraction'])
 
     try:
         unit = inventory_svc.update_unit(key, **fields)
@@ -213,12 +285,45 @@ def create_inventory_item():
     if float(pack_size) <= 0:
         return jsonify({'error': 'VALIDATION',
                         'message': 'purchase_pack_size must be > 0'}), 422
+    try:
+        inventory_svc.assert_pack(data.get('base_unit_key'), data.get('purchase_unit_key') or None, pack_size)
+    except ValueError as e:
+        code, msg = str(e).split(': ', 1)
+        return jsonify({'error': code, 'message': msg}), 422
 
     initial_qty  = data.get('stock_quantity', 0)
-    initial_cost = data.get('unit_cost_cents', 0)
-    if int(initial_cost) < 0:
+    # Cost the way it is BOUGHT: the price of one purchase unit (a case, a
+    # 3,780 ml bottle) divided by the units in it -- the system does the
+    # division, exactly (migration 044). unit_cost_cents (per base unit) is
+    # still accepted for API callers that already have it.
+    try:
+        if data.get('purchase_cost_cents') not in (None, ''):
+            purchase_cost = Decimal(str(data['purchase_cost_cents']))
+            initial_cost = purchase_cost / Decimal(str(pack_size or 1))
+        else:
+            purchase_cost = None
+            initial_cost = Decimal(str(data.get('unit_cost_cents') or 0))
+    except (InvalidOperation, ValueError, TypeError):
+        return jsonify({'error': 'VALIDATION', 'message': 'Costo inválido'}), 422
+    if initial_cost < 0:
         return jsonify({'error': 'VALIDATION',
-                        'message': 'unit_cost_cents must be >= 0'}), 422
+                        'message': 'El costo no puede ser negativo'}), 422
+    initial_cost = initial_cost.quantize(Decimal('0.0001'))
+    # Starting stock is a purchase too: it needs its price (batch E4).
+    try:
+        has_stock = float(initial_qty or 0) > 0
+    except (TypeError, ValueError):
+        has_stock = False
+    free = _free_goods(get_jwt(), data)
+    if isinstance(free, tuple):
+        return free
+    if has_stock and initial_cost <= 0 and not free:
+        return jsonify({'error': 'PRICE_REQUIRED',
+                        'message': 'Con existencia inicial, escribe cuánto costó (precio de la caja o de la pieza).'}), 422
+    try:
+        inventory_svc.assert_whole(initial_qty or 0, base_unit_key, 'La existencia inicial')
+    except ValueError as e:
+        return jsonify({'error': 'WHOLE_UNITS_ONLY', 'message': str(e)}), 422
 
     item = InventoryItem(
         name                = name,
@@ -232,13 +337,37 @@ def create_inventory_item():
         base_unit_key       = base_unit_key,
         stock_quantity      = initial_qty,
         low_stock_threshold = data.get('low_stock_threshold', 0),
-        unit_cost_cents     = int(initial_cost),
+        unit_cost_cents     = initial_cost,
+        purchase_cost_cents = (int(purchase_cost.to_integral_value())
+                               if purchase_cost is not None else None),
         purchase_unit_key   = purchase_unit_key or None,
         purchase_pack_size  = pack_size,
-        shots_per_bottle    = data.get('shots_per_bottle') or None,
-        yields_item_id      = data.get('yields_item_id') or None,
     )
     db.session.add(item)
+
+    # Bottle: "750 ml, shot de 50 ml"; cigarette box: "20 per box". The
+    # conversion, and the open item itself when none was picked, are created
+    # here so the new bottle can be opened immediately.
+    units, pour = _yield_input(item_type, data)
+    if item_type in ('BOTTLE', 'CIG_BOX') and units:
+        try:
+            db.session.flush()
+            yield_result = inventory_svc.configure_yield(
+                item, units, data.get('yields_item_id') or None,
+                get_jwt_identity(), pour=pour)
+        except ValueError as e:
+            db.session.rollback()
+            return jsonify({'error': 'INVALID_YIELD', 'message': str(e)}), 422
+        except IntegrityError as exc:
+            db.session.rollback()
+            if getattr(getattr(exc, 'orig', None), 'pgcode', None) == '23505':
+                return jsonify({'error': 'DUPLICATE_NAME',
+                                'message': f"An item named '{name}' already exists"}), 409
+            raise
+        audit_svc.log(get_jwt_identity(), 'INVENTORY_YIELD_SET', 'inventory_item', item.id,
+                      before=yield_result['before'], after=yield_result['after'],
+                      reason=(f"Creado: {yield_result['child_name']}"
+                              if yield_result['child_created'] else None))
 
     # Write OPENING_STOCK movement if initial quantity > 0
     if float(initial_qty) > 0:
@@ -251,8 +380,9 @@ def create_inventory_item():
             event_type        = 'OPENING_STOCK',
             quantity_delta    = initial_qty,
             quantity_after    = initial_qty,
-            unit_cost_cents   = int(initial_cost),
-            reason            = 'Stock inicial',
+            unit_cost_cents   = initial_cost,
+            reason            = ('Stock inicial sin costo: ' + data['reason'].strip()
+                                 if free else 'Stock inicial'),
             performed_by      = user_id,
         )
         db.session.add(mv)
@@ -290,6 +420,7 @@ def update_inventory_item(item_id):
 
     item = InventoryItem.query.get_or_404(item_id)
     data = request.get_json() or {}
+    original_item_type = item.item_type
 
     if 'name' in data:
         item.name = (data['name'] or '').strip()
@@ -307,16 +438,36 @@ def update_inventory_item(item_id):
             return jsonify({'error': 'VALIDATION',
                             'message': f'item_type must be one of {VALID_ITEM_TYPES}'}), 422
         item.item_type = data['item_type']
-    if 'base_unit_key' in data:
+    if 'base_unit_key' in data and data['base_unit_key'] != item.base_unit_key:
         if not UnitCatalog.query.get(data['base_unit_key']):
             return jsonify({'error': 'INVALID_UNIT',
                             'message': f"Unit '{data['base_unit_key']}' not in catalog"}), 422
+        # Changing the unit re-labels every number already recorded: 1 "botella"
+        # silently becomes 1 "caballito". Only allow it while there is nothing
+        # on hand to re-label and no recipe deducts in the old unit (the recipe
+        # unit guard only fires when a recipe row is written, not when the
+        # item's unit changes underneath it).
+        if _d(item.stock_quantity) != 0:
+            return jsonify({
+                'error': 'UNIT_LOCKED',
+                'message': (f'No se puede cambiar la unidad de "{item.name}" con existencia '
+                            f'({_d(item.stock_quantity).normalize()}). Haz un conteo físico a 0, '
+                            f'cambia la unidad y vuelve a registrar la existencia.'),
+            }), 422
+        if InsumoBase.query.filter(InsumoBase.inventory_item_id == item.id,
+                                   InsumoBase.deduction_unit_key != data['base_unit_key']).first():
+            return jsonify({
+                'error': 'UNIT_LOCKED',
+                'message': (f'"{item.name}" se usa en recetas con la unidad actual; '
+                            f'actualiza esas recetas antes de cambiar la unidad.'),
+            }), 422
         item.base_unit_key = data['base_unit_key']
     if 'purchase_cost_cents' in data:
         item.purchase_cost_cents = int(data['purchase_cost_cents']) if data['purchase_cost_cents'] is not None else None
     if 'purchase_cost_pesos' in data:
         pesos = data['purchase_cost_pesos']
         item.purchase_cost_cents = round(float(pesos) * 100) if pesos is not None else None
+    units_before = (item.base_unit_key, item.purchase_unit_key, _d_or_none(item.purchase_pack_size))
     if 'purchase_unit_key' in data:
         pu = data['purchase_unit_key'] or None
         if pu and not UnitCatalog.query.get(pu):
@@ -329,12 +480,64 @@ def update_inventory_item(item_id):
             return jsonify({'error': 'VALIDATION',
                             'message': 'purchase_pack_size must be > 0'}), 422
         item.purchase_pack_size = ps
+    # Only when the edit CHANGES how it is stocked / bought: the edit form
+    # re-sends every field, and an old inconsistent item must stay editable.
+    if (item.base_unit_key, item.purchase_unit_key, _d_or_none(item.purchase_pack_size)) != units_before:
+        try:
+            inventory_svc.assert_pack(item.base_unit_key, item.purchase_unit_key, item.purchase_pack_size)
+        except ValueError as e:
+            db.session.rollback()
+            code, msg = str(e).split(': ', 1)
+            return jsonify({'error': code, 'message': msg}), 422
     if 'low_stock_threshold' in data:
         item.low_stock_threshold = data['low_stock_threshold']
-    if 'shots_per_bottle' in data:
-        item.shots_per_bottle = data['shots_per_bottle'] or None
-    if 'yields_item_id' in data:
-        item.yields_item_id = data['yields_item_id'] or None
+    # Yield (bottle -> shots, box -> loose) goes through configure_yield, the
+    # single writer of the conversion. Writing these two columns directly used
+    # to change what the screen showed without changing what "Abrir" did, and
+    # left no trace. Only runs when something actually differs, because the
+    # edit form always sends both fields.
+    if any(k in data for k in ('item_type', 'shots_per_bottle', 'yields_item_id', 'bottle_ml', 'pour_ml')):
+        cur = inventory_svc._yield_state(item)
+        cur_units = cur.get('bottle_ml') if item.item_type == 'BOTTLE' else item.shots_per_bottle
+        new_type = data.get('item_type', item.item_type)
+        req_units, req_pour = _yield_input(new_type, data)
+        sent_units = any(k in data for k in ('shots_per_bottle', 'bottle_ml'))
+        want_units = (req_units if sent_units else cur_units) or None
+        want_pour = req_pour if 'pour_ml' in data else None
+        want_child = (data['yields_item_id'] if 'yields_item_id' in data
+                      else item.yields_item_id) or None
+        type_changed = 'item_type' in data and data['item_type'] != original_item_type
+        differs = (type_changed
+                   or (float(want_units) if want_units else None) != (float(cur_units) if cur_units else None)
+                   or (want_pour is not None and float(want_pour) != (cur.get('pour_ml') or 0))
+                   or (want_child is not None and want_child != item.yields_item_id))
+        if differs:
+            try:
+                res = inventory_svc.configure_yield(item, want_units, want_child,
+                                                    get_jwt_identity(), pour=want_pour)
+            except ValueError as e:
+                db.session.rollback()
+                return jsonify({'error': 'INVALID_YIELD', 'message': str(e)}), 422
+            if res['changed']:
+                audit_svc.log(get_jwt_identity(), 'INVENTORY_YIELD_SET', 'inventory_item',
+                              item.id, before=res['before'], after=res['after'],
+                              reason=(f"Creado: {res['child_name']}"
+                                      if res.get('child_created') else None))
+    # Portioning (E8): this item is a pack of N g cut from a raw item.
+    if 'portion_source_id' in data:
+        from app.services import portion_svc
+        raw = InventoryItem.query.get(data['portion_source_id']) if data['portion_source_id'] else None
+        if data['portion_source_id'] and raw is None:
+            return jsonify({'error': 'NOT_FOUND', 'message': 'No existe el producto crudo'}), 404
+        if raw is not None or item.portion_source_id:
+            try:
+                res = portion_svc.link_portion(item, raw, data.get('portion_size'))
+            except ValueError as e:
+                db.session.rollback()
+                return jsonify({'error': 'BAD_PORTION', 'message': str(e).split(': ', 1)[-1]}), 422
+            if res['before'] != res['after']:
+                audit_svc.log(get_jwt_identity(), 'INVENTORY_PORTION_LINK', 'inventory_item', item.id,
+                              before=res['before'], after=res['after'])
     if 'is_active' in data:
         item.is_active = bool(data['is_active'])
 
@@ -511,15 +714,31 @@ def restock(item_id):
 
     user_id = get_jwt_identity()
     data    = request.get_json() or {}
+    free = _free_goods(claims, data)
+    if isinstance(free, tuple):
+        return free
+    item0 = InventoryItem.query.get(item_id)
+    if item0 is None:
+        return jsonify({'error': 'NOT_FOUND', 'message': 'InventoryItem not found'}), 404
+    # The price question is asked only about an otherwise valid purchase: it is
+    # computed first but returned after the restock validates (and rolled back).
+    pending_check = None
 
     try:
         if 'portion_count' in data:
             # Food portion mode
             portion_count = data.get('portion_count')
-            total_cost    = data.get('total_purchase_cost_cents', 0)
+            total_cost    = data.get('total_purchase_cost_cents')
             if portion_count is None:
                 return jsonify({'error': 'VALIDATION',
                                 'message': 'portion_count is required'}), 422
+            if free:
+                total_cost = 0
+            elif total_cost in (None, '') or Decimal(str(total_cost)) <= 0:
+                return jsonify({'error': 'PRICE_REQUIRED',
+                                'message': 'Escribe cuánto costó esta compra.'}), 422
+            elif float(portion_count) > 0:
+                pending_check = _price_check(item0, Decimal(str(total_cost)) / Decimal(str(portion_count)), data)
 
             item = inventory_svc.restock_food_portions(
                 item_id,
@@ -536,9 +755,22 @@ def restock(item_id):
             if purchase_qty is None:
                 return jsonify({'error': 'VALIDATION',
                                 'message': 'purchase_quantity is required'}), 422
-            if cost_per_unit is None:
-                return jsonify({'error': 'VALIDATION',
-                                'message': 'unit_cost_per_purchase_unit_cents is required'}), 422
+            if free:
+                cost_per_unit = 0
+            elif cost_per_unit in (None, '') or Decimal(str(cost_per_unit)) <= 0:
+                return jsonify({'error': 'PRICE_REQUIRED',
+                                'message': 'Escribe cuánto costó (precio de la caja o de la pieza).'}), 422
+            else:
+                pack = Decimal(str(data.get('pack_size_override') or item0.purchase_pack_size or 1))
+                try:
+                    inventory_svc.assert_pack(item0.base_unit_key,
+                                              data.get('purchase_unit_key_override') or item0.purchase_unit_key,
+                                              pack, same_unit_strict=False)
+                except ValueError as e:
+                    code, msg = str(e).split(': ', 1)
+                    return jsonify({'error': code, 'message': msg}), 422
+                if pack > 0:
+                    pending_check = _price_check(item0, Decimal(str(cost_per_unit)) / pack, data)
 
             item = inventory_svc.restock_drinks(
                 item_id,
@@ -550,9 +782,15 @@ def restock(item_id):
                 reason                               = data.get('reason'),
             )
 
-        audit_svc.log(user_id, 'INVENTORY_RESTOCK', 'inventory_item', item_id,
+        if pending_check:
+            db.session.rollback()
+            return pending_check
+        audit_svc.log(user_id, 'INVENTORY_RESTOCK_FREE' if free else 'INVENTORY_RESTOCK',
+                      'inventory_item', item_id,
                       after={'stock_quantity': float(item.stock_quantity),
-                             'unit_cost_cents': item.unit_cost_cents})
+                             'unit_cost_cents': item.unit_cost_cents,
+                             'price_confirmed': bool(data.get('confirm_price'))},
+                      reason=(data.get('reason') or '').strip() or None)
         db.session.commit()
         return jsonify(item.to_dict())
 
@@ -609,7 +847,10 @@ def adjust_inventory(item_id):
             if counted is None:
                 return jsonify({'error': 'VALIDATION',
                                 'message': 'counted_quantity is required'}), 422
-            item = inventory_svc.record_count_adjustment(item_id, counted, reason, user_id)
+            item = inventory_svc.record_count_adjustment(
+                item_id, counted, reason, user_id,
+                # Raising a shot / loose-cigarette count is owner-only.
+                allow_owner_override=(_role(claims) == 'ADMIN'))
 
         else:  # MANUAL_ADJUSTMENT
             qty_delta = data.get('qty_delta')
@@ -630,6 +871,8 @@ def adjust_inventory(item_id):
             return jsonify({'error': 'NOT_FOUND', 'message': msg}), 404
         if 'WOULD_GO_NEGATIVE' in msg or 'WASTE_EXCEEDS_STOCK' in msg:
             return jsonify({'error': 'WOULD_GO_NEGATIVE', 'message': msg}), 422
+        if msg.startswith('OPEN_TO_ADD'):
+            return jsonify({'error': 'OPEN_TO_ADD', 'message': msg}), 422
         return jsonify({'error': 'VALIDATION', 'message': msg}), 422
 
 
@@ -746,6 +989,70 @@ def stock_check():
 
 # ── Bottle / Box Opening ──────────────────────────────────────────────────────
 
+@inventory_bp.route('/<item_id>/set-cost', methods=['POST'])
+@jwt_required()
+def set_item_cost(item_id):
+    """Set an item's cost the way it is bought, or correct a wrong one. ADMIN only.
+
+    Body (one of):
+      { purchase_cost_cents, pack_size? }  price of one purchase unit (a case of
+                                           24, a 3,780 ml bottle...); the system
+                                           divides. pack_size overrides the
+                                           item's units-per-case for this entry.
+      { unit_cost_cents }                  price per base unit (may have decimals)
+    plus { reason } -- required when the item ALREADY has a cost (correction).
+
+    First cost -> INVENTORY_COST_SET. Correction -> INVENTORY_COST_CORRECTED with
+    before/after and the reason. A bottle/box also sets its shots/loose items.
+    """
+    claims = get_jwt()
+    err = _require_admin(claims)
+    if err:
+        return err
+    user_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    try:
+        res = cost_svc.set_cost(
+            item_id,
+            unit_cost_cents=data.get('unit_cost_cents'),
+            purchase_cost_cents=data.get('purchase_cost_cents'),
+            pack_size=data.get('pack_size'),
+            reason=(data.get('reason') or '').strip() or None,
+        )
+    except cost_svc.CostAlreadySet as e:
+        db.session.rollback()
+        return jsonify({'error': 'COST_ALREADY_SET', 'message': str(e)}), 409
+    except (ValueError, ArithmeticError) as e:
+        db.session.rollback()
+        msg = str(e)
+        if msg.startswith('NOT_FOUND'):
+            return jsonify({'error': 'NOT_FOUND', 'message': msg}), 404
+        return jsonify({'error': 'VALIDATION', 'message': msg}), 422
+
+    item = res['item']
+    action = 'INVENTORY_COST_SET' if res['mode'] == 'INICIAL' else 'INVENTORY_COST_CORRECTED'
+    reason = (data.get('reason') or '').strip() or (
+        'Costo inicial capturado' if res['mode'] == 'INICIAL' else None)
+    audit_svc.log(user_id, action, 'inventory_item', item.id,
+                  before={'unit_cost_cents': float(res['before'])},
+                  after={'unit_cost_cents': float(res['after']),
+                         'purchase_cost_cents': data.get('purchase_cost_cents'),
+                         'pack_size': data.get('pack_size') or float(item.purchase_pack_size or 1)},
+                  reason=reason)
+    for child, before, after in res['children']:
+        audit_svc.log(user_id, action, 'inventory_item', child.id,
+                      before={'unit_cost_cents': float(before)},
+                      after={'unit_cost_cents': float(after)},
+                      reason=f'Derivado de {item.name}' + (f': {reason}' if reason else ''))
+    db.session.commit()
+    return jsonify({
+        'mode': res['mode'],
+        'item': item.to_dict(),
+        'derivados': [{'id': c.id, 'name': c.name, 'unit_cost_cents': float(a)}
+                      for c, _, a in res['children']],
+    })
+
+
 @inventory_bp.route('/<item_id>/open-bottle', methods=['POST'])
 @jwt_required()
 def open_bottle(item_id):
@@ -757,12 +1064,25 @@ def open_bottle(item_id):
 
     user_id = get_jwt_identity()
     try:
-        bottle, shots = inventory_svc.open_bottle(item_id, user_id)
+        body = request.get_json(silent=True) or {}
+        confirm = bool(body.get('confirm_remaining'))
+        bottle, shots, added = inventory_svc.open_bottle(
+            item_id, user_id, confirm_remaining=confirm, size_ml=body.get('size_ml'))
+        pour = inventory_svc.pour_ml(shots)
+        shots_added = int(added // pour) if pour else added
         audit_svc.log(user_id, 'BOTTLE_OPENED', 'inventory', item_id,
-                      after={'shots_added': bottle.shots_per_bottle,
+                      after={'ml_added': added if pour else None, 'shots_added': shots_added,
                              'shot_item': shots.name})
         db.session.commit()
-        return jsonify({'bottle': bottle.to_dict(), 'shots': shots.to_dict()})
+        return jsonify({'bottle': bottle.to_dict(), 'shots': shots.to_dict(),
+                        'shots_added': shots_added, 'ml_added': added if pour else None})
+    except inventory_svc.StillHasUnits as e:
+        db.session.rollback()
+        # Not an error: the client shows this question and resends with
+        # confirm_remaining=true if the person says yes.
+        return jsonify({'error': 'STILL_HAS_UNITS', 'message': str(e).split(': ', 1)[-1],
+                        'remaining': float(e.remaining), 'item': e.child_name,
+                        'remaining_ml': float(e.ml) if e.ml is not None else None}), 409
     except ValueError as e:
         db.session.rollback()
         msg = str(e)
@@ -770,6 +1090,8 @@ def open_bottle(item_id):
             return jsonify({'error': 'NOT_FOUND', 'message': msg}), 404
         if 'NO_STOCK' in msg:
             return jsonify({'error': 'NO_STOCK', 'message': msg}), 422
+        if 'BAD_SIZE' in msg:
+            return jsonify({'error': 'BAD_SIZE', 'message': msg.split(': ', 1)[-1]}), 422
         return jsonify({'error': 'NOT_A_BOTTLE', 'message': msg}), 422
 
 
@@ -785,18 +1107,35 @@ def open_cigarette_box(item_id):
     user_id = get_jwt_identity()
     try:
         # Call the service – this is where the real work happens
-        box, single, open_info = inventory_svc.open_cigarette_box(item_id, user_id)
+        confirm = bool((request.get_json(silent=True) or {}).get('confirm_remaining'))
+        box, single, open_info = inventory_svc.open_cigarette_box(
+            item_id, user_id, confirm_remaining=confirm)
 
         audit_svc.log(user_id, 'BOX_OPENED', 'inventory', item_id,
                       after={'cigs_added': open_info['units_per_pack'],
                              'single_item': single.name})
         db.session.commit()
 
+        # Only after the commit: a client that refetches on this event must see
+        # the opened box, never the pre-open state or a rolled-back attempt.
+        from app.extensions import socketio
+        socketio.emit('inventory:box_opened', {
+            'brand':        open_info['brand'],
+            'cigs_per_box': open_info['units_per_pack'],
+            'open_box_id':  open_info['lot_id'] or '',
+        })
+
         return jsonify({
             'box':      box.to_dict(),
             'singles':  single.to_dict(),
             'open_box': open_info,          # dictionary, not an ORM object
         })
+    except inventory_svc.StillHasUnits as e:
+        db.session.rollback()
+        # Not an error: the client shows this question and resends with
+        # confirm_remaining=true if the person says yes.
+        return jsonify({'error': 'STILL_HAS_UNITS', 'message': str(e).split(': ', 1)[-1],
+                        'remaining': float(e.remaining), 'item': e.child_name}), 409
     except ValueError as e:
         db.session.rollback()
         msg = str(e)
@@ -1036,3 +1375,93 @@ def get_item_ingredients_legacy(menu_item_id):
         'inventory_item_unit': l.deduction_unit_key,
         'quantity':            float(l.quantity),
     } for l in links])
+
+
+# ── Bar count (batch E2, step 2) ──────────────────────────────────────────────
+# Blind: the screen lists the open bottles of every spirit (with their size) but
+# never what the system expects. Managers post counts; only the owner sees the
+# variance (units and pesos), as with the blind cash count.
+
+@inventory_bp.route('/bar-count', methods=['GET'])
+@jwt_required()
+def bar_count_sheet():
+    err = _require_manager(get_jwt())
+    if err:
+        return err
+    from app.services import bar_count_svc
+    return jsonify({'spirits': bar_count_svc.spirits(with_expected=False)})
+
+
+@inventory_bp.route('/bar-count', methods=['POST'])
+@jwt_required()
+def bar_count_submit():
+    claims = get_jwt()
+    err = _require_manager(claims)
+    if err:
+        return err
+    from app.services import bar_count_svc
+    data = request.get_json() or {}
+    user_id = get_jwt_identity()
+    try:
+        res = bar_count_svc.submit(user_id, data.get('spirits') or [], data.get('notes'))
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': 'BAD_COUNT', 'message': str(e).split(': ', 1)[-1]}), 422
+    audit_svc.log(user_id, 'BAR_COUNT', 'bar_count', res['id'],
+                  after={'total_variance_cents': res['total_variance_cents'],
+                         'items': len(res['lines'])})
+    db.session.commit()
+    if claims.get('role') == 'ADMIN':
+        return jsonify(res), 201
+    return jsonify({'id': res['id'], 'message': 'Conteo guardado'}), 201
+
+
+@inventory_bp.route('/bar-counts', methods=['GET'])
+@jwt_required()
+def bar_count_history():
+    if get_jwt().get('role') != 'ADMIN':
+        return jsonify({'error': 'FORBIDDEN', 'message': 'Solo el dueño ve las diferencias de conteo'}), 403
+    from app.api.reports import parse_dates
+    from app.services import bar_count_svc
+    f, t = parse_dates()
+    return jsonify({'counts': bar_count_svc.history(f, t),
+                    'now': bar_count_svc.spirits(with_expected=True)})
+
+
+# ── Portioning (batch E8) ─────────────────────────────────────────────────────
+
+@inventory_bp.route('/<item_id>/portion', methods=['POST'])
+@jwt_required()
+def portion_raw(item_id):
+    """🔪 Porcionar: {raw_used, outputs: [{item_id, packs}], notes?}. MANAGER/ADMIN."""
+    claims = get_jwt()
+    err = _require_manager(claims)
+    if err:
+        return err
+    from app.services import portion_svc
+    data = request.get_json() or {}
+    try:
+        res = portion_svc.portion(item_id, data.get('raw_used'), data.get('outputs') or [],
+                                  get_jwt_identity(), data.get('notes'))
+    except ValueError as e:
+        db.session.rollback()
+        code, _, msg = str(e).partition(': ')
+        return jsonify({'error': code, 'message': msg or code}), 404 if code == 'NOT_FOUND' else 422
+    audit_svc.log(get_jwt_identity(), 'INVENTORY_PORTION', 'inventory_item', item_id,
+                  after={k: res[k] for k in ('batch_number', 'raw_used', 'output_g', 'waste_g', 'yield_pct')})
+    db.session.commit()
+    if claims.get('role') != 'ADMIN':          # managers don't see costs
+        res = {**res, 'input_cost_cents': None,
+               'outputs': [{**o, 'pack_cost_cents': None} for o in res['outputs']]}
+    return jsonify(res), 201
+
+
+@inventory_bp.route('/portioning', methods=['GET'])
+@jwt_required()
+def portioning_history():
+    if get_jwt().get('role') != 'ADMIN':
+        return jsonify({'error': 'FORBIDDEN', 'message': 'Solo el dueño ve el historial de porcionado'}), 403
+    from app.api.reports import parse_dates
+    from app.services import portion_svc
+    f, t = parse_dates()
+    return jsonify(portion_svc.history(f, t))

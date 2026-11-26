@@ -1,4 +1,4 @@
-import { LOGO_BASE64 } from './logoBase64'
+import { getVenue, venueLogo } from './venue'
 
 export interface ReceiptTicket {
   id: string
@@ -311,8 +311,8 @@ export function printReceipt(ticket: ReceiptTicket, livePoolCents?: number, unpa
 </head>
 <body>
   <div class="center">
-    <img src="${LOGO_BASE64}" class="logo" alt="Bola 8" />
-    <div class="venue-name">BOLA 8 POOL CLUB</div>
+    <img src="${venueLogo()}" class="logo" alt="${getVenue().name}" />
+    <div class="venue-name">${getVenue().name.toUpperCase()}</div>
     <div class="venue-sub">Pool · Food · Drinks</div>
     <div class="divider"></div>
     <div class="ticket-num">#${ticket.id.slice(-6).toUpperCase()}</div>

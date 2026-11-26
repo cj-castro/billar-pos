@@ -115,6 +115,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     // Settings changed — invalidate the relevant setting query on all clients
     socket.on('settings:changed', ({ key }: { key: string; value: string }) => {
       qc.invalidateQueries({ queryKey: ['settings', key] })
+      // Venue name / timezone / currency / logo changed: reload it everywhere.
+      if (key.startsWith('venue.')) qc.invalidateQueries({ queryKey: ['venue'] })
     })
 
     return () => {

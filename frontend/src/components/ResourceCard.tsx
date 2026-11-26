@@ -55,6 +55,9 @@ export default function ResourceCard({ resource, onOpenNew, barOpen = true, isWa
           {isPool && elapsed && (
             <span className="text-yellow-300 font-mono text-lg">{elapsed}</span>
           )}
+          {isPool && inUse && !elapsed && resource.timer_paused && (
+            <span className="text-amber-300 text-xs font-semibold">⏸ Tiempo detenido</span>
+          )}
           {isWaitingPool && (
             <span className="mt-1 inline-flex items-center gap-1 bg-yellow-900/70 border border-yellow-600 text-yellow-300 text-xs font-semibold px-2 py-0.5 rounded-full">
               ⏳ Esp. Pool

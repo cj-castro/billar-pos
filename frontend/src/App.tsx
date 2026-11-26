@@ -6,7 +6,8 @@ import TicketPage from './pages/TicketPage'
 import KitchenQueuePage from './pages/KitchenQueuePage'
 import BarQueuePage from './pages/BarQueuePage'
 import ManagerDashboard from './pages/manager/ManagerDashboard'
-import ReportsPage from './pages/manager/ReportsPage'
+import ReportsHub, { LegacyReportsRedirect } from './pages/manager/ReportsHub'
+import BarCountPage from './pages/manager/BarCountPage'
 import InventoryPage from './pages/manager/InventoryPage'
 import MenuManagementPage from './pages/manager/MenuManagementPage'
 import UsersPage from './pages/manager/UsersPage'
@@ -16,9 +17,6 @@ import TableManagementPage from './pages/manager/TableManagementPage'
 import SettingsPage from './pages/manager/SettingsPage'
 import ModifiersPage from './pages/manager/ModifiersPage'
 import PromotionsPage from './pages/manager/PromotionsPage'
-import SafeCollectionsPage from './pages/manager/SafeCollectionsPage'
-import EarningsPage from './pages/manager/EarningsPage'
-import AnalyticsPage from './pages/manager/AnalyticsPage'
 import { SocketProvider } from './hooks/useSocket'
 
 function RequireAuth({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
@@ -40,8 +38,13 @@ export default function App() {
         <Route path="/queue/kitchen" element={<RequireAuth roles={['KITCHEN_STAFF','BAR_STAFF','WAITER','MANAGER','ADMIN']}><KitchenQueuePage /></RequireAuth>} />
         <Route path="/queue/bar" element={<RequireAuth roles={['KITCHEN_STAFF','BAR_STAFF','WAITER','MANAGER','ADMIN']}><BarQueuePage /></RequireAuth>} />
         <Route path="/manager" element={<RequireAuth roles={['MANAGER','ADMIN']}><ManagerDashboard /></RequireAuth>} />
-        <Route path="/manager/reports" element={<RequireAuth roles={['ADMIN']}><ReportsPage /></RequireAuth>} />
+        {/* Reportes (batch D3): six pages for the owner; Analítica and the old Reportes live inside. */}
+        <Route path="/manager/reportes" element={<RequireAuth roles={['ADMIN']}><ReportsHub /></RequireAuth>} />
+        <Route path="/manager/reportes/:page" element={<RequireAuth roles={['ADMIN']}><ReportsHub /></RequireAuth>} />
+        <Route path="/manager/reportes/:page/:sub" element={<RequireAuth roles={['ADMIN']}><ReportsHub /></RequireAuth>} />
+        <Route path="/manager/reports" element={<RequireAuth roles={['ADMIN']}><LegacyReportsRedirect kind="report" /></RequireAuth>} />
         <Route path="/manager/inventory" element={<RequireAuth roles={['MANAGER','ADMIN']}><InventoryPage /></RequireAuth>} />
+        <Route path="/manager/bar-count" element={<RequireAuth roles={['MANAGER','ADMIN']}><BarCountPage /></RequireAuth>} />
         <Route path="/manager/menu" element={<RequireAuth roles={['MANAGER','ADMIN']}><MenuManagementPage /></RequireAuth>} />
         <Route path="/manager/users" element={<RequireAuth roles={['MANAGER','ADMIN']}><UsersPage /></RequireAuth>} />
         <Route path="/manager/pool-config" element={<RequireAuth roles={['MANAGER','ADMIN']}><PoolTableConfigPage /></RequireAuth>} />
@@ -50,9 +53,10 @@ export default function App() {
         <Route path="/manager/settings" element={<RequireAuth roles={['MANAGER','ADMIN']}><SettingsPage /></RequireAuth>} />
         <Route path="/manager/modifiers" element={<RequireAuth roles={['MANAGER','ADMIN']}><ModifiersPage /></RequireAuth>} />
         <Route path="/manager/promotions" element={<RequireAuth roles={['MANAGER','ADMIN']}><PromotionsPage /></RequireAuth>} />
-        <Route path="/manager/safe" element={<RequireAuth roles={['ADMIN']}><SafeCollectionsPage /></RequireAuth>} />
-        <Route path="/manager/earnings" element={<RequireAuth roles={['ADMIN']}><EarningsPage /></RequireAuth>} />
-        <Route path="/manager/analytics" element={<RequireAuth roles={['ADMIN']}><AnalyticsPage /></RequireAuth>} />
+        <Route path="/manager/safe" element={<Navigate to="/manager/reportes/caja/caja-fuerte" replace />} />
+        {/* Old addresses → their new place in Reportes (bookmarks keep working). */}
+        <Route path="/manager/earnings" element={<Navigate to="/manager/reportes/rentabilidad/resultado" replace />} />
+        <Route path="/manager/analytics" element={<RequireAuth roles={['ADMIN']}><LegacyReportsRedirect kind="analytics" /></RequireAuth>} />
         <Route path="*" element={<Navigate to={user ? '/floor' : '/login'} replace />} />
       </Routes>
     </SocketProvider>

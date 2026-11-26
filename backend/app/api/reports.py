@@ -1,4 +1,5 @@
 import csv
+import json
 import io
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
@@ -9,7 +10,9 @@ from app.extensions import db
 from app.config import Config
 from sqlalchemy import text
 
-LOCAL_TZ = ZoneInfo(Config.TZ)
+# The bar's timezone, from venue settings (batch D1). Call bar_tz() at use
+# time -- the owner can change it in Ajustes without a restart.
+from app.services.venue_svc import bar_tz  # noqa: E402
 
 reports_bp = Blueprint('reports', __name__)
 
@@ -30,7 +33,7 @@ def require_manager():
 
 def parse_dates():
     """Parse `from`/`to` query args. Naive ISO strings are interpreted in
-    the bar's local timezone (Config.TZ, default America/Mexico_City) and
+    the bar's local timezone (venue settings, venue_svc.bar_tz()) and
     converted to UTC before comparison. This makes "2026-04-26T00:00:00"
     mean midnight in Mexico, not midnight UTC, so a ticket closed at 8pm
     Mexico time on Apr 26 lands in the Apr 26 report as expected.
@@ -45,13 +48,15 @@ def parse_dates():
     def _parse(s, end_of_day=False):
         if not s:
             return None
+        if len(s) <= 10:
+            # Date-only "YYYY-MM-DD" = a BUSINESS day: from its closing-hour
+            # cutoff to the next day's (venue settings; 00:00 = calendar day).
+            from app.services.venue_svc import business_day_bounds
+            start, end = business_day_bounds(datetime.fromisoformat(s).date())
+            return (end - timedelta(microseconds=1)) if end_of_day else start
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
-            # Naive ISO — assume bar's local timezone
-            if end_of_day and len(s) <= 10:
-                # Date-only "YYYY-MM-DD" → expand to 23:59:59.999999 local
-                dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
-            dt = dt.replace(tzinfo=LOCAL_TZ)
+            dt = dt.replace(tzinfo=bar_tz())     # explicit times are bar-local clock times
         return dt.astimezone(timezone.utc)
 
     from_dt = _parse(from_str) or datetime(2000, 1, 1, tzinfo=timezone.utc)
@@ -184,68 +189,35 @@ def payments_report():
     if err: return err
     from_dt, to_dt = parse_dates()
 
-    # Build per-method totals that properly split split-payment tickets.
-    # ticket_id is carried through so we can compute unique/split counts accurately.
+    # Per-method totals come from v_bola8_pagos_desglosados, the ONE place that
+    # splits a ticket across payment methods (the drawer view and the daily
+    # email use it too). The old inline version took tendered_cents as the
+    # sale on split tickets -- but tendered includes the tip, so methods summed
+    # to more than revenue (+$3,606 in July 2026) and ignored tip_source.
+    # A leg with monto 0 is "tip collected on the other method" (e.g. a cash tip
+    # on a card payment): it adds to that method's tips, not its ticket count.
     sql = text("""
-        WITH ticket_data AS (
-            SELECT
-                id AS ticket_id,
-                payment_type,
-                payment_type_2,
-                total_cents,
-                COALESCE(tip_cents, 0) AS tip_cents,
-                COALESCE(tendered_cents, 0) AS tendered_cents,
-                COALESCE(tendered_cents_2, 0) AS tendered_cents_2
-            FROM tickets
-            WHERE status = 'CLOSED'
-              AND closed_at BETWEEN :from_dt AND :to_dt
+        WITH legs AS (
+            SELECT ticket_id, metodo_pago, monto_cents, propina_cents, es_split
+            FROM v_bola8_pagos_desglosados
+            WHERE closed_at BETWEEN :from_dt AND :to_dt
         ),
-        -- Each ticket contributes one or two rows (one per method)
-        payment_rows AS (
-            -- Primary payment
-            SELECT
-                ticket_id,
-                payment_type AS method,
-                CASE
-                    WHEN payment_type_2 IS NOT NULL THEN tendered_cents
-                    ELSE total_cents
-                END AS amount_cents,
-                CASE
-                    WHEN payment_type_2 IS NOT NULL
-                    THEN ROUND(tip_cents * tendered_cents::numeric / NULLIF(tendered_cents + tendered_cents_2, 0))
-                    ELSE tip_cents
-                END AS tip_portion,
-                (payment_type_2 IS NOT NULL) AS is_split
-            FROM ticket_data
-            UNION ALL
-            -- Secondary payment (split tickets only)
-            SELECT
-                ticket_id,
-                payment_type_2 AS method,
-                tendered_cents_2 AS amount_cents,
-                ROUND(tip_cents * tendered_cents_2::numeric / NULLIF(tendered_cents + tendered_cents_2, 0)) AS tip_portion,
-                TRUE AS is_split
-            FROM ticket_data
-            WHERE payment_type_2 IS NOT NULL
-        ),
-        -- Single-row summary for cross-join: unique ticket count and split ticket count
         totals AS (
-            SELECT
-                COUNT(DISTINCT ticket_id)                          AS unique_tickets,
-                COUNT(DISTINCT ticket_id) FILTER (WHERE is_split)  AS split_tickets
-            FROM payment_rows
+            SELECT COUNT(DISTINCT ticket_id)                         AS unique_tickets,
+                   COUNT(DISTINCT ticket_id) FILTER (WHERE es_split) AS split_tickets
+            FROM legs
         )
         SELECT
-            method AS payment_type,
-            COUNT(*) AS ticket_count,
-            SUM(amount_cents) AS total_cents,
-            SUM(tip_portion) AS tips_cents,
-            SUM(CASE WHEN is_split THEN 1 ELSE 0 END) AS split_count,
+            l.metodo_pago                                            AS payment_type,
+            COUNT(*) FILTER (WHERE l.monto_cents > 0)                AS ticket_count,
+            SUM(l.monto_cents)                                       AS total_cents,
+            SUM(l.propina_cents)                                     AS tips_cents,
+            COUNT(*) FILTER (WHERE l.es_split AND l.monto_cents > 0) AS split_count,
             t.unique_tickets,
             t.split_tickets
-        FROM payment_rows, totals t
-        GROUP BY method, t.unique_tickets, t.split_tickets
-        ORDER BY method
+        FROM legs l, totals t
+        GROUP BY l.metodo_pago, t.unique_tickets, t.split_tickets
+        ORDER BY l.metodo_pago
     """)
     rows = db.session.execute(sql, {'from_dt': from_dt, 'to_dt': to_dt}).mappings().all()
     return jsonify([{
@@ -322,20 +294,19 @@ def staff_report():
                 COUNT(DISTINCT id)  AS cnt,
                 SUM(total_cents)    AS total_sales,
                 SUM(tip_cents)      AS total_tips,
-                -- For split tickets use tendered amounts, not total_cents (which is the full bill)
-                SUM(CASE
-                    WHEN payment_type = 'CASH' AND payment_type_2 IS NULL THEN total_cents
-                    WHEN payment_type = 'CASH' AND payment_type_2 IS NOT NULL THEN COALESCE(tendered_cents, 0)
-                    WHEN payment_type_2 = 'CASH' THEN COALESCE(tendered_cents_2, 0)
-                    ELSE 0
-                END) AS cash_sales,
-                SUM(CASE
-                    WHEN payment_type = 'CARD' AND payment_type_2 IS NULL THEN total_cents
-                    WHEN payment_type = 'CARD' AND payment_type_2 IS NOT NULL THEN COALESCE(tendered_cents, 0)
-                    WHEN payment_type_2 = 'CARD' THEN COALESCE(tendered_cents_2, 0)
-                    ELSE 0
-                END) AS card_sales
+                -- Cash / card per ticket from v_bola8_pagos_desglosados (sales only,
+                -- tips excluded). tendered_cents includes the tip, so using it on
+                -- split tickets counted tips as sales.
+                SUM(COALESCE(pl.cash_cents, 0)) AS cash_sales,
+                SUM(COALESCE(pl.card_cents, 0)) AS card_sales
             FROM tickets
+            LEFT JOIN (
+                SELECT ticket_id,
+                       SUM(CASE WHEN metodo_pago = 'CASH' THEN monto_cents ELSE 0 END) AS cash_cents,
+                       SUM(CASE WHEN metodo_pago = 'CARD' THEN monto_cents ELSE 0 END) AS card_cents
+                FROM v_bola8_pagos_desglosados
+                GROUP BY ticket_id
+            ) pl ON pl.ticket_id = tickets.id
             WHERE status = 'CLOSED'
               AND closed_at BETWEEN :from_dt AND :to_dt
             GROUP BY opened_by
@@ -374,6 +345,10 @@ def voids_report():
             tli.quantity,
             tli.unit_price_cents,
             tli.void_reason                 AS reason,
+            tli.void_disposition            AS disposition,   -- RETURNED/WASTED/NONE; NULL = before 048
+            (SELECT ROUND(COALESCE(SUM(-m.quantity_delta * m.unit_cost_cents), 0))::bigint
+               FROM inventory_movements m
+              WHERE m.reference_id = tli.id AND m.event_type = 'WASTE') AS waste_cost_cents,
             tli.voided_at,
             voider.name                     AS voided_by,
             opener.name                     AS ticket_opened_by
@@ -398,17 +373,46 @@ def peak_hours_report():
     err = require_manager()
     if err: return err
     from_dt, to_dt = parse_dates()
+    # Revenue lands in the hour it was generated -- items when ORDERED, pool time
+    # when the table STARTED -- not when the tab was paid (median tab ~107 min,
+    # so close-time bucketing pushed every peak late). Tips are given at payment,
+    # so they stay on the close hour. Tickets = tabs with activity that hour.
     sql = text("""
-        SELECT
-            EXTRACT(HOUR FROM closed_at AT TIME ZONE 'America/Mexico_City')::int AS hour,
-            COUNT(*) AS ticket_count,
-            SUM(total_cents) AS revenue_cents,
-            SUM(tip_cents) AS tips_cents,
-            ROUND(AVG(total_cents)) AS avg_ticket_cents
-        FROM tickets
-        WHERE status = 'CLOSED'
-          AND closed_at BETWEEN :from_dt AND :to_dt
-        GROUP BY 1
+        WITH closed AS (
+            SELECT id, closed_at, COALESCE(tip_cents, 0) AS tip_cents
+            FROM tickets
+            WHERE status = 'CLOSED' AND closed_at BETWEEN :from_dt AND :to_dt
+        ),
+        activity AS (
+            SELECT EXTRACT(HOUR FROM COALESCE(li.sent_at, c.closed_at)
+                                     AT TIME ZONE fn_bar_tz())::int AS hour,
+                   v.ticket_id, v.net_sales_cents AS cents
+            FROM v_bola8_lineas_venta v
+            JOIN closed c ON c.id = v.ticket_id
+            LEFT JOIN ticket_line_items li ON li.id = v.line_item_id
+            UNION ALL
+            SELECT EXTRACT(HOUR FROM ps.start_time AT TIME ZONE fn_bar_tz())::int,
+                   ps.ticket_id, COALESCE(ps.charge_cents, 0)
+            FROM pool_timer_sessions ps
+            JOIN closed c ON c.id = ps.ticket_id
+            WHERE COALESCE(ps.status, '') <> 'CANCELLED'
+        ),
+        tips AS (
+            SELECT EXTRACT(HOUR FROM closed_at AT TIME ZONE fn_bar_tz())::int AS hour,
+                   SUM(tip_cents) AS tips_cents
+            FROM closed GROUP BY 1
+        ),
+        hours AS (
+            SELECT hour, COUNT(DISTINCT ticket_id) AS ticket_count, SUM(cents) AS revenue_cents
+            FROM activity GROUP BY 1
+        )
+        SELECT COALESCE(h.hour, t.hour) AS hour,
+               COALESCE(h.ticket_count, 0) AS ticket_count,
+               COALESCE(h.revenue_cents, 0) AS revenue_cents,
+               COALESCE(t.tips_cents, 0) AS tips_cents,
+               CASE WHEN COALESCE(h.ticket_count, 0) > 0
+                    THEN ROUND(h.revenue_cents::numeric / h.ticket_count) END AS avg_ticket_cents
+        FROM hours h FULL JOIN tips t ON t.hour = h.hour
         ORDER BY 1
     """)
     rows = db.session.execute(sql, {'from_dt': from_dt, 'to_dt': to_dt}).mappings().all()
@@ -509,7 +513,7 @@ def charts_data():
     # in the same FROM clause (each pool session row multiplied by line-item count).
     daily_sql = text("""
         SELECT
-            DATE(t.closed_at AT TIME ZONE 'America/Mexico_City') AS day,
+            fn_bar_date(t.closed_at) AS day,
             COALESCE(SUM(items.items_net_cents), 0)               AS items_net_cents,
             COALESCE(SUM(pool.pool_cents), 0)                     AS pool_cents
         FROM tickets t
@@ -609,121 +613,63 @@ def charts_data():
     })
 
 
-@reports_bp.route('/cigarettes', methods=['GET'])
-@jwt_required()
-def cigarettes_report():
-    err = require_manager()
-    if err: return err
-    from_dt, to_dt = parse_dates()
-
-    # Sales of cigarette items (singles sold through tickets)
-    sales_sql = text("""
-        SELECT
-            COALESCE(mi.name, tli.item_name)                AS item_name,
-            SUM(tli.quantity)                               AS units_sold,
-            SUM(tli.quantity * tli.unit_price_cents)        AS gross_cents,
-            MIN(tli.unit_price_cents)                       AS unit_price_cents
-        FROM ticket_line_items tli
-        JOIN tickets t         ON tli.ticket_id = t.id
-        LEFT JOIN menu_items mi     ON tli.menu_item_id = mi.id
-        LEFT JOIN menu_categories mc ON mi.category_id = mc.id
-        WHERE t.status = 'CLOSED'
-          AND tli.status != 'VOIDED'
-          AND mc.name ILIKE '%cigar%'
-          AND t.closed_at BETWEEN :from_dt AND :to_dt
-        GROUP BY COALESCE(mi.name, tli.item_name)
-        ORDER BY gross_cents DESC
-    """)
-
-    # Box opening events
-    boxes_sql = text("""
-        SELECT
-            ocb.brand,
-            COUNT(*)                                        AS boxes_opened,
-            SUM(ocb.cigs_per_box)                          AS total_cigs_added,
-            SUM(ocb.cigs_sold)                             AS total_cigs_sold,
-            SUM(ocb.cigs_per_box - ocb.cigs_sold)
-                FILTER (WHERE NOT ocb.is_finished)         AS cigs_remaining,
-            COUNT(*) FILTER (WHERE ocb.is_finished)        AS boxes_finished,
-            MIN(ocb.opened_at)                             AS first_opened,
-            MAX(ocb.opened_at)                             AS last_opened
-        FROM open_cigarette_boxes ocb
-        WHERE ocb.opened_at BETWEEN :from_dt AND :to_dt
-        GROUP BY ocb.brand
-        ORDER BY boxes_opened DESC
-    """)
-
-    sales_rows = db.session.execute(sales_sql, {'from_dt': from_dt, 'to_dt': to_dt}).mappings().all()
-    boxes_rows = db.session.execute(boxes_sql, {'from_dt': from_dt, 'to_dt': to_dt}).mappings().all()
-
-    sales_list = [{
-        'item_name': r['item_name'],
-        'units_sold': _int(r['units_sold']),
-        'gross_cents': _int(r['gross_cents']),
-        'unit_price_cents': _int(r['unit_price_cents']),
-    } for r in sales_rows]
-    boxes_list = [{
-        'brand': r['brand'],
-        'boxes_opened': int(r['boxes_opened'] or 0),
-        'total_cigs_added': _int(r['total_cigs_added']),
-        'total_cigs_sold': _int(r['total_cigs_sold']),
-        'cigs_remaining': _int(r['cigs_remaining']),
-        'boxes_finished': int(r['boxes_finished'] or 0),
-        'first_opened': r['first_opened'].isoformat() if r['first_opened'] else None,
-        'last_opened': r['last_opened'].isoformat() if r['last_opened'] else None,
-    } for r in boxes_rows]
-
-    return jsonify({
-        'sales': sales_list,
-        'boxes': boxes_list,
-        'totals': {
-            'gross_cents': sum(r['gross_cents'] for r in sales_list),
-            'units_sold': sum(r['units_sold'] for r in sales_list),
-            'boxes_opened': sum(r['boxes_opened'] for r in boxes_list),
-        }
-    })
-
-
 @reports_bp.route('/export', methods=['GET'])
 @jwt_required()
 def export_report():
+    """CSV/JSON export of any tabular report on the Reports page.
+
+    `type` is the TAB id the frontend sends. It used to accept only five names
+    -- and not the frontend's own 'pool' -- so most tabs downloaded an empty
+    file. Nested values (dicts/lists inside a row) are written as JSON text so
+    every report fits a flat CSV.
+    """
     err = require_manager()
     if err: return err
 
+    exporters = {
+        'sales':          sales_report,
+        'pool':           pool_time_report,
+        'pool-time':      pool_time_report,
+        'payments':       payments_report,
+        'staff':          staff_report,
+        'voids':          voids_report,
+        'modifiers':      modifiers_report,
+        'peak-hours':     peak_hours_report,
+        'menu-deletions': menu_deletions_report,
+        'inv-deletions':  inventory_deletions_report,
+        'promotions':     promotions_report,
+    }
     report_type = request.args.get('type', 'sales')
     fmt = request.args.get('format', 'csv')
+    fn = exporters.get(report_type)
+    if fn is None:
+        return jsonify({'error': 'NOT_EXPORTABLE',
+                        'message': f"'{report_type}' no tiene una tabla exportable"}), 422
 
-    if report_type == 'sales':
-        resp = sales_report()
-        data = resp.get_json()
-    elif report_type == 'pool-time':
-        resp = pool_time_report()
-        data = resp.get_json()
-    elif report_type == 'payments':
-        resp = payments_report()
-        data = resp.get_json()
-    elif report_type == 'staff':
-        resp = staff_report()
-        data = resp.get_json()
-    elif report_type == 'voids':
-        resp = voids_report()
-        data = resp.get_json()
-    else:
-        data = []
+    resp = fn()
+    if isinstance(resp, tuple):            # (response, status) from an error path
+        return resp
+    data = resp.get_json()
+    # Some reports return {"rows": [...], ...}: export the first list found.
+    if isinstance(data, dict):
+        data = next((v for v in data.values() if isinstance(v, list)), [data])
 
     if fmt == 'json':
         return jsonify(data)
 
-    if not data:
-        return Response('', mimetype='text/csv')
+    def _cell(v):
+        return json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
 
     output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=data[0].keys())
-    writer.writeheader()
-    writer.writerows(data)
-    today = datetime.now().strftime('%Y%m%d')
+    if data:
+        fields = list(dict.fromkeys(k for row in data for k in row.keys()))
+        writer = csv.DictWriter(output, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows({k: _cell(row.get(k)) for k in fields} for row in data)
+    today = datetime.now(bar_tz()).strftime('%Y%m%d')
+    # BOM so Excel opens accented Spanish text correctly.
     return Response(
-        output.getvalue(),
-        mimetype='text/csv',
+        '\ufeff' + output.getvalue(),
+        mimetype='text/csv; charset=utf-8',
         headers={'Content-Disposition': f'attachment; filename={report_type}_{today}.csv'}
     )

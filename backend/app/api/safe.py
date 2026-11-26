@@ -1,8 +1,8 @@
-from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from app.extensions import db
 from sqlalchemy import text
+from app.api.reports import parse_dates
 
 safe_bp = Blueprint('safe', __name__)
 
@@ -20,10 +20,10 @@ def list_collections():
     err = _require_admin()
     if err: return err
 
-    from_str = request.args.get('from')
-    to_str   = request.args.get('to')
-    from_dt  = datetime.fromisoformat(from_str) if from_str else datetime(2000, 1, 1, tzinfo=timezone.utc)
-    to_dt    = datetime.fromisoformat(to_str)   if to_str   else datetime.now(timezone.utc)
+    # Same rule as every report: plain dates are business days in the venue's
+    # timezone. (Naive datetimes used to be compared as UTC -- the DB session
+    # runs in UTC -- so anything collected after 6 pm landed on the next day.)
+    from_dt, to_dt = parse_dates()
 
     rows = db.session.execute(text("""
         SELECT sc.id, sc.amount_cents, sc.notes, sc.created_at,
@@ -90,10 +90,10 @@ def summary():
     err = _require_admin()
     if err: return err
 
-    from_str = request.args.get('from')
-    to_str   = request.args.get('to')
-    from_dt  = datetime.fromisoformat(from_str) if from_str else datetime(2000, 1, 1, tzinfo=timezone.utc)
-    to_dt    = datetime.fromisoformat(to_str)   if to_str   else datetime.now(timezone.utc)
+    # Same rule as every report: plain dates are business days in the venue's
+    # timezone. (Naive datetimes used to be compared as UTC -- the DB session
+    # runs in UTC -- so anything collected after 6 pm landed on the next day.)
+    from_dt, to_dt = parse_dates()
 
     row = db.session.execute(text("""
         SELECT

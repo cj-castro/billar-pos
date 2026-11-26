@@ -4,44 +4,54 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   LineChart, Line, PieChart, Pie, Cell,
 } from 'recharts'
-import NavBar from '../../components/NavBar'
-import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import { formatMXN, formatMXNFromPesos } from '../../utils/money'
+import { QueryStatus } from '../../components/QueryState'
 
 const cents = formatMXN  // backwards-compatible alias for inline JSX
 
-/** YYYY-MM-DD in the bar's local timezone (Mexico). Avoids the UTC-rollover
- *  bug where after 6pm local the default-day jumps to "tomorrow" with zero data. */
-function localToday(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
-}
 
 const ROLE_LABELS: Record<string, string> = {
   WAITER: '🏃 Mesero', BAR_STAFF: '🍹 Bar', KITCHEN_STAFF: '🍳 Cocina',
   MANAGER: '👔 Gerente', ADMIN: '🔑 Admin',
 }
 
-export default function ReportsPage() {
-  const today = localToday()
-  const [from, setFrom] = useState(today)
-  const [to, setTo] = useState(today)
-  const [tab, setTab] = useState<'sales' | 'pool' | 'payments' | 'modifiers' | 'staff' | 'voids' | 'peak-hours' | 'inv-deletions' | 'menu-deletions' | 'charts' | 'cigarettes'>('sales')
+export type ReportTab = 'sales' | 'pool' | 'payments' | 'modifiers' | 'staff' | 'voids'
+  | 'peak-hours' | 'inv-deletions' | 'menu-deletions' | 'charts' | 'promotions'
+
+/**
+ * One Reportes table, rendered inside Reportes (ReportsHub, batch D3), which
+ * owns the nav bar, shared date range and navigation. Remount per tab
+ * (key={tab}) so the category filter starts fresh.
+ */
+export default function ReportPanel({ tab, from, to }: { tab: ReportTab; from: string; to: string }) {
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL')
 
-  const params = { from: `${from}T00:00:00`, to: `${to}T23:59:59` }
+  // Plain dates: the server turns them into business days (closing-hour cutoff).
+  const params = { from, to }
 
-  const { data: sales } = useQuery({ queryKey: ['report-sales', from, to], queryFn: () => client.get('/reports/sales', { params }).then(r => r.data), enabled: tab === 'sales' })
-  const { data: pool } = useQuery({ queryKey: ['report-pool', from, to], queryFn: () => client.get('/reports/pool-time', { params }).then(r => r.data), enabled: tab === 'pool' || tab === 'charts' })
-  const { data: payments } = useQuery({ queryKey: ['report-payments', from, to], queryFn: () => client.get('/reports/payments', { params }).then(r => r.data), enabled: tab === 'payments' })
-  const { data: modifiers } = useQuery({ queryKey: ['report-modifiers', from, to], queryFn: () => client.get('/reports/modifiers', { params }).then(r => r.data), enabled: tab === 'modifiers' })
-  const { data: staff } = useQuery({ queryKey: ['report-staff', from, to], queryFn: () => client.get('/reports/staff', { params }).then(r => r.data), enabled: tab === 'staff' })
-  const { data: voids } = useQuery({ queryKey: ['report-voids', from, to], queryFn: () => client.get('/reports/voids', { params }).then(r => r.data), enabled: tab === 'voids' })
-  const { data: peakHours } = useQuery({ queryKey: ['report-peak-hours', from, to], queryFn: () => client.get('/reports/peak-hours', { params }).then(r => r.data), enabled: tab === 'peak-hours' })
-  const { data: menuDeletions } = useQuery({ queryKey: ['report-menu-deletions', from, to], queryFn: () => client.get('/reports/menu-deletions', { params }).then(r => r.data), enabled: tab === 'menu-deletions' })
-  const { data: invDeletions } = useQuery({ queryKey: ['report-inv-deletions', from, to], queryFn: () => client.get('/reports/inventory-deletions', { params }).then(r => r.data), enabled: tab === 'inv-deletions' })
-  const { data: cigData } = useQuery({ queryKey: ['report-cigarettes', from, to], queryFn: () => client.get('/reports/cigarettes', { params }).then(r => r.data), enabled: tab === 'cigarettes' })
-  const { data: chartsData } = useQuery({ queryKey: ['report-charts', from, to], queryFn: () => client.get('/reports/charts-data', { params }).then(r => r.data), enabled: tab === 'charts' || tab === 'sales' || tab === 'pool' || tab === 'staff' })
+  const salesQ = useQuery({ queryKey: ['report-sales', from, to], queryFn: () => client.get('/reports/sales', { params }).then(r => r.data), enabled: tab === 'sales' })
+  const sales = salesQ.data
+  const poolQ = useQuery({ queryKey: ['report-pool', from, to], queryFn: () => client.get('/reports/pool-time', { params }).then(r => r.data), enabled: tab === 'pool' || tab === 'charts' })
+  const pool = poolQ.data
+  const paymentsQ = useQuery({ queryKey: ['report-payments', from, to], queryFn: () => client.get('/reports/payments', { params }).then(r => r.data), enabled: tab === 'payments' })
+  const payments = paymentsQ.data
+  const modifiersQ = useQuery({ queryKey: ['report-modifiers', from, to], queryFn: () => client.get('/reports/modifiers', { params }).then(r => r.data), enabled: tab === 'modifiers' })
+  const modifiers = modifiersQ.data
+  const promosQ = useQuery({ queryKey: ['report-promotions', from, to], queryFn: () => client.get('/reports/promotions', { params }).then(r => r.data), enabled: tab === 'promotions' })
+  const promos = promosQ.data as any[] | undefined
+  const staffQ = useQuery({ queryKey: ['report-staff', from, to], queryFn: () => client.get('/reports/staff', { params }).then(r => r.data), enabled: tab === 'staff' })
+  const staff = staffQ.data
+  const voidsQ = useQuery({ queryKey: ['report-voids', from, to], queryFn: () => client.get('/reports/voids', { params }).then(r => r.data), enabled: tab === 'voids' })
+  const voids = voidsQ.data
+  const peakHoursQ = useQuery({ queryKey: ['report-peak-hours', from, to], queryFn: () => client.get('/reports/peak-hours', { params }).then(r => r.data), enabled: tab === 'peak-hours' })
+  const peakHours = peakHoursQ.data
+  const menuDeletionsQ = useQuery({ queryKey: ['report-menu-deletions', from, to], queryFn: () => client.get('/reports/menu-deletions', { params }).then(r => r.data), enabled: tab === 'menu-deletions' })
+  const menuDeletions = menuDeletionsQ.data
+  const invDeletionsQ = useQuery({ queryKey: ['report-inv-deletions', from, to], queryFn: () => client.get('/reports/inventory-deletions', { params }).then(r => r.data), enabled: tab === 'inv-deletions' })
+  const invDeletions = invDeletionsQ.data
+  const chartsDataQ = useQuery({ queryKey: ['report-charts', from, to], queryFn: () => client.get('/reports/charts-data', { params }).then(r => r.data), enabled: tab === 'charts' || tab === 'sales' || tab === 'pool' || tab === 'staff' })
+  const chartsData = chartsDataQ.data
 
   // Derive unique categories from sales data
   const categories = useMemo(() => {
@@ -68,48 +78,50 @@ export default function ReportsPage() {
   const itemsTotalPesos  = chartDaily.reduce((s: number, d: any) => s + Number(d.items_net || 0), 0)
   const poolChartPesos   = chartDaily.reduce((s: number, d: any) => s + Number(d.pool     || 0), 0)
 
-  const handleExport = () => {
-    const catParam = categoryFilter !== 'ALL' ? `&category=${encodeURIComponent(categoryFilter)}` : ''
-    window.open(`/api/v1/reports/export?type=${tab}&format=csv&from=${params.from}&to=${params.to}${catParam}`, '_blank')
+  // Download through the API client so the login token is sent. A plain
+  // window.open() carried no Authorization header and always got a 401.
+  const [exporting, setExporting] = useState(false)
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const res = await client.get('/reports/export', {
+        params: {
+          type: tab, format: 'csv', from: params.from, to: params.to,
+          ...(categoryFilter !== 'ALL' ? { category: categoryFilter } : {}),
+        },
+        responseType: 'blob',
+      })
+      const url = URL.createObjectURL(res.data as Blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${tab}_${from}_${to}.csv`
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      window.alert('No se pudo exportar este reporte.')
+    } finally {
+      setExporting(false)
+    }
   }
 
-  const TABS = [
-    { id: 'charts',        label: '📈 Gráficas' },
-    { id: 'sales',         label: '🛒 Ventas' },
-    { id: 'staff',         label: '👤 Personal' },
-    { id: 'pool',          label: '🎱 Billar' },
-    { id: 'payments',      label: '💳 Pagos' },
-    { id: 'modifiers',     label: '🧂 Modificadores' },
-    { id: 'voids',         label: '🚫 Anulaciones' },
-    { id: 'peak-hours',    label: '⏰ Horas Pico' },
-    { id: 'cigarettes',    label: '🚬 Cigarros' },
-    { id: 'menu-deletions', label: '🍽️ Menú Eliminados' },
-    { id: 'inv-deletions', label: '🗑 Inv. Eliminados' },
-  ] as const
 
   return (
-    <div className="min-h-screen bg-slate-950 page-root">
-      <NavBar />
-      <ManagerBackButton />
-      <div className="max-w-5xl mx-auto p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-bold">📊 Reportes</h1>
-          <button onClick={handleExport} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm">Exportar CSV</button>
-        </div>
+    <div>
+        {tab !== 'charts' && (
+          <div className="flex justify-end mb-3">
+            <button onClick={handleExport} disabled={exporting}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+              {exporting ? 'Exportando…' : 'Exportar CSV'}
+            </button>
+          </div>
+        )}
 
-        {/* Date filters */}
-        <div className="flex gap-4 mb-4">
-          <div><label className="text-xs text-slate-400 block">Desde</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2" /></div>
-          <div><label className="text-xs text-slate-400 block">Hasta</label><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2" /></div>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {TABS.map((t) => (
-            <button key={t.id} onClick={() => { setTab(t.id); setCategoryFilter('ALL') }}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === t.id ? 'bg-sky-600' : 'bg-slate-800 hover:bg-slate-700'}`}>{t.label}</button>
-          ))}
-        </div>
+        {/* Loading / error for the tab on screen (errors used to show as an empty table). */}
+        <QueryStatus query={({
+          sales: salesQ, pool: poolQ, payments: paymentsQ, modifiers: modifiersQ, staff: staffQ,
+          voids: voidsQ, 'peak-hours': peakHoursQ, 'menu-deletions': menuDeletionsQ,
+          'inv-deletions': invDeletionsQ, charts: chartsDataQ, promotions: promosQ,
+        } as Record<string, any>)[tab]} />
 
         {/* Category filter — only on Sales tab */}
         {tab === 'sales' && categories.length > 0 && (
@@ -390,6 +402,39 @@ export default function ReportsPage() {
           </div>
         )}
 
+        {/* Promotions: what each promotion gave away (this report existed but no screen showed it) */}
+        {tab === 'promotions' && promos && (
+          promos.length === 0
+            ? <div className="text-slate-500 text-sm p-6 text-center">Ninguna promoción aplicada en este periodo.</div>
+            : <div className="bg-slate-800 rounded-xl overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="bg-slate-700">
+                    <th className="p-3 text-left">Promoción</th><th className="p-3 text-right">Cuentas</th>
+                    <th className="p-3 text-right">Unidades</th><th className="p-3 text-right">Precio de lista</th>
+                    <th className="p-3 text-right">Descuento dado</th><th className="p-3 text-right">Cobrado</th>
+                  </tr></thead>
+                  <tbody>{promos.map(r => (
+                    <tr key={r.promotion_id} className="border-t border-slate-700">
+                      <td className="p-3">{r.promotion_name}</td>
+                      <td className="p-3 text-right">{r.tickets_count}</td>
+                      <td className="p-3 text-right">{r.units_discounted}</td>
+                      <td className="p-3 text-right font-mono">{cents(r.gross_cents)}</td>
+                      <td className="p-3 text-right font-mono text-amber-300">{cents(r.discount_cents)}</td>
+                      <td className="p-3 text-right font-mono">{cents(r.net_cents)}</td>
+                    </tr>))}
+                  </tbody>
+                  <tfoot><tr className="border-t border-slate-600 font-semibold">
+                    <td className="p-3">Total</td>
+                    <td className="p-3 text-right">{promos.reduce((a, r) => a + r.tickets_count, 0)}</td>
+                    <td className="p-3 text-right">{promos.reduce((a, r) => a + r.units_discounted, 0)}</td>
+                    <td className="p-3 text-right font-mono">{cents(promos.reduce((a, r) => a + r.gross_cents, 0))}</td>
+                    <td className="p-3 text-right font-mono text-amber-300">{cents(promos.reduce((a, r) => a + r.discount_cents, 0))}</td>
+                    <td className="p-3 text-right font-mono">{cents(promos.reduce((a, r) => a + r.net_cents, 0))}</td>
+                  </tr></tfoot>
+                </table>
+              </div>
+        )}
+
         {/* Voids */}
         {tab === 'voids' && (
           <div className="bg-slate-800 rounded-xl overflow-hidden">
@@ -402,8 +447,11 @@ export default function ReportsPage() {
                     {(voids as any[]).length} artículo{(voids as any[]).length !== 1 ? 's' : ''} anulado{(voids as any[]).length !== 1 ? 's' : ''}
                   </span>
                   <span className="text-xs text-slate-400">
-                    Total perdido: <span className="text-red-400 font-mono font-bold">
+                    Venta anulada: <span className="text-red-400 font-mono font-bold">
                       {cents((voids as any[]).reduce((s: number, r: any) => s + (r.unit_price_cents * r.quantity), 0))}
+                    </span>
+                    {' · '}Producto tirado (costo): <span className="text-amber-300 font-mono font-bold">
+                      {cents((voids as any[]).reduce((s: number, r: any) => s + Number(r.waste_cost_cents || 0), 0))}
                     </span>
                   </span>
                 </div>
@@ -417,6 +465,7 @@ export default function ReportsPage() {
                       <th className="p-3 text-right">Cant</th>
                       <th className="p-3 text-right">Valor</th>
                       <th className="p-3 text-left">Razón</th>
+                      <th className="p-3 text-left">Producto</th>
                       <th className="p-3 text-left">Anulado por</th>
                       <th className="p-3 text-left">Hora</th>
                     </tr>
@@ -435,6 +484,11 @@ export default function ReportsPage() {
                         <td className="p-3 text-orange-300 italic text-xs max-w-[180px]">
                           {r.reason || <span className="text-slate-500">—</span>}
                         </td>
+                        <td className="p-3 text-xs whitespace-nowrap">{
+                          r.disposition === 'WASTED' ? <span className="text-amber-300">🗑 Se tiró{Number(r.waste_cost_cents) > 0 ? ` · ${cents(Number(r.waste_cost_cents))}` : ''}</span>
+                          : r.disposition === 'RETURNED' ? <span className="text-emerald-300">↩ Regresó</span>
+                          : r.disposition === 'NONE' ? <span className="text-slate-500">No se envió</span>
+                          : <span className="text-slate-600" title="Anulado antes de registrar qué pasó con el producto">—</span>}</td>
                         <td className="p-3 text-slate-300 text-xs">{r.voided_by || '—'}</td>
                         <td className="p-3 text-slate-400 text-xs whitespace-nowrap">
                           {r.voided_at ? new Date(r.voided_at).toLocaleString('es-MX', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
@@ -783,102 +837,10 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {tab === 'cigarettes' && (
-          <div className="space-y-6">
-            {/* Summary cards */}
-            {cigData && (
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-slate-800 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-yellow-300">{cents((cigData as any).totals?.gross_cents ?? 0)}</div>
-                  <div className="text-xs text-slate-400 mt-1">Ingresos Cigarros</div>
-                </div>
-                <div className="bg-slate-800 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-sky-300">{(cigData as any).totals?.units_sold ?? 0}</div>
-                  <div className="text-xs text-slate-400 mt-1">Cigarros Vendidos</div>
-                </div>
-                <div className="bg-slate-800 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-emerald-300">{(cigData as any).totals?.boxes_opened ?? 0}</div>
-                  <div className="text-xs text-slate-400 mt-1">Cajas Abiertas</div>
-                </div>
-              </div>
-            )}
-
-            {/* Sales by item */}
-            <div className="bg-slate-800 rounded-xl overflow-hidden">
-              <div className="p-3 bg-slate-700/50 font-semibold text-sm">🚬 Ventas por Producto</div>
-              {!cigData || (cigData as any).sales?.length === 0 ? (
-                <p className="p-6 text-center text-slate-500">Sin ventas de cigarros en este período</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="text-xs text-slate-400 uppercase bg-slate-700/30">
-                    <tr>
-                      <th className="p-3 text-left">Producto</th>
-                      <th className="p-3 text-right">Precio Unitario</th>
-                      <th className="p-3 text-right">Unidades</th>
-                      <th className="p-3 text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {((cigData as any).sales as any[]).map((r: any, i: number) => (
-                      <tr key={i} className="border-t border-slate-700">
-                        <td className="p-3">{r.item_name}</td>
-                        <td className="p-3 text-right text-slate-400">{cents(r.unit_price_cents)}</td>
-                        <td className="p-3 text-right">{r.units_sold}</td>
-                        <td className="p-3 text-right font-mono text-yellow-300">{cents(r.gross_cents)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-slate-700/30">
-                    <tr>
-                      <td colSpan={2} className="p-3 text-xs text-slate-400 font-semibold">Total</td>
-                      <td className="p-3 text-right font-bold">{(cigData as any).totals?.units_sold ?? 0}</td>
-                      <td className="p-3 text-right font-bold text-yellow-300">{cents((cigData as any).totals?.gross_cents ?? 0)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              )}
-            </div>
-
-            {/* Box tracking */}
-            <div className="bg-slate-800 rounded-xl overflow-hidden">
-              <div className="p-3 bg-slate-700/50 font-semibold text-sm">📦 Cajas Abiertas</div>
-              {!cigData || (cigData as any).boxes?.length === 0 ? (
-                <p className="p-6 text-center text-slate-500">Sin cajas abiertas en este período</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="text-xs text-slate-400 uppercase bg-slate-700/30">
-                    <tr>
-                      <th className="p-3 text-left">Marca</th>
-                      <th className="p-3 text-right">Cajas</th>
-                      <th className="p-3 text-right">Cigarros Agregados</th>
-                      <th className="p-3 text-right">Cigarros Vendidos</th>
-                      <th className="p-3 text-right">En Inventario</th>
-                      <th className="p-3 text-right">Cajas Terminadas</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {((cigData as any).boxes as any[]).map((r: any, i: number) => (
-                      <tr key={i} className="border-t border-slate-700">
-                        <td className="p-3">{r.brand}</td>
-                        <td className="p-3 text-right">{r.boxes_opened}</td>
-                        <td className="p-3 text-right text-sky-300">{r.total_cigs_added}</td>
-                        <td className="p-3 text-right text-yellow-300">{r.total_cigs_sold ?? 0}</td>
-                        <td className="p-3 text-right text-emerald-300">{r.cigs_remaining ?? 0}</td>
-                        <td className="p-3 text-right text-slate-400">{r.boxes_finished}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        )}
 
 
 
 
-      </div>
     </div>
   )
 }
-

@@ -267,6 +267,32 @@ def register_migration_commands(app):
             click.echo('  !! Run `flask migration-status` for the full picture.')
             click.echo('')
 
+        # The analytics views in app/analytics_views.py are rebuilt by init-db
+        # STEP 26, which runs BEFORE migrations. When a migration adds something
+        # those views read (043 adds costo_estado), STEP 26 fails on that first
+        # boot, keeps the old definitions, and the dashboards run stale logic
+        # until the NEXT restart. Rebuilding once more here, after the schema is
+        # current, makes the first boot after a deploy correct.
+        # Venue settings default to the install's environment (TZ, CURRENCY,
+        # VENUE_NAME) so SQL's fn_bar_tz() and Python's bar_tz() always agree.
+        if not dry_run:
+            try:
+                from app.services.venue_svc import ensure_defaults
+                n = ensure_defaults()
+                if n:
+                    click.echo(f'Venue settings: {n} default(s) copied from the environment')
+            except Exception as exc:               # noqa: BLE001
+                db.session.rollback()
+                click.echo(f'  !! venue defaults not written: {exc}')
+
+        if applied and not dry_run:
+            try:
+                from app.analytics_views import ensure_analytics_views
+                ensure_analytics_views(db)
+            except Exception as exc:               # noqa: BLE001
+                db.session.rollback()
+                click.echo(f'  !! analytics views not rebuilt after migrations: {exc}')
+
     @app.cli.command('migration-status')
     def migration_status_cmd():
         """Show which migrations are applied and which are pending."""

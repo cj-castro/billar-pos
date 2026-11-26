@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider, keepPreviousData } from '@tanstack/re
 import { Toaster } from 'react-hot-toast'
 import App from './App'
 import ErrorBoundary from './components/ErrorBoundary'
+import { VenueGate } from './components/VenueGate'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -34,7 +35,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <App />
+          <VenueGate>
+            <App />
+          </VenueGate>
           <Toaster position="top-right" />
         </BrowserRouter>
       </QueryClientProvider>

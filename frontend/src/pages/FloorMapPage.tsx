@@ -7,6 +7,7 @@ import ResourceCard from '../components/ResourceCard'
 import WaitingListPanel from '../components/WaitingListPanel'
 import { useFloorStore } from '../stores/floorStore'
 import { useAuthStore } from '../stores/authStore'
+import StaffOrderDialog from '../components/StaffOrderDialog'
 import { useEscKey } from '../hooks/useEscKey'
 import client from '../api/client'
 import toast from 'react-hot-toast'
@@ -27,6 +28,7 @@ export default function FloorMapPage() {
 
   // Express / Rappi sale state
   const [showExpressModal, setShowExpressModal] = useState(false)
+  const [showStaffOrder, setShowStaffOrder] = useState(false)   // batch E5
   const [expressName, setExpressName] = useState('')
   const [creatingExpress, setCreatingExpress] = useState(false)
   const [showRappiModal, setShowRappiModal] = useState(false)
@@ -330,6 +332,13 @@ export default function FloorMapPage() {
             ⚡ Venta Rápida
           </button>
           <button
+            onClick={() => setShowStaffOrder(true)}
+            disabled={!barOpen}
+            className="flex items-center gap-2 bg-teal-800 hover:bg-teal-700 disabled:opacity-40 px-5 py-3 rounded-xl font-semibold text-sm"
+          >
+            🍽 Consumo de personal
+          </button>
+          <button
             onClick={() => { setRappiOrderId(''); setRappiName(''); setShowRappiModal(true) }}
             disabled={!barOpen}
             className="flex items-center gap-2 bg-orange-700 hover:bg-orange-600 disabled:opacity-40 px-5 py-3 rounded-xl font-semibold text-sm"
@@ -350,6 +359,7 @@ export default function FloorMapPage() {
             <div className="flex flex-wrap gap-3">
               {(activeExpressTickets as any[]).map((t: any) => {
                 const isRappi = t.ticket_type === 'DELIVERY'
+                const isStaff = t.ticket_type === 'STAFF'
                 const elapsed = t.opened_at
                   ? Math.floor((Date.now() - new Date(t.opened_at).getTime()) / 60000)
                   : 0
@@ -360,11 +370,12 @@ export default function FloorMapPage() {
                     className={`text-left rounded-2xl p-4 min-w-[160px] max-w-[200px] border-2 transition-colors ${
                       isRappi
                         ? 'bg-orange-900/40 border-orange-600 hover:bg-orange-900/70'
+                        : isStaff ? 'bg-teal-900/40 border-teal-600 hover:bg-teal-900/70'
                         : 'bg-sky-900/40 border-sky-600 hover:bg-sky-900/70'
                     }`}
                   >
-                    <div className={`text-xs font-semibold mb-1 ${isRappi ? 'text-orange-400' : 'text-sky-400'}`}>
-                      {isRappi ? '🛵 RAPPI' : '⚡ VENTA RÁPIDA'}
+                    <div className={`text-xs font-semibold mb-1 ${isRappi ? 'text-orange-400' : isStaff ? 'text-teal-300' : 'text-sky-400'}`}>
+                      {isRappi ? '🛵 RAPPI' : isStaff ? '🍽 PERSONAL' : '⚡ VENTA RÁPIDA'}
                     </div>
                     <div className="font-bold text-white text-sm truncate">
                       {isRappi
@@ -679,6 +690,7 @@ export default function FloorMapPage() {
         </div>
       </div>
     )}
-  </div>
+  {showStaffOrder && <StaffOrderDialog onClose={() => setShowStaffOrder(false)} />}
+    </div>
   )
 }

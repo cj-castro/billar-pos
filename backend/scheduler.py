@@ -1,12 +1,18 @@
-"""Daily report scheduler — runs as a separate Docker service.
+"""Report scheduler — runs as a separate Docker service.
 
-Sends the daily sales report at 08:00 America/Mexico_City every day.
-Shares the same DB connection settings as the backend but runs outside
+  * daily sales report     every day at 08:00
+  * purchase forecast      every Sunday at 10:00 (batch E3) — what to buy for
+                           the coming week, by email (the Telegram bot sends
+                           its own copy at the same time)
+
+Times are in the venue's timezone (Ajustes → Negocio, batch D1), read at start.
+Set SCHEDULED_REPORTS=off to schedule nothing (e.g. a test or copy install that
+must not email the owner). Shares the backend's DB settings but runs outside
 gunicorn so there is no interference with the eventlet worker.
 """
 import logging
+import os
 import sys
-from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -34,15 +40,35 @@ def send_report():
             log.exception("Daily report failed")
 
 
-scheduler = BlockingScheduler(timezone=ZoneInfo('America/Mexico_City'))
-scheduler.add_job(
-    send_report,
-    CronTrigger(hour=8, minute=0, timezone=ZoneInfo('America/Mexico_City')),
-    id='daily_report',
-    replace_existing=True,
-)
+def send_purchase_forecast():
+    with flask_app.app_context():
+        try:
+            from app.services.purchase_svc import send_weekly_email
+            send_weekly_email()
+        except Exception:
+            log.exception("Weekly purchase forecast failed")
 
-log.info("Scheduler ready — daily report fires at 08:00 America/Mexico_City")
+
+if os.environ.get('SCHEDULED_REPORTS', 'on').strip().lower() in ('off', 'false', '0', 'no'):
+    log.info("SCHEDULED_REPORTS=off — no reports will be sent from this install")
+    import time
+    while True:                      # stay up (restart: unless-stopped) but do nothing
+        time.sleep(3600)
+
+with flask_app.app_context():
+    from app.services.venue_svc import bar_tz
+    tz = bar_tz()
+
+purchase_hour = int(os.environ.get('PURCHASE_FORECAST_HOUR', '10'))
+
+scheduler = BlockingScheduler(timezone=tz)
+scheduler.add_job(send_report, CronTrigger(hour=8, minute=0, timezone=tz),
+                  id='daily_report', replace_existing=True)
+scheduler.add_job(send_purchase_forecast,
+                  CronTrigger(day_of_week='sun', hour=purchase_hour, minute=0, timezone=tz),
+                  id='weekly_purchase_forecast', replace_existing=True)
+
+log.info("Scheduler ready (%s) — daily report 08:00; purchase forecast Sundays %02d:00", tz, purchase_hour)
 
 try:
     scheduler.start()

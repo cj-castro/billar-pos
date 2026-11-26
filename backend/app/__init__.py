@@ -47,16 +47,16 @@ def create_app(config_class=Config):
     from .api.queue import queue_bp
     from .api.inventory import inventory_bp
     from .api.reports import reports_bp
-    from .api.earnings import earnings_bp
     from .api.menu import menu_bp
     from .api.users import users_bp
     from .api.waiting_list import waiting_list_bp
     from .api.cash_session import cash_bp
     from .api.safe import safe_bp
     from .api.suppliers import suppliers_bp
-    from .api.settings import settings_bp
+    from .api.settings import settings_bp, venue_bp
     from .api.promotions import promotions_bp
     from .api.analytics import analytics_bp
+    from .api.home import home_bp
 
     app.register_blueprint(auth_bp,          url_prefix='/api/v1/auth')
     app.register_blueprint(resources_bp,     url_prefix='/api/v1/resources')
@@ -64,7 +64,6 @@ def create_app(config_class=Config):
     app.register_blueprint(queue_bp,         url_prefix='/api/v1/queue')
     app.register_blueprint(inventory_bp,     url_prefix='/api/v1/inventory')
     app.register_blueprint(reports_bp,       url_prefix='/api/v1/reports')
-    app.register_blueprint(earnings_bp,      url_prefix='/api/v1/reports/earnings')
     app.register_blueprint(menu_bp,          url_prefix='/api/v1/menu')
     app.register_blueprint(users_bp,         url_prefix='/api/v1/users')
     app.register_blueprint(waiting_list_bp,  url_prefix='/api/v1/waiting-list')
@@ -72,8 +71,10 @@ def create_app(config_class=Config):
     app.register_blueprint(safe_bp,          url_prefix='/api/v1/safe')
     app.register_blueprint(suppliers_bp,     url_prefix='/api/v1/suppliers')
     app.register_blueprint(settings_bp,      url_prefix='/api/v1/settings')
+    app.register_blueprint(venue_bp,         url_prefix='/api/v1/venue')
     app.register_blueprint(promotions_bp,    url_prefix='/api/v1/promotions')
     app.register_blueprint(analytics_bp,     url_prefix='/api/v1/analytics')
+    app.register_blueprint(home_bp,          url_prefix='/api/v1/home')
 
     from .sockets import events  # noqa: F401
 
@@ -699,7 +700,7 @@ def create_app(config_class=Config):
                CHECK (
                  (status <> 'OPEN')
                  OR (resource_id IS NOT NULL)
-                 OR (ticket_type IN ('EXPRESS', 'DELIVERY'))
+                 OR (ticket_type IN ('EXPRESS', 'DELIVERY', 'STAFF'))
                )""",
         ]:
             run(stmt, 'step21')
@@ -931,29 +932,13 @@ def create_app(config_class=Config):
             captured against the real cost at the time and are more accurate than
             anything we would overwrite them with.
         """
-        from sqlalchemy import text
+        from .services import cost_svc
 
-        preview = db.session.execute(text("""
-            SELECT count(*)                                        AS filas,
-                   count(DISTINCT s.ticket_line_item_id)           AS lineas,
-                   COALESCE(sum(round(s.quantity_deducted
-                                      * ii.unit_cost_cents)), 0)   AS nuevo_costo_cents
-            FROM sale_item_costs s
-            JOIN inventory_items ii ON ii.id = s.inventory_item_id
-            WHERE COALESCE(s.total_cost_cents, 0) = 0
-              AND COALESCE(ii.unit_cost_cents, 0) > 0
-              AND COALESCE(s.quantity_deducted, 0) > 0
-        """)).mappings().first()
-
-        still_zero = db.session.execute(text("""
-            SELECT count(*) FROM inventory_items
-            WHERE COALESCE(is_active, TRUE) AND COALESCE(unit_cost_cents, 0) = 0
-        """)).scalar()
-
+        preview = cost_svc.restate_preview()
         print(f"Rows to restate      : {preview['filas']}")
         print(f"Sale lines affected  : {preview['lineas']}")
         print(f"Cost to be recorded  : ${preview['nuevo_costo_cents'] / 100:,.2f} MXN")
-        print(f"Items still unpriced : {still_zero} "
+        print(f"Items still unpriced : {preview['insumos_sin_costo']} "
               f"(their lines stay at zero cost until a cost is entered)")
 
         if dry_run:
@@ -961,22 +946,13 @@ def create_app(config_class=Config):
             return
         if not preview['filas']:
             print("\nNothing to restate. Enter unit costs first "
-                  "(GET /api/v1/analytics/cost-coverage lists them by revenue exposure).")
+                  "(Analytics -> Costos lists them by revenue exposure).")
             return
 
-        result = db.session.execute(text("""
-            UPDATE sale_item_costs s
-               SET unit_cost_cents  = ii.unit_cost_cents,
-                   total_cost_cents = round(s.quantity_deducted * ii.unit_cost_cents)
-              FROM inventory_items ii
-             WHERE ii.id = s.inventory_item_id
-               AND COALESCE(s.total_cost_cents, 0) = 0
-               AND COALESCE(ii.unit_cost_cents, 0) > 0
-               AND COALESCE(s.quantity_deducted, 0) > 0
-        """))
+        n = cost_svc.restate()
         db.session.commit()
-        print(f"\nRestated {result.rowcount} rows. "
-              f"Margins are now current-cost restatements — label them as such.")
+        print(f"\nRestated {n} rows (stamped cost_restated_at). "
+              f"Their margins are current-cost estimates and are labelled as such.")
 
 
     @app.cli.command('daily-report')
@@ -997,6 +973,21 @@ def create_app(config_class=Config):
         except Exception as exc:
             print(f"ERROR: {exc}")
             raise SystemExit(1)
+
+    @app.cli.command('purchase-forecast')
+    @click.option('--send', is_flag=True, help='Email it now (same as the Sunday job)')
+    def purchase_forecast(send):
+        """Print next week's purchase forecast; --send emails it."""
+        from app.services import purchase_svc
+        f = purchase_svc.forecast()
+        print(purchase_svc.format_text(f, limit=100_000))
+        if send:
+            try:
+                purchase_svc.send_weekly_email()
+                print("Purchase forecast emailed.")
+            except Exception as exc:
+                print(f"ERROR: {exc}")
+                raise SystemExit(1)
 
     @app.cli.command('seed-beer')
     def seed_beer():

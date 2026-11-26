@@ -36,6 +36,11 @@ services:
       HAPPY_HOUR_DISCOUNT_PCT: ${HAPPY_HOUR_DISCOUNT_PCT:-20}
       CURRENCY: ${CURRENCY:-MXN}
       TZ: ${TZ:-America/Mexico_City}
+      # Venue identity (batch D1). Copied into settings on first start; the owner
+      # can change it later in Ajustes -> Negocio.
+      VENUE_NAME: ${VENUE_NAME:-Mi Billar}
+      # Closing hour for business days (Ajustes -> Negocio overrides it).
+      DAY_CUTOFF: ${DAY_CUTOFF:-00:00}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       FLASK_ENV: ${FLASK_ENV:-production}
       FLASK_APP: wsgi.py
@@ -85,6 +90,10 @@ services:
       dockerfile: Dockerfile
     entrypoint: ["python", "scheduler.py"]
     restart: unless-stopped
+    # The image's HEALTHCHECK probes the web API on :5000, which this service
+    # doesn't serve -- it always read "unhealthy" while working fine.
+    healthcheck:
+      disable: true
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,6 +108,9 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       REPORT_FROM: ${REPORT_FROM:-bola.8gdl@gmail.com}
       REPORT_TO: ${REPORT_TO:-bola.8gdl@gmail.com,isc.castro@gmail.com}
+      # off = send nothing from this install (copies / test machines)
+      SCHEDULED_REPORTS: ${SCHEDULED_REPORTS:-on}
+      PURCHASE_FORECAST_HOUR: ${PURCHASE_FORECAST_HOUR:-10}
     networks:
       - billiardbar_net
 
@@ -113,6 +125,7 @@ services:
     environment:
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
       ADMIN_CHAT_ID: ${ADMIN_CHAT_ID:-}
+      PURCHASE_FORECAST_HOUR: ${PURCHASE_FORECAST_HOUR:-10}
       DATABASE_URL: postgresql://${POSTGRES_USER:-billiard}:${POSTGRES_PASSWORD:-billiard_secret}@postgres:5432/${POSTGRES_DB:-billiardbar}
     networks:
       - billiardbar_net

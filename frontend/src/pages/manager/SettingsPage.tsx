@@ -5,11 +5,15 @@ import { useLanguage } from '../../hooks/useLanguage'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
+import { VenueSettings } from '../../components/VenueSettings'
+import { OwnerLimits } from '../../components/OwnerLimits'
+import { useAuthStore } from '../../stores/authStore'
 
 export default function SettingsPage() {
   const { t } = useTranslation()
   const { lang, setLanguage } = useLanguage()
   const qc = useQueryClient()
+  const isAdmin = useAuthStore(s => s.user)?.role === 'ADMIN'
 
   const handleChange = (newLang: 'es' | 'en') => {
     setLanguage(newLang)
@@ -54,6 +58,8 @@ export default function SettingsPage() {
       <ManagerBackButton />
       <div className="max-w-lg mx-auto p-6">
         <h1 className="text-2xl font-bold mb-6">⚙️ {t('settings.title')}</h1>
+        {isAdmin && <VenueSettings />}
+        {isAdmin && <OwnerLimits />}
 
         <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 mb-4">
           <div className="font-semibold mb-4">🌐 {t('settings.language')}</div>

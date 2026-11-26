@@ -5,8 +5,11 @@ import { useTranslation } from 'react-i18next'
 import { useLanguage } from '../hooks/useLanguage'
 import { useQuery } from '@tanstack/react-query'
 import client from '../api/client'
+import { useVenue } from './VenueGate'
+import { venueLogo } from '../utils/venue'
 
 export default function NavBar() {
+  const venue = useVenue()
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
   const location = useLocation()
@@ -61,8 +64,8 @@ export default function NavBar() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-900 border-b border-slate-700 px-4 py-2.5 flex items-center justify-between">
         {/* Logo */}
         <Link to="/floor" className="flex items-center gap-2 flex-shrink-0" onClick={close}>
-          <img src="/logo.jpg" alt="Bola 8" className="w-8 h-8 rounded-full object-cover border border-slate-600" />
-          <span className="text-lg font-bold text-sky-400">Bola 8</span>
+          <img src={venueLogo()} alt={venue.name} className="w-8 h-8 rounded-full object-cover border border-slate-600" />
+          <span className="text-lg font-bold text-sky-400 truncate max-w-[10rem]">{venue.name}</span>
         </Link>
 
         {/* Desktop nav links */}
@@ -87,10 +90,10 @@ export default function NavBar() {
               </Link>
             )}
             {showSafe && (
-              <Link to="/manager/safe" className="text-emerald-400 hover:text-emerald-300">🔐 Caja</Link>
+              <Link to="/manager/reportes/caja/caja-fuerte" className="text-emerald-400 hover:text-emerald-300">🔐 Caja fuerte</Link>
             )}
             {showSafe && (
-              <Link to="/manager/earnings" className="text-violet-400 hover:text-violet-300">💹 Ganancias</Link>
+              <Link to="/manager/reportes" className={`text-violet-400 hover:text-violet-300 ${isActive('/manager/reportes') ? 'font-semibold' : ''}`}>📊 Reportes</Link>
             )}
           </div>
         )}
@@ -175,13 +178,13 @@ export default function NavBar() {
               <span className="ml-2 text-xs text-sky-400 capitalize">{user.role.toLowerCase().replace('_', ' ')}</span>
             </div>
             {showSafe && (
-              <Link to="/manager/safe" onClick={close} className="px-4 py-3 text-emerald-400 hover:bg-slate-800 active:bg-slate-700 text-sm">
+              <Link to="/manager/reportes/caja/caja-fuerte" onClick={close} className="px-4 py-3 text-emerald-400 hover:bg-slate-800 active:bg-slate-700 text-sm">
                 🔐 Caja Fuerte
               </Link>
             )}
             {showSafe && (
-              <Link to="/manager/earnings" onClick={close} className="px-4 py-3 text-violet-400 hover:bg-slate-800 active:bg-slate-700 text-sm">
-                💹 Ganancias
+              <Link to="/manager/reportes" onClick={close} className="px-4 py-3 text-violet-400 hover:bg-slate-800 active:bg-slate-700 text-sm">
+                📊 Reportes
               </Link>
             )}
             <button onClick={handleLogout} className="px-4 py-3 text-left text-red-400 hover:bg-slate-800 active:bg-slate-700 text-sm">

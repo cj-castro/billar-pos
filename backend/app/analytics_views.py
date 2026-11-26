@@ -9,7 +9,8 @@ Design rules (see docs/analytics-blueprint.md):
     NUMERIC(18,2) ONCE at the outermost projection. Rounding sub-aggregates and
     summing them produces cent drift.
   * Never FLOAT / DOUBLE PRECISION.
-  * Every date derivation goes through AT TIME ZONE 'America/Mexico_City' before
+  * Every DATE / weekday goes through fn_bar_business_ts() (venue timezone minus the
+    closing-hour cutoff, migration 046); hour-of-day uses AT TIME ZONE fn_bar_tz(). Before
     ::date. A UTC-based date pushes post-18:00 local revenue — most of a bar's
     night — onto the following day.
   * Views MAY read base tables (that is how the original thirteen work).
@@ -21,6 +22,8 @@ DEPENDENCY WARNING
     checks for them and skips with a warning rather than failing init-db.
 """
 
+# The bar's timezone comes from settings via fn_bar_tz() (migration 045);
+# never hard-code it here. (Kept for any external import of the old name.)
 TZ = "America/Mexico_City"
 
 # Views these definitions depend on. If missing, STEP 26 is skipped.
@@ -44,8 +47,9 @@ REQUIRED_VIEWS = ("v_bola8_lineas_venta", "v_bola8_tickets_cerrados")
 #    which is populated on 1,010 of 1,102 closed tickets. That beats estimating:
 #      * tip_source matches a leg's method  -> the whole tip sits on that leg
 #      * 'SPLIT' or NULL                    -> apportioned by tendered share
-#    tip_cash_cents / tip_card_cents are NOT used: populated on 4 of 889 tipped
-#    tickets, effectively dead.
+#    tip_cash_cents / tip_card_cents are used when present (SPLIT tips), exactly
+#    as the POS does. Single-payment tickets also honour tip_source: a cash tip
+#    on a card payment is reported under CASH, where the drawer sees it.
 #
 #    Sales per leg = tendered - that leg's tip. leg 2 is clamped to [0, total] and
 #    leg 1 takes the remainder, so cash + card reconcile EXACTLY to ventas_mxn
@@ -67,58 +71,96 @@ WITH base AS (
         v.payment_type_2,
         COALESCE(t.tendered_cents,   0) AS tendered_1,
         COALESCE(t.tendered_cents_2, 0) AS tendered_2,
-        t.tip_source
+        t.tip_source,
+        t.tip_cash_cents,
+        t.tip_card_cents
     FROM v_bola8_tickets_cerrados v
     JOIN tickets t ON t.id = v.ticket_id
 ),
-split AS (
+alloc AS (
     SELECT
         b.*,
-        -- Tip belonging to leg 2 (the second payment method).
+        -- SINGLE-payment ticket: the cash part of the tip, by where it was
+        -- actually collected (tip_source), exactly as cash_session._build_summary
+        -- does. A card payment can carry a cash tip and vice versa.
+        CASE
+            WHEN b.tip_source = 'CASH'  THEN b.tip_cents
+            WHEN b.tip_source = 'CARD'  THEN 0
+            WHEN b.tip_source = 'SPLIT' THEN b.tip_cents / 2       -- integer floor, = Python //
+            WHEN b.payment_type = 'CASH' THEN b.tip_cents
+            ELSE 0
+        END AS single_cash_tip,
+        -- SPLIT ticket: tip on leg 2, same precedence as the POS.
         CASE
             WHEN b.payment_type_2 IS NULL                 THEN 0
             WHEN b.tip_source = b.payment_type_2          THEN b.tip_cents
             WHEN b.tip_source = b.payment_type            THEN 0
+            WHEN b.tip_source = 'SPLIT' AND b.tip_cash_cents IS NOT NULL
+                THEN b.tip_cents - CASE WHEN b.payment_type = 'CASH'
+                                        THEN COALESCE(b.tip_cash_cents, 0)
+                                        ELSE COALESCE(b.tip_card_cents, 0) END
             WHEN (b.tendered_1 + b.tendered_2) > 0
                 THEN round(b.tip_cents::numeric * b.tendered_2
                            / (b.tendered_1 + b.tendered_2))
             ELSE 0
-        END::integer AS leg2_tip_cents,
-        -- TRUE when the tip had to be apportioned rather than read off tip_source.
-        (b.payment_type_2 IS NOT NULL
-         AND b.tip_cents > 0
-         AND (b.tip_source IS NULL
-              OR b.tip_source NOT IN (b.payment_type, b.payment_type_2))) AS tip_estimado
+        END::integer AS split_leg2_tip
     FROM base b
 ),
-alloc AS (
+alloc2 AS (
+    SELECT a.*,
+           -- Sales on leg 2 = its tendered amount minus its tip, clamped into range.
+           -- If leg 2's amount was never recorded (payment_type_2 set but
+           -- tendered_cents_2 empty -- it happens), trust leg 1 instead: the cash
+           -- that was tendered is what reached the drawer, as the POS assumes.
+           CASE WHEN a.tendered_2 > 0 OR a.tendered_1 = 0
+                THEN LEAST(GREATEST(a.tendered_2 - a.split_leg2_tip, 0), a.total_cents)
+                ELSE a.total_cents
+                     - LEAST(GREATEST(a.tendered_1 - (a.tip_cents - a.split_leg2_tip), 0),
+                             a.total_cents)
+           END::integer AS split_leg2_sales
+    FROM alloc a
+),
+per AS (
+    -- One row per ticket describing both legs. For a single-payment ticket,
+    -- leg 2 is "the part of the tip collected on the other side" (sales 0), so
+    -- a cash tip on a card payment lands under CASH where the drawer sees it.
     SELECT
-        s.*,
-        -- Sales on leg 2 = its tendered amount minus its tip, clamped into range.
-        LEAST(GREATEST(s.tendered_2 - s.leg2_tip_cents, 0), s.total_cents)::integer
-            AS leg2_sales_cents
-    FROM split s
+        ticket_id, closed_at, fecha_mx, hora_mx, dia_semana_iso, ticket_type, total_cents,
+        (payment_type_2 IS NOT NULL) AS es_split,
+        (payment_type_2 IS NOT NULL
+         AND tip_cents > 0
+         AND (tip_source IS NULL
+              OR (tip_source NOT IN (payment_type, payment_type_2)
+                  AND NOT (tip_source = 'SPLIT' AND tip_cash_cents IS NOT NULL)))) AS tip_estimado,
+        payment_type AS m1,
+        CASE WHEN payment_type_2 IS NULL THEN total_cents
+             ELSE total_cents - split_leg2_sales END                         AS monto1,
+        CASE WHEN payment_type_2 IS NULL
+             THEN CASE WHEN payment_type = 'CASH' THEN single_cash_tip
+                       ELSE tip_cents - single_cash_tip END
+             ELSE tip_cents - split_leg2_tip END                             AS tip1,
+        CASE WHEN payment_type_2 IS NULL
+             THEN CASE WHEN payment_type = 'CASH' THEN 'CARD' ELSE 'CASH' END
+             ELSE payment_type_2 END::varchar                                AS m2,
+        CASE WHEN payment_type_2 IS NULL THEN 0 ELSE split_leg2_sales END    AS monto2,
+        CASE WHEN payment_type_2 IS NULL
+             THEN CASE WHEN payment_type = 'CASH' THEN tip_cents - single_cash_tip
+                       ELSE single_cash_tip END
+             ELSE split_leg2_tip END                                         AS tip2
+    FROM alloc2
 ),
 legs AS (
-    -- Leg 1 always exists; it absorbs whatever leg 2 did not take, so the two
-    -- legs always sum to total_cents.
+    -- Leg 1 always exists and absorbs whatever leg 2 did not take, so sales
+    -- always sum to total_cents and tips to tip_cents.
     SELECT ticket_id, closed_at, fecha_mx, hora_mx, dia_semana_iso, ticket_type,
-           total_cents, tip_estimado,
-           1                                              AS orden_pago,
-           payment_type                                   AS metodo_pago,
-           (total_cents - CASE WHEN payment_type_2 IS NULL
-                               THEN 0 ELSE leg2_sales_cents END)::integer AS monto_cents,
-           (tip_cents - CASE WHEN payment_type_2 IS NULL
-                             THEN 0 ELSE leg2_tip_cents END)::integer     AS propina_cents,
-           (payment_type_2 IS NOT NULL)                   AS es_split
-    FROM alloc
+           total_cents, tip_estimado, 1 AS orden_pago, m1 AS metodo_pago,
+           monto1::integer AS monto_cents, tip1::integer AS propina_cents, es_split
+    FROM per
     UNION ALL
     SELECT ticket_id, closed_at, fecha_mx, hora_mx, dia_semana_iso, ticket_type,
-           total_cents, tip_estimado,
-           2, payment_type_2, leg2_sales_cents, leg2_tip_cents, TRUE
-    FROM alloc
-    WHERE payment_type_2 IS NOT NULL
-      AND (leg2_sales_cents > 0 OR leg2_tip_cents > 0)
+           total_cents, tip_estimado, 2, m2, monto2::integer, tip2::integer, es_split
+    FROM per
+    WHERE monto2 > 0 OR tip2 > 0
 )
 SELECT
     ticket_id,
@@ -145,24 +187,20 @@ WHERE monto_cents > 0 OR propina_cents > 0
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. v_bola8_flujo_caja — one row per cash session (drawer variance)
 #
-#    safe_collections has no session_id, and tickets have no session_id, so both
-#    are attributed by time window [opened_at, COALESCE(closed_at, now())).
+#    MUST give the same answer as the POS close screen (cash_session._build_summary).
+#    It used not to, and showed $35.8k of drawer "sobrantes" that never happened.
+#    The rules, all copied from the POS:
+#      * a ticket belongs to the session in which it was OPENED (not closed);
+#      * only CASH expenses leave the drawer;
+#      * safe pickups (safe_collections) are NOT part of tonight's expected cash.
+#        They are logged after the count, or days later, and have no session id;
+#        subtracting them by time window is what invented the overages. They are
+#        still reported (retiros_caja_fuerte_mxn) for information.
 #
-#    TIP PAYOUT — the term that makes the drawer balance.
-#    House policy: staff are paid their tips DAILY IN CASH, out of the drawer.
-#    That applies to tips earned on card as well as on cash, so:
-#        * cash tips arrive in the drawer with the payment, then leave again
-#        * card tips NEVER arrive (they settle with the processor) but still leave
-#    Net drawer drain from tips is therefore the CARD tips:
+#    TIP PAYOUT — house policy: ALL tips, card included, are paid to staff in cash
+#    from the drawer at close, so
 #        esperado = fondo + ventas_efectivo + propinas_efectivo - propinas_totales
-#                          - gastos - retiros
-#                 ≡ fondo + ventas_efectivo - propinas_tarjeta - gastos - retiros
-#
-#    Verified: without this term only 12 of 99 closed sessions reconciled within
-#    ±$50 and the median was -$299.92. With it, 74 of 99 reconcile and the median
-#    is exactly $0.00. The apparent "persistent cash shortfall" was a missing term,
-#    not a leak.
-#
+#                   - gastos_efectivo
 #    efectivo_esperado_sin_pago_propinas_mxn is kept for days when tips were NOT
 #    paid out at close, which would otherwise read as a large surplus.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -172,7 +210,7 @@ WITH sess AS (
     SELECT
         cs.id                                                    AS session_id,
         cs.date                                                  AS fecha_sesion,
-        (cs.opened_at AT TIME ZONE '{TZ}')::date                 AS fecha_mx,
+        fn_bar_business_ts(cs.opened_at)::date                 AS fecha_mx,
         cs.status,
         cs.opened_at,
         cs.closed_at,
@@ -196,19 +234,23 @@ ventas AS (
         SUM(p.monto_cents)                                                    AS ventas_totales_cents,
         COUNT(DISTINCT p.ticket_id)                                           AS tickets
     FROM sess s
-    JOIN v_bola8_pagos_desglosados p
-      ON p.closed_at >= s.opened_at
-     AND p.closed_at <  COALESCE(s.closed_at, now())
+    JOIN tickets t
+      ON t.opened_at >= s.opened_at
+     AND (s.closed_at IS NULL OR t.opened_at <= s.closed_at)
+    JOIN v_bola8_pagos_desglosados p ON p.ticket_id = t.id
     GROUP BY s.session_id
 ),
 gastos AS (
     SELECT session_id,
-           SUM(COALESCE(amount_cents, 0)) AS gastos_cents,
-           COUNT(*)                       AS num_gastos
+           SUM(COALESCE(amount_cents, 0))                                          AS gastos_cents,
+           SUM(CASE WHEN payment_method = 'CASH' THEN COALESCE(amount_cents, 0) ELSE 0 END)
+                                                                                   AS gastos_efectivo_cents,
+           COUNT(*)                                                                AS num_gastos
     FROM expenses
     GROUP BY session_id
 ),
 retiros AS (
+    -- Informational only (see header): never subtracted from expected cash.
     SELECT s.session_id,
            SUM(COALESCE(sc.amount_cents, 0)) AS retiros_cents,
            COUNT(*)                          AS num_retiros
@@ -230,6 +272,7 @@ calc AS (
         COALESCE(v.ventas_totales_cents, 0)    AS ventas_totales_cents,
         COALESCE(v.tickets, 0)                 AS tickets,
         COALESCE(g.gastos_cents, 0)            AS gastos_cents,
+        COALESCE(g.gastos_efectivo_cents, 0)   AS gastos_efectivo_cents,
         COALESCE(g.num_gastos, 0)              AS num_gastos,
         COALESCE(r.retiros_cents, 0)           AS retiros_cents,
         COALESCE(r.num_retiros, 0)             AS num_retiros
@@ -237,6 +280,14 @@ calc AS (
     LEFT JOIN ventas  v ON v.session_id = s.session_id
     LEFT JOIN gastos  g ON g.session_id = s.session_id
     LEFT JOIN retiros r ON r.session_id = s.session_id
+),
+expected AS (
+    SELECT c.*,
+           (fondo_inicial_cents + efectivo_ventas_cents + propinas_efectivo_cents
+            - propinas_totales_cents - gastos_efectivo_cents)            AS esperado_cents,
+           (fondo_inicial_cents + efectivo_ventas_cents + propinas_efectivo_cents
+            - gastos_efectivo_cents)                                     AS esperado_sin_propinas_cents
+    FROM calc c
 )
 SELECT
     session_id,
@@ -259,53 +310,31 @@ SELECT
     (round(propinas_tarjeta_cents::numeric   / 100, 2))::numeric(18,2) AS propinas_tarjeta_mxn,
     (round(propinas_totales_cents::numeric   / 100, 2))::numeric(18,2) AS propinas_pagadas_mxn,
     (round(gastos_cents::numeric             / 100, 2))::numeric(18,2) AS gastos_mxn,
+    (round(gastos_efectivo_cents::numeric    / 100, 2))::numeric(18,2) AS gastos_efectivo_mxn,
     (round(retiros_cents::numeric            / 100, 2))::numeric(18,2) AS retiros_caja_fuerte_mxn,
-    -- Cash tips come in with the payment and go straight back out to staff, so
-    -- they cancel; the net drain is the tips earned on card.
-    (round((fondo_inicial_cents + efectivo_ventas_cents + propinas_efectivo_cents
-            - propinas_totales_cents - gastos_cents - retiros_cents)::numeric / 100, 2))::numeric(18,2)
-        AS efectivo_esperado_mxn,
-    -- For days when tips were NOT paid out at close.
-    (round((fondo_inicial_cents + efectivo_ventas_cents + propinas_efectivo_cents
-            - gastos_cents - retiros_cents)::numeric / 100, 2))::numeric(18,2)
+    (round(esperado_cents::numeric           / 100, 2))::numeric(18,2) AS efectivo_esperado_mxn,
+    (round(esperado_sin_propinas_cents::numeric / 100, 2))::numeric(18,2)
         AS efectivo_esperado_sin_pago_propinas_mxn,
     CASE WHEN closing_cash_counted_cents IS NULL THEN NULL
          ELSE (round(closing_cash_counted_cents::numeric / 100, 2))::numeric(18,2)
     END AS efectivo_contado_mxn,
-    -- Positive = drawer over, negative = drawer short
+    -- Positive = drawer over, negative = drawer short (same sign as the POS)
     CASE WHEN closing_cash_counted_cents IS NULL THEN NULL
-         ELSE (round((closing_cash_counted_cents
-                      - (fondo_inicial_cents + efectivo_ventas_cents + propinas_efectivo_cents
-                         - propinas_totales_cents - gastos_cents - retiros_cents))::numeric / 100, 2))::numeric(18,2)
+         ELSE (round((closing_cash_counted_cents - esperado_cents)::numeric / 100, 2))::numeric(18,2)
     END AS diferencia_mxn,
     -- Tolerance is the greater of $50 or 2% of expected cash; 'Faltante grave'
-    -- needs >= $500 or >= 10%. With the tip-payout term in place the median
-    -- difference is $0.00, so anything flagged here is a genuine exception.
+    -- needs >= $500 or >= 10%.
     CASE
         WHEN closing_cash_counted_cents IS NULL THEN 'Sesión abierta'
-        WHEN abs(closing_cash_counted_cents
-                 - (fondo_inicial_cents + efectivo_ventas_cents + propinas_efectivo_cents
-                    - propinas_totales_cents - gastos_cents - retiros_cents))
-             <= GREATEST(5000, (fondo_inicial_cents + efectivo_ventas_cents
-                                + propinas_efectivo_cents - propinas_totales_cents
-                                - gastos_cents - retiros_cents) * 2 / 100)
-            THEN 'OK'
-        WHEN closing_cash_counted_cents
-             < (fondo_inicial_cents + efectivo_ventas_cents + propinas_efectivo_cents
-                - propinas_totales_cents - gastos_cents - retiros_cents)
-            THEN CASE
-                WHEN (fondo_inicial_cents + efectivo_ventas_cents + propinas_efectivo_cents
-                      - propinas_totales_cents - gastos_cents - retiros_cents
-                      - closing_cash_counted_cents)
-                     >= GREATEST(50000, (fondo_inicial_cents + efectivo_ventas_cents
-                                         + propinas_efectivo_cents - propinas_totales_cents
-                                         - gastos_cents - retiros_cents) * 10 / 100)
-                    THEN 'Faltante grave'
-                ELSE 'Faltante'
-            END
+        WHEN abs(closing_cash_counted_cents - esperado_cents)
+             <= GREATEST(5000, esperado_cents * 2 / 100)               THEN 'OK'
+        WHEN closing_cash_counted_cents < esperado_cents THEN
+            CASE WHEN (esperado_cents - closing_cash_counted_cents)
+                      >= GREATEST(50000, esperado_cents * 10 / 100)    THEN 'Faltante grave'
+                 ELSE 'Faltante' END
         ELSE 'Sobrante'
     END AS diagnostico_caja
-FROM calc
+FROM expected
 """
 
 
@@ -356,9 +385,28 @@ SELECT
         WHEN COALESCE(r.ventas_expuestas_cents, 0) >= 2000000   THEN 'Crítico — capturar costo ya'
         WHEN COALESCE(r.ventas_expuestas_cents, 0) > 0          THEN 'Pendiente — costo faltante'
         ELSE 'Sin ventas — baja prioridad'
-    END AS prioridad
+    END AS prioridad,
+    -- How the item is BOUGHT, so the cost can be typed as "price per case"
+    -- and divided by the system (batch C0).
+    ii.base_unit_key,
+    COALESCE(bu.name_es, ii.base_unit_key)  AS unidad_base,
+    ii.purchase_unit_key,
+    pu.name_es                              AS unidad_compra,
+    COALESCE(ii.purchase_pack_size, 1)      AS unidades_por_compra,
+    ii.purchase_cost_cents                  AS ultimo_precio_compra_cents,
+    -- A counted item (bottle, can, piece) costing under $1 each is almost
+    -- always a case price typed as a unit price, or pesos typed as centavos.
+    CASE
+        WHEN COALESCE(ii.unit_cost_cents, 0) > 0
+         AND ii.unit_cost_cents < 100
+         AND NOT COALESCE(bu.allows_fraction, false)
+            THEN 'Menos de $1 por ' || lower(COALESCE(bu.name_es, ii.base_unit_key))
+                 || ': ¿se capturó mal (precio de caja o en centavos)?'
+    END AS revisar_motivo
 FROM inventory_items ii
 LEFT JOIN rev r ON r.inventory_item_id = ii.id
+LEFT JOIN unit_catalog bu ON bu.key = ii.base_unit_key
+LEFT JOIN unit_catalog pu ON pu.key = ii.purchase_unit_key
 WHERE COALESCE(ii.is_active, TRUE)
 ORDER BY (COALESCE(ii.unit_cost_cents, 0) > 0),
          COALESCE(r.ventas_expuestas_cents, 0) DESC
@@ -368,7 +416,7 @@ ORDER BY (COALESCE(ii.unit_cost_cents, 0) > 0),
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. v_bola8_varianza_inventario — shrinkage / waste, 28-day window
 #
-#    Matches the 28-day window used by v_bola8_forecast_compras so the two read
+#    Matches the 28-day window used by v_purchase_forecast so the two read
 #    consistently. Theoretical usage (sale deductions net of void reversals) is
 #    separated from everything that is NOT a sale — waste and manual/count
 #    adjustments — which is where shrinkage hides.
@@ -469,7 +517,10 @@ WITH lineas AS (
         SUM(net_sales_cents)                                              AS net_cents,
         SUM(total_cost_cents)                                             AS costo_cents,
         SUM(gross_profit_cents)                                           AS utilidad_cents,
-        SUM(CASE WHEN total_cost_cents > 0 THEN net_sales_cents ELSE 0 END) AS net_con_costo_cents,
+        COALESCE(SUM(net_sales_cents)  FILTER (WHERE NOT exenta_costo), 0)          AS eval_cents,
+        COALESCE(SUM(net_sales_cents)  FILTER (WHERE exenta_costo), 0)              AS exento_cents,
+        COALESCE(SUM(net_sales_cents)  FILTER (WHERE costo_estado = 'COMPLETO'), 0) AS net_con_costo_cents,
+        COALESCE(SUM(total_cost_cents) FILTER (WHERE costo_estado = 'COMPLETO'), 0) AS costo_con_costo_cents,
         COUNT(*)                                                          AS lineas
     FROM v_bola8_lineas_venta
     GROUP BY ticket_id
@@ -501,12 +552,18 @@ SELECT
     (round(COALESCE(l.net_cents, 0)::numeric      / 100, 2))::numeric(18,2) AS venta_articulos_mxn,
     (round(COALESCE(l.costo_cents, 0)::numeric    / 100, 2))::numeric(18,2) AS costo_mxn,
     (round(COALESCE(l.utilidad_cents, 0)::numeric / 100, 2))::numeric(18,2) AS utilidad_mxn,
-    -- Share of this ticket's item revenue that has a real cost behind it.
-    CASE WHEN COALESCE(l.net_cents, 0) > 0
+    -- Share of this ticket's evaluable item revenue whose every ingredient has a cost.
+    CASE WHEN COALESCE(l.eval_cents, 0) > 0
          THEN (round(100.0 * COALESCE(l.net_con_costo_cents, 0)
-                     / NULLIF(l.net_cents, 0), 2))::numeric(18,2)
+                     / NULLIF(l.eval_cents, 0), 2))::numeric(18,2)
          ELSE NULL
     END AS cobertura_costo_pct,
+    -- Raw cents so callers can aggregate coverage over many tickets correctly
+    -- (an average of per-ticket percentages would weight a $20 ticket like a $2,000 one).
+    COALESCE(l.eval_cents, 0)             AS articulos_evaluables_cents,
+    COALESCE(l.exento_cents, 0)           AS articulos_exentos_cents,
+    COALESCE(l.net_con_costo_cents, 0)    AS articulos_con_costo_cents,
+    COALESCE(l.costo_con_costo_cents, 0)  AS costo_articulos_con_costo_cents,
     CASE WHEN v.tip_cents > 0 AND v.total_cents > 0
          THEN (round(100.0 * v.tip_cents / NULLIF(v.total_cents, 0), 2))::numeric(18,2)
          ELSE 0.00::numeric(18,2)
@@ -536,7 +593,7 @@ SELECT
     'VOID_LINEA'::text                                              AS tipo,
     li.id                                                           AS referencia_id,
     t.id                                                            AS ticket_id,
-    (COALESCE(li.voided_at, t.closed_at) AT TIME ZONE '{TZ}')::date AS fecha_mx,
+    fn_bar_business_ts(COALESCE(li.voided_at, t.closed_at))::date AS fecha_mx,
     li.voided_at                                                    AS ocurrido_en,
     COALESCE(li.item_name, mi.name)                                 AS detalle,
     li.void_reason                                                  AS motivo,
@@ -557,7 +614,7 @@ SELECT
     'TICKET_REABIERTO'::text,
     t.id,
     t.id,
-    (COALESCE(t.reopened_at, t.closed_at) AT TIME ZONE '{TZ}')::date,
+    fn_bar_business_ts(COALESCE(t.reopened_at, t.closed_at))::date,
     t.reopened_at,
     'Ticket reabierto tras cierre'::varchar,
     t.notes,
@@ -575,7 +632,7 @@ SELECT
     'DESCUENTO_MANUAL'::text,
     t.id,
     t.id,
-    (t.closed_at AT TIME ZONE '{TZ}')::date,
+    fn_bar_business_ts(t.closed_at)::date,
     t.closed_at,
     ('Descuento manual ' || COALESCE(t.manual_discount_pct, 0)::text || '%')::varchar,
     t.notes,
@@ -595,7 +652,7 @@ SELECT
     'EDITADO_POST_CIERRE'::text,
     t.id,
     t.id,
-    (t.closed_at AT TIME ZONE '{TZ}')::date,
+    fn_bar_business_ts(t.closed_at)::date,
     t.closed_at,
     'Ticket editado después del cierre'::varchar,
     t.notes,
@@ -607,6 +664,57 @@ LEFT JOIN users u ON u.id = t.closed_by
 WHERE COALESCE(t.edited_after_close, FALSE) = TRUE
   AND t.status = 'CLOSED'
   AND t.closed_at IS NOT NULL
+
+UNION ALL
+
+-- Cancelled tickets that still carried served items or charged pool time.
+-- Cancelling a tab after serving it is the classic way to pocket a payment, and
+-- a CANCELLED ticket is invisible to every revenue view. (The cancel endpoint now
+-- refuses tickets with active items, but history and future paths must show.)
+SELECT
+    'TICKET_CANCELADO'::text,
+    t.id,
+    t.id,
+    fn_bar_business_ts(COALESCE(t.closed_at, t.opened_at))::date,
+    t.closed_at,
+    ('Ticket cancelado con ' || COALESCE(li.n, 0)::text || ' artículo(s) y '
+       || COALESCE(ps.n, 0)::text || ' sesión(es) de billar')::varchar,
+    t.notes,
+    u.name,
+    u.role,
+    (round((COALESCE(li.cents, 0) + COALESCE(ps.cents, 0))::numeric / 100, 2))::numeric(18,2)
+FROM tickets t
+LEFT JOIN users u ON u.id = t.closed_by
+LEFT JOIN (SELECT ticket_id, COUNT(*) AS n, SUM(quantity * unit_price_cents) AS cents
+             FROM ticket_line_items
+            WHERE COALESCE(status, '') <> 'VOIDED'
+            GROUP BY ticket_id) li ON li.ticket_id = t.id
+LEFT JOIN (SELECT ticket_id, COUNT(*) AS n, SUM(COALESCE(charge_cents, 0)) AS cents
+             FROM pool_timer_sessions
+            WHERE COALESCE(status, '') <> 'CANCELLED' AND COALESCE(charge_cents, 0) > 0
+            GROUP BY ticket_id) ps ON ps.ticket_id = t.id
+WHERE t.status = 'CANCELLED'
+  AND (COALESCE(li.n, 0) > 0 OR COALESCE(ps.n, 0) > 0)
+
+UNION ALL
+
+-- Force-closed tickets: a manager closed a "stuck" ticket without taking a
+-- payment. The ticket is recorded as CASH, so it also inflates expected cash.
+SELECT
+    'CIERRE_FORZADO'::text,
+    t.id,
+    t.id,
+    fn_bar_business_ts(a.created_at)::date,
+    a.created_at,
+    'Ticket cerrado a la fuerza (sin cobro registrado)'::varchar,
+    COALESCE(a.after_state::jsonb ->> 'reason', t.notes),
+    u.name,
+    u.role,
+    (round(COALESCE(t.total_cents, 0)::numeric / 100, 2))::numeric(18,2)
+FROM audit_log a
+JOIN tickets t    ON t.id = a.entity_id
+LEFT JOIN users u ON u.id = a.user_id
+WHERE a.action = 'TICKET_FORCE_CLOSE'
 """
 
 
@@ -632,8 +740,8 @@ SELECT
     p.promo_type,
     p.discount_type,
     lip.applied_at,
-    (lip.applied_at AT TIME ZONE '{TZ}')::date                   AS fecha_mx,
-    (EXTRACT(hour FROM (lip.applied_at AT TIME ZONE '{TZ}')))::integer AS hora_mx,
+    fn_bar_business_ts(lip.applied_at)::date                   AS fecha_mx,
+    (EXTRACT(hour FROM (lip.applied_at AT TIME ZONE fn_bar_tz())))::integer AS hora_mx,
     l.producto,
     l.categoria,
     l.quantity,
@@ -706,8 +814,8 @@ SELECT
     pts.resource_id,
     r.code                                                        AS mesa_codigo,
     r.name                                                        AS mesa_nombre,
-    (t.closed_at AT TIME ZONE '{TZ}')::date                       AS fecha_mx,
-    (EXTRACT(isodow FROM (t.closed_at AT TIME ZONE '{TZ}')))::integer AS dia_semana_iso,
+    fn_bar_business_ts(t.closed_at)::date                       AS fecha_mx,
+    (EXTRACT(isodow FROM fn_bar_business_ts(t.closed_at)))::integer AS dia_semana_iso,
     COUNT(*)                                                      AS sesiones,
     COUNT(DISTINCT pts.ticket_id)                                 AS tickets,
     SUM(COALESCE(pts.duration_seconds, 0))                        AS segundos,
@@ -733,8 +841,8 @@ WHERE t.status = 'CLOSED'
   AND pts.cancelled_at IS NULL
   AND COALESCE(pts.status, '') <> 'CANCELLED'
 GROUP BY pts.resource_id, r.code, r.name,
-         (t.closed_at AT TIME ZONE '{TZ}')::date,
-         (EXTRACT(isodow FROM (t.closed_at AT TIME ZONE '{TZ}')))::integer
+         fn_bar_business_ts(t.closed_at)::date,
+         (EXTRACT(isodow FROM fn_bar_business_ts(t.closed_at)))::integer
 """
 
 
@@ -773,13 +881,47 @@ tick AS (
 ),
 lin AS (
     SELECT fecha_mx,
-           SUM(net_sales_cents)    AS articulos_cents,
-           SUM(total_cost_cents)   AS cogs_cents,
-           SUM(gross_profit_cents) AS utilidad_art_cents,
-           SUM(CASE WHEN total_cost_cents > 0 THEN net_sales_cents ELSE 0 END)
-                                   AS art_con_costo_cents
+           SUM(net_sales_cents)                                           AS articulos_cents,
+           SUM(total_cost_cents)                                          AS cogs_cents,
+           COALESCE(SUM(net_sales_cents)  FILTER (WHERE NOT exenta_costo), 0)            AS eval_cents,
+           COALESCE(SUM(net_sales_cents)  FILTER (WHERE exenta_costo), 0)                AS exento_cents,
+           COALESCE(SUM(net_sales_cents)  FILTER (WHERE costo_estado = 'COMPLETO'), 0)   AS cov_cents,
+           COALESCE(SUM(total_cost_cents) FILTER (WHERE costo_estado = 'COMPLETO'), 0)   AS cov_cost_cents
     FROM v_bola8_lineas_venta
     GROUP BY fecha_mx
+),
+-- HONEST MARGIN (batch B). Item profit is the margin measured on lines whose
+-- every ingredient has a cost, applied to all evaluable item sales, plus exempt
+-- categories at 100%. It is reported ONLY when at least 80% of evaluable item
+-- sales are fully costed (same threshold as analytics.MARGIN_RELIABLE_PCT);
+-- below that the day's profit is NULL rather than a 100%-margin fiction.
+lin2 AS (
+    SELECT l.*,
+           CASE WHEN l.eval_cents > 0 THEN 100.0 * l.cov_cents / l.eval_cents END AS cobertura,
+           CASE
+               WHEN l.eval_cents = 0 THEN l.exento_cents
+               WHEN l.cov_cents > 0 AND 100.0 * l.cov_cents / l.eval_cents >= 80
+                   THEN round(l.eval_cents::numeric * (l.cov_cents - l.cov_cost_cents) / l.cov_cents)
+                        + l.exento_cents
+           END AS utilidad_art_cents
+    FROM lin l
+),
+-- Product given away (batch E5): its own cost lines, not hidden in margins.
+regalo AS (
+    SELECT fecha AS fecha_mx,
+           SUM(costo_cents) FILTER (WHERE tipo = 'CORTESIA') AS cortesias_cents,
+           SUM(costo_cents) FILTER (WHERE tipo = 'PERSONAL') AS personal_cents
+      FROM v_consumo_sin_venta GROUP BY fecha
+),
+day AS (
+    SELECT t.*, l.articulos_cents, l.cogs_cents, l.cobertura,
+           COALESCE(r.cortesias_cents, 0) AS cortesias_cents,
+           COALESCE(r.personal_cents, 0)  AS personal_cents,
+           -- a day with no item lines at all has item profit 0, not unknown
+           CASE WHEN l.fecha_mx IS NULL THEN 0 ELSE l.utilidad_art_cents END AS utilidad_art_cents
+    FROM tick t
+    LEFT JOIN lin2 l ON l.fecha_mx = t.fecha_mx
+    LEFT JOIN regalo r ON r.fecha_mx = t.fecha_mx
 )
 SELECT
     t.fecha_mx,
@@ -788,38 +930,230 @@ SELECT
     (round(t.billar_cents::numeric      / 100, 2))::numeric(18,2) AS billar_mxn,
     (round(t.propinas_cents::numeric    / 100, 2))::numeric(18,2) AS propinas_mxn,
     (round(t.descuentos_cents::numeric  / 100, 2))::numeric(18,2) AS descuentos_mxn,
-    (round(COALESCE(l.articulos_cents, 0)::numeric   / 100, 2))::numeric(18,2) AS articulos_mxn,
-    (round(COALESCE(l.cogs_cents, 0)::numeric        / 100, 2))::numeric(18,2) AS cogs_mxn,
-    (round(COALESCE(l.utilidad_art_cents, 0)::numeric / 100, 2))::numeric(18,2)
-        AS utilidad_articulos_mxn,
+    (round(COALESCE(t.articulos_cents, 0)::numeric   / 100, 2))::numeric(18,2) AS articulos_mxn,
+    (round(COALESCE(t.cogs_cents, 0)::numeric        / 100, 2))::numeric(18,2) AS cogs_mxn,
+    -- NULL = not enough cost data that day to state a profit.
+    (round(t.utilidad_art_cents::numeric / 100, 2))::numeric(18,2) AS utilidad_articulos_mxn,
     -- Billiard time carries no ingredient cost, so it is pure contribution.
-    (round((COALESCE(l.utilidad_art_cents, 0) + t.billar_cents)::numeric / 100, 2))::numeric(18,2)
+    (round((t.utilidad_art_cents + t.billar_cents)::numeric / 100, 2))::numeric(18,2)
         AS utilidad_bruta_mxn,
     (round(f.mensual_cents / 100 / 30.4167, 2))::numeric(18,2) AS costo_fijo_diario_mxn,
-    (round(((COALESCE(l.utilidad_art_cents, 0) + t.billar_cents)::numeric
+    (round(((t.utilidad_art_cents + t.billar_cents)::numeric
+            - t.cortesias_cents - t.personal_cents
             - f.mensual_cents / 30.4167) / 100, 2))::numeric(18,2)
         AS utilidad_neta_mxn,
     -- Revenue needed that day just to cover the fixed nut, at the day's own margin.
-    CASE WHEN (COALESCE(l.utilidad_art_cents, 0) + t.billar_cents) > 0
+    CASE WHEN (t.utilidad_art_cents + t.billar_cents) > 0
          THEN (round((f.mensual_cents / 30.4167)
-                     / (COALESCE(l.utilidad_art_cents, 0) + t.billar_cents)::numeric
+                     / (t.utilidad_art_cents + t.billar_cents)::numeric
                      * t.ventas_cents / 100, 2))::numeric(18,2)
          ELSE NULL
     END AS punto_equilibrio_ventas_mxn,
-    CASE WHEN COALESCE(l.articulos_cents, 0) > 0
-         THEN (round(100.0 * COALESCE(l.art_con_costo_cents, 0)
-                     / NULLIF(l.articulos_cents, 0), 2))::numeric(18,2)
-         ELSE NULL
-    END AS cobertura_costo_pct
-FROM tick t
-LEFT JOIN lin l ON l.fecha_mx = t.fecha_mx
+    (round(t.cobertura, 2))::numeric(18,2) AS cobertura_costo_pct,
+    (round(t.cortesias_cents::numeric / 100, 2))::numeric(18,2) AS cortesias_mxn,
+    (round(t.personal_cents::numeric / 100, 2))::numeric(18,2)  AS consumo_personal_mxn
+FROM day t
 CROSS JOIN fijo f
 """
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v_purchase_forecast — what to buy for next week (batch E3)
+#
+#    Based on what SOLD: net sales usage (sales - voids returned) plus declared
+#    waste over the 28 days up to the last closed sale, from the ledger -- i.e. product sales through their
+#    recipes. Shots / loose cigarettes are rolled up into the bottle / box you
+#    actually buy (ml / ratio), packs into their raw item (packs x weight ->
+#    kg, E8), and their stock counts as available.
+#    Opening a bottle (CONVERSION_OUT) is an internal move, never "usage".
+#
+#    pronostico_semana  4-week weekly average; if the last 7 days ran higher,
+#                       the average of the two (leans toward a rising trend)
+#    objetivo           pronostico x (1 + purchasing.safety_pct%, default 20),
+#                       never below the item's minimum
+#    comprar_unidades   what is missing, rounded UP to whole cases when the
+#                       item has a case size (purchase_pack_size > 1)
+#    costo_estimado     at the item's unit cost; NULL when the cost is unknown
+#    estado             URGENTE (runs out within 7 days) / COMPRAR / MINIMO
+#                       (only the owner's minimum asks for it, not sales) /
+#                       ALCANZA / SIN_VENTAS
+# ─────────────────────────────────────────────────────────────────────────────
+V_PURCHASE_FORECAST = """
+CREATE OR REPLACE VIEW public.v_purchase_forecast AS
+WITH params AS (
+    SELECT COALESCE((SELECT CASE WHEN value ~ '^[0-9]+([.][0-9]+)?$' THEN value::numeric END
+                       FROM settings WHERE key = 'purchasing.safety_pct'), 20) AS safety_pct,
+           -- window end = the last closed sale (normally ~now; after a closure,
+           -- the last 4 OPERATING weeks instead of a forecast of zero)
+           LEAST(now(), COALESCE((SELECT max(closed_at) FROM tickets WHERE status = 'CLOSED'), now())) AS hasta
+),
+uso AS (
+    SELECT m.inventory_item_id,
+           SUM(-m.quantity_delta)                                                    AS uso_28d,
+           SUM(-m.quantity_delta) FILTER (WHERE m.created_at > p.hasta - interval '7 days') AS uso_7d
+      FROM inventory_movements m CROSS JOIN params p
+     WHERE m.created_at >  p.hasta - interval '28 days'
+       AND m.created_at <= p.hasta
+       AND m.event_type IN ('SALE_DEDUCTION','SALE_CONSUMPTION','VOID_REVERSAL','WASTE')
+     GROUP BY m.inventory_item_id
+),
+-- What a purchasable item turns into, with "child units per parent unit":
+-- shots per bottle (ml), loose per box, and packs per kg of a raw item (E8).
+link AS (
+    SELECT c.from_item_id AS parent_id, c.to_item_id AS child_id, c.ratio
+      FROM inventory_conversions c
+     WHERE c.is_active AND c.conversion_type IN ('BOTTLE_TO_SHOT','PACK_TO_LOOSE')
+    UNION ALL
+    SELECT pk.portion_source_id, pk.id,
+           (CASE rw.base_unit_key WHEN 'kilogramo' THEN 1000 WHEN 'litro' THEN 1000 ELSE 1 END)::numeric
+             / pk.portion_size
+      FROM inventory_items pk JOIN inventory_items rw ON rw.id = pk.portion_source_id
+     WHERE pk.portion_source_id IS NOT NULL AND pk.portion_size > 0 AND COALESCE(pk.is_active, TRUE)
+),
+kids AS (
+    SELECT l.parent_id,
+           SUM(COALESCE(u.uso_28d, 0) / l.ratio)  AS uso_28d,
+           SUM(COALESCE(u.uso_7d, 0) / l.ratio)   AS uso_7d,
+           SUM(ch.stock_quantity / l.ratio)       AS stock,
+           string_agg(ch.name, ', ' ORDER BY ch.name) AS nombres
+      FROM link l
+      JOIN inventory_items ch ON ch.id = l.child_id
+      LEFT JOIN uso u ON u.inventory_item_id = l.child_id
+     GROUP BY l.parent_id
+),
+base AS (
+    SELECT p.id, p.name, p.category, NULLIF(btrim(p.supplier), '') AS supplier,
+           p.base_unit_key, p.purchase_unit_key,
+           GREATEST(COALESCE(p.purchase_pack_size, 1), 1)                    AS pack,
+           COALESCE(p.unit_cost_cents, 0)                                     AS unit_cost_cents,
+           COALESCE(p.low_stock_threshold, 0)                                 AS minimo,
+           COALESCE(up.uso_28d, 0) + COALESCE(k.uso_28d, 0)                   AS uso_28d,
+           COALESCE(up.uso_7d, 0)  + COALESCE(k.uso_7d, 0)                    AS uso_7d,
+           p.stock_quantity + COALESCE(k.stock, 0)                            AS disponible,
+           p.stock_quantity                                                   AS cerradas,
+           k.nombres                                                          AS producto_abierto
+      FROM inventory_items p
+      LEFT JOIN kids k             ON k.parent_id = p.id
+      LEFT JOIN uso up             ON up.inventory_item_id = p.id
+     WHERE COALESCE(p.is_active, TRUE) AND COALESCE(p.stock_nature, 'SIMPLE') <> 'DERIVED'
+       AND p.portion_source_id IS NULL                -- packs are made, not bought (E8)
+),
+calc AS (
+    SELECT b.*,
+           round(b.uso_28d / 4, 2)                                                AS semanal_4s,
+           round(GREATEST(b.uso_28d / 4, (b.uso_28d / 4 + b.uso_7d) / 2), 2)      AS pronostico_semana
+      FROM base b
+),
+need AS (
+    SELECT c.*,
+           c.pronostico_semana * (1 + (SELECT safety_pct FROM params) / 100)      AS por_ventas,
+           GREATEST(c.pronostico_semana * (1 + (SELECT safety_pct FROM params) / 100), c.minimo) AS objetivo
+      FROM calc c
+),
+buy AS (
+    SELECT n.*,
+           GREATEST(n.objetivo - n.disponible, 0)                                 AS faltante,
+           CASE WHEN n.objetivo - n.disponible <= 0 THEN 0
+                WHEN n.pack > 1 THEN ceil((n.objetivo - n.disponible) / n.pack) * n.pack
+                ELSE ceil(n.objetivo - n.disponible) END                          AS comprar_unidades
+      FROM need n
+)
+SELECT id AS inventory_item_id, name, category, supplier, base_unit_key, purchase_unit_key,
+       pack AS purchase_pack_size, producto_abierto,
+       round(uso_28d, 2)            AS uso_28d,
+       round(uso_7d, 2)             AS uso_7d,
+       semanal_4s, pronostico_semana,
+       round(objetivo, 2)           AS objetivo,
+       round(disponible, 2)         AS disponible,
+       cerradas, minimo,
+       comprar_unidades,
+       CASE WHEN pack > 1 AND comprar_unidades > 0 THEN (comprar_unidades / pack)::int END AS comprar_paquetes,
+       unit_cost_cents,
+       CASE WHEN unit_cost_cents > 0 THEN round(comprar_unidades * unit_cost_cents)::bigint END AS costo_estimado_cents,
+       CASE WHEN semanal_4s > 0 THEN round(disponible / (semanal_4s / 7), 1) END AS dias_cobertura,
+       CASE WHEN comprar_unidades > 0 AND semanal_4s > 0 AND disponible / (semanal_4s / 7) < 7 THEN 'URGENTE'
+            WHEN comprar_unidades > 0 AND minimo <= por_ventas                          THEN 'COMPRAR'
+            WHEN comprar_unidades > 0                                                   THEN 'MINIMO'
+            WHEN uso_28d <= 0                                                           THEN 'SIN_VENTAS'
+            ELSE 'ALCANZA' END                                                          AS estado
+       , (SELECT hasta FROM params) AS datos_hasta
+  FROM buy
+ ORDER BY CASE WHEN comprar_unidades > 0 AND semanal_4s > 0 AND disponible / (semanal_4s / 7) < 7 THEN 1
+               WHEN comprar_unidades > 0 AND minimo <= por_ventas THEN 2 WHEN comprar_unidades > 0 THEN 3
+               WHEN uso_28d > 0 THEN 4 ELSE 5 END,
+          COALESCE(round(comprar_unidades * unit_cost_cents), 0) DESC, name
+"""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v_consumo_sin_venta — product given away, by kind (batch E5)
+#
+#    CORTESIA  comped lines of closed customer tickets (out of sales since 054)
+#    PERSONAL  items of closed staff orders (ticket_type STAFF / STAFF_DONE)
+#    One row per line: business date, reason, who authorized, the employee
+#    (staff), list value and the real cost from sale_item_costs.
+# ─────────────────────────────────────────────────────────────────────────────
+V_CONSUMO_SIN_VENTA = """
+CREATE OR REPLACE VIEW public.v_consumo_sin_venta AS
+WITH cost AS (
+    SELECT ticket_line_item_id, SUM(COALESCE(total_cost_cents, 0))::bigint AS costo_cents,
+           bool_or(COALESCE(unit_cost_cents, 0) = 0) AS sin_costo
+      FROM sale_item_costs GROUP BY ticket_line_item_id
+),
+mods AS (
+    SELECT line_item_id, SUM(COALESCE(price_cents, 0))::bigint AS m FROM line_item_modifiers GROUP BY line_item_id
+)
+SELECT 'CORTESIA'::text AS tipo, li.id AS line_item_id, t.id AS ticket_id,
+       fn_bar_date(t.closed_at) AS fecha, t.closed_at,
+       li.comp_reason AS motivo, li.comped_by AS autorizo_id, ua.name AS autorizo,
+       NULL::varchar AS empleado_id, NULL::varchar AS empleado,
+       COALESCE(li.item_name, mi.name) AS producto, li.quantity,
+       COALESCE(li.comp_list_cents, 0)::bigint AS valor_lista_cents,
+       COALESCE(c.costo_cents, 0) AS costo_cents, COALESCE(c.sin_costo, c.costo_cents IS NULL) AS costo_incompleto
+  FROM ticket_line_items li
+  JOIN tickets t           ON t.id = li.ticket_id
+  LEFT JOIN menu_items mi  ON mi.id = li.menu_item_id
+  LEFT JOIN users ua       ON ua.id = li.comped_by
+  LEFT JOIN cost c         ON c.ticket_line_item_id = li.id
+ WHERE t.status = 'CLOSED' AND li.comped_at IS NOT NULL AND COALESCE(li.status, '') <> 'VOIDED'
+UNION ALL
+SELECT 'PERSONAL', li.id, t.id, fn_bar_date(t.closed_at), t.closed_at,
+       t.staff_reason, t.staff_authorized_by, ua.name,
+       t.staff_user_id, ue.name,
+       COALESCE(li.item_name, mi.name), li.quantity,
+       (li.quantity * COALESCE(li.unit_price_cents, 0) + COALESCE(md.m, 0))::bigint,
+       COALESCE(c.costo_cents, 0), COALESCE(c.sin_costo, c.costo_cents IS NULL)
+  FROM ticket_line_items li
+  JOIN tickets t           ON t.id = li.ticket_id
+  LEFT JOIN menu_items mi  ON mi.id = li.menu_item_id
+  LEFT JOIN users ua       ON ua.id = t.staff_authorized_by
+  LEFT JOIN users ue       ON ue.id = t.staff_user_id
+  LEFT JOIN mods md        ON md.line_item_id = li.id
+  LEFT JOIN cost c         ON c.ticket_line_item_id = li.id
+ WHERE t.ticket_type = 'STAFF' AND t.status = 'STAFF_DONE' AND COALESCE(li.status, '') <> 'VOIDED'
+UNION ALL
+-- Free table time given by a manager (055): a cortesía at the table's rate,
+-- never more than what was actually played; no ingredient cost.
+SELECT 'CORTESIA', ps.id, t.id, fn_bar_date(t.closed_at), t.closed_at,
+       ps.manual_free_reason, ps.manual_free_by, ua.name,
+       NULL::varchar, NULL::varchar,
+       -- one "item" per gift; the minutes go in the name, never into item counts
+       'Tiempo de billar ' || (ps.manual_free_seconds / 60) || ' min (' || COALESCE(r.code, '?') || ')', 1,
+       round(LEAST(ps.manual_free_seconds, COALESCE(ps.duration_seconds, ps.manual_free_seconds))
+             * ps.rate_cents / 3600.0)::bigint,
+       0::bigint, FALSE
+  FROM pool_timer_sessions ps
+  JOIN tickets t       ON t.id = ps.ticket_id
+  LEFT JOIN resources r ON r.id = ps.resource_id
+  LEFT JOIN users ua   ON ua.id = ps.manual_free_by
+ WHERE t.status = 'CLOSED' AND ps.status <> 'CANCELLED' AND ps.manual_free_seconds > 0
+"""
+
 ANALYTICS_VIEWS = [
     ("v_bola8_costos_fijos",        V_COSTOS_FIJOS),
     ("v_bola8_billar_por_mesa",     V_BILLAR_POR_MESA),
+    ("v_consumo_sin_venta",         V_CONSUMO_SIN_VENTA),
     ("v_bola8_rentabilidad_diaria", V_RENTABILIDAD_DIARIA),
     ("v_bola8_pagos_desglosados",   V_PAGOS_DESGLOSADOS),
     ("v_bola8_flujo_caja",          V_FLUJO_CAJA),
@@ -828,6 +1162,7 @@ ANALYTICS_VIEWS = [
     ("v_bola8_personal_desempeno",  V_PERSONAL_DESEMPENO),
     ("v_bola8_anomalias_operativas", V_ANOMALIAS_OPERATIVAS),
     ("v_bola8_promo_redenciones",   V_PROMO_REDENCIONES),
+    ("v_purchase_forecast",         V_PURCHASE_FORECAST),
 ]
 
 

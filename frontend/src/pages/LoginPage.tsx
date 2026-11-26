@@ -4,8 +4,11 @@ import { useAuthStore } from '../stores/authStore'
 import { useTranslation } from 'react-i18next'
 import client from '../api/client'
 import toast from 'react-hot-toast'
+import { useVenue } from '../components/VenueGate'
+import { venueLogo } from '../utils/venue'
 
 export default function LoginPage() {
+  const venue = useVenue()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -34,8 +37,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-950">
       <div className="bg-slate-800 rounded-2xl p-8 w-full max-w-sm border border-slate-700 shadow-2xl">
         <div className="text-center mb-8">
-          <img src="/logo.jpg" alt="Bola 8 Pool Club" className="w-24 h-24 rounded-full object-cover mx-auto mb-3 border-2 border-sky-500 shadow-xl" />
-          <h1 className="text-2xl font-bold">Bola 8 Pool Club</h1>
+          <img src={venueLogo()} alt={venue.name} className="w-24 h-24 rounded-full object-cover mx-auto mb-3 border-2 border-sky-500 shadow-xl" />
+          <h1 className="text-2xl font-bold">{venue.name}</h1>
           <p className="text-slate-400 text-sm mt-1">{t('login.title')}</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">

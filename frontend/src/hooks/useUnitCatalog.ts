@@ -7,6 +7,8 @@ export interface UnitEntry {
   name_es: string
   name_en: string
   active: boolean
+  /** false = counted unit (bottle, shot, piece…): whole numbers only on manual entry */
+  allows_fraction?: boolean
 }
 
 /**
@@ -33,5 +35,15 @@ export function useUnitCatalog() {
     return lang === 'es' ? unit.name_es : unit.name_en
   }
 
-  return { units, getUnitName }
+  /** True when quantities in this unit must be whole numbers (bottles, shots, pieces…). */
+  const isWholeUnit = (key: string | null | undefined): boolean => {
+    if (!key) return false
+    const unit = units.find(u => u.key === key)
+    return unit ? unit.allows_fraction !== true : false
+  }
+
+  /** <input step> for a quantity in this unit: 1 for counted units, 'any' for measured ones. */
+  const qtyStep = (key: string | null | undefined): number | 'any' => (isWholeUnit(key) ? 1 : 'any')
+
+  return { units, getUnitName, isWholeUnit, qtyStep }
 }

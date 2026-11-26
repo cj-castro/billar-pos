@@ -1,22 +1,21 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import NavBar from '../../components/NavBar'
-import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
+import { formatMXN } from '../../utils/money'
 
-function cents(n: number | null) { return n != null ? `$${(n / 100).toFixed(2)}` : '$0.00' }
+const cents = (n: number | null) => formatMXN(n ?? 0)
 
-export default function SafeCollectionsPage() {
+/** Safe pickups — Reportes → Caja → Caja fuerte (batch D3). The hub's shared
+ *  date bar supplies the range. ADMIN only. */
+export default function SafeCollectionsPage({ from, to }: { from: string; to: string }) {
   const qc  = useQueryClient()
-  const today = new Date().toISOString().slice(0, 10)
-  const [from, setFrom] = useState(today)
-  const [to,   setTo]   = useState(today)
   const [amount, setAmount] = useState('')
   const [notes,  setNotes]  = useState('')
   const [saving, setSaving] = useState(false)
 
-  const params = { from: `${from}T00:00:00`, to: `${to}T23:59:59` }
+  // Plain dates: the server reads them as business days (closing-hour cutoff).
+  const params = { from, to }
 
   const { data: collections = [] } = useQuery({
     queryKey: ['safe-collections', from, to],
@@ -62,27 +61,8 @@ export default function SafeCollectionsPage() {
     }
   }
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-white page-root">
-      <NavBar />
-      <ManagerBackButton />
-      <div className="max-w-2xl mx-auto p-4">
-
-        <h1 className="text-xl font-bold mb-6">🔐 Colectas de Caja Fuerte</h1>
-
-        {/* Date filter */}
-        <div className="flex gap-3 mb-6">
-          <div className="flex-1">
-            <label className="text-xs text-slate-400 block mb-1">Desde</label>
-            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div className="flex-1">
-            <label className="text-xs text-slate-400 block mb-1">Hasta</label>
-            <input type="date" value={to} onChange={e => setTo(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm" />
-          </div>
-        </div>
+  const body = (
+    <>
 
         {/* Summary card */}
         <div className="grid grid-cols-2 gap-4 mb-6">
@@ -169,7 +149,8 @@ export default function SafeCollectionsPage() {
           )}
         </div>
 
-      </div>
-    </div>
+    </>
   )
+
+  return <div className="max-w-2xl">{body}</div>
 }

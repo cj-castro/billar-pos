@@ -4,6 +4,7 @@ from app.models.promotion import Promotion, QUANTITY_PROMO_TYPES
 from app.models.ticket import LineItemPromotion
 from app.extensions import db
 from app.config import Config
+from app.services.venue_svc import bar_tz
 
 
 def _parse_time(t_str: str) -> dtime:
@@ -15,12 +16,12 @@ def apply_promos_to_line_item(line_item, ticket, now: datetime = None):
     """Apply all eligible promotions to a staged line item.
 
     'now' is compared against happy-hour windows in the venue's local timezone
-    (Config.TZ), not UTC, so $17:00 happy hour means 17:00 local time.
+    (venue timezone, venue_svc.bar_tz()), not UTC, so $17:00 happy hour means 17:00 local time.
     Promos with requires_confirmation only apply when the waiter has already
     accepted them for this ticket.
     """
     if now is None:
-        now = datetime.now(ZoneInfo(Config.TZ))
+        now = datetime.now(bar_tz())
 
     try:
         decisions = _ticket_decisions(ticket)
@@ -48,7 +49,7 @@ def apply_confirmable_item_promo(promo, ticket, now: datetime = None):
     idempotent.
     """
     if now is None:
-        now = datetime.now(ZoneInfo(Config.TZ))
+        now = datetime.now(bar_tz())
     for lip in list(ticket.applied_promos):
         if lip.promotion_id == promo.id:
             db.session.delete(lip)
@@ -73,7 +74,7 @@ def _evaluate_promo(promo, line_item, now: datetime, *, confirmed: bool = False)
         return 0
 
     # Ensure we always compare in local time
-    local_now = now.astimezone(ZoneInfo(Config.TZ))
+    local_now = now.astimezone(bar_tz())
     today = local_now.date()
 
     # Date range check
@@ -172,7 +173,7 @@ def promo_time_window_contains(promo, moment: datetime) -> bool:
     if moment.tzinfo is None:
         # Naive timestamps are stored in UTC; label them before converting.
         moment = moment.replace(tzinfo=timezone.utc)
-    current = moment.astimezone(ZoneInfo(Config.TZ)).time().replace(tzinfo=None)
+    current = moment.astimezone(bar_tz()).time().replace(tzinfo=None)
     if start <= end:
         return start <= current <= end
     # Overnight window: inside if after the start OR before the end
@@ -217,7 +218,7 @@ def window_overlap_seconds(start: datetime, end: datetime, promo) -> int:
     except (ValueError, TypeError, AttributeError):
         return span_seconds  # misconfigured window must not silently kill the grant
 
-    tz = ZoneInfo(Config.TZ)
+    tz = bar_tz()
     local_start = start.astimezone(tz)
     local_end = end.astimezone(tz)
 
@@ -292,7 +293,7 @@ def earned_free_seconds(promos, units, category_by_item: dict,
         return 0
 
     decisions = decisions or {}
-    tz = ZoneInfo(Config.TZ)
+    tz = bar_tz()
     total = 0
     for promo in promos:
         if getattr(promo, 'promo_type', None) != 'POOL_TIME_FREE_MINUTES':
@@ -486,8 +487,8 @@ def recompute_quantity_promos(ticket, now: datetime = None):
     manual discount keep working exactly as before.
     """
     if now is None:
-        now = datetime.now(ZoneInfo(Config.TZ))
-    local_now = now.astimezone(ZoneInfo(Config.TZ))
+        now = datetime.now(bar_tz())
+    local_now = now.astimezone(bar_tz())
 
     promos = (Promotion.query
               .filter(Promotion.is_active.is_(True),
@@ -573,8 +574,8 @@ def preview_pending_quantity_promos(ticket, now: datetime = None) -> list:
     Returns each offer with the discount it would produce. Nothing is written.
     """
     if now is None:
-        now = datetime.now(ZoneInfo(Config.TZ))
-    local_now = now.astimezone(ZoneInfo(Config.TZ))
+        now = datetime.now(bar_tz())
+    local_now = now.astimezone(bar_tz())
 
     promos = (Promotion.query
               .filter(Promotion.is_active.is_(True),
@@ -641,7 +642,7 @@ def preview_pending_quantity_promos(ticket, now: datetime = None) -> list:
             # earned_free_seconds, so a session that has only just started does
             # not show a misleading "1 min de mesa gratis".
             applications = _pool_promo_applications(
-                promo, units, category_by_item, ZoneInfo(Config.TZ))
+                promo, units, category_by_item, bar_tz())
             if applications <= 0:
                 continue
             offers.append({

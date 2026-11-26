@@ -1,10 +1,15 @@
 import os
 import logging
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from sqlalchemy import create_engine, text
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+# The bar's wall clock. Every "today" / "yesterday" in this bot means the bar's
+# calendar day, never the server's (the container and the database run in UTC).
+BAR_TZ = ZoneInfo(os.getenv('BAR_TZ', 'America/Mexico_City'))
 
 # ---------- CONFIG ----------
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -29,14 +34,14 @@ def fetch_daily_sales():
             WITH daily_tickets AS (
                 SELECT id, total_cents
                 FROM tickets
-                WHERE DATE(closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') = CURRENT_DATE
+                WHERE DATE(closed_at AT TIME ZONE 'America/Mexico_City') = (now() AT TIME ZONE 'America/Mexico_City')::date
                   AND status = 'CLOSED'
             ),
             daily_items AS (
                 SELECT t.id AS ticket_id, COALESCE(SUM(tli.quantity), 0) AS items
                 FROM tickets t
                 LEFT JOIN ticket_line_items tli ON t.id = tli.ticket_id
-                WHERE DATE(t.closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') = CURRENT_DATE
+                WHERE DATE(t.closed_at AT TIME ZONE 'America/Mexico_City') = (now() AT TIME ZONE 'America/Mexico_City')::date
                   AND t.status = 'CLOSED'
                 GROUP BY t.id
             )
@@ -59,7 +64,7 @@ def fetch_top_products(days=7):
             FROM tickets t
             JOIN ticket_line_items tli ON t.id = tli.ticket_id
             JOIN menu_items mi ON tli.menu_item_id = mi.id
-            WHERE DATE(t.closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') >= CURRENT_DATE - :days
+            WHERE DATE(t.closed_at AT TIME ZONE 'America/Mexico_City') >= (now() AT TIME ZONE 'America/Mexico_City')::date - :days
               AND t.status = 'CLOSED'
             GROUP BY mi.id, mi.name
             ORDER BY total_qty DESC
@@ -78,7 +83,7 @@ def fetch_today_top_products(limit=5):
             FROM tickets t
             JOIN ticket_line_items tli ON t.id = tli.ticket_id
             JOIN menu_items mi ON tli.menu_item_id = mi.id
-            WHERE DATE(t.closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') = CURRENT_DATE
+            WHERE DATE(t.closed_at AT TIME ZONE 'America/Mexico_City') = (now() AT TIME ZONE 'America/Mexico_City')::date
               AND t.status = 'CLOSED'
             GROUP BY mi.id, mi.name
             ORDER BY total_qty DESC
@@ -185,7 +190,7 @@ def get_executive_kpis():
                      FROM ticket_line_items tli 
                      WHERE tli.ticket_id = t.id) AS items_revenue
                 FROM tickets t
-                WHERE DATE(closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') = CURRENT_DATE
+                WHERE DATE(closed_at AT TIME ZONE 'America/Mexico_City') = (now() AT TIME ZONE 'America/Mexico_City')::date
                   AND status = 'CLOSED'
             )
             SELECT 
@@ -211,7 +216,7 @@ def get_anomalies():
                 was_reopened,
                 edited_after_close
             FROM tickets
-            WHERE DATE(closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') = CURRENT_DATE
+            WHERE DATE(closed_at AT TIME ZONE 'America/Mexico_City') = (now() AT TIME ZONE 'America/Mexico_City')::date
               AND status = 'CLOSED'
               AND (discount_cents > 0 OR was_reopened = true OR edited_after_close = true)
             ORDER BY discount_cents DESC
@@ -229,7 +234,7 @@ def get_staff_performance(target_date):
                     opened_by AS user_id,
                     COUNT(DISTINCT id) AS opened_count
                 FROM tickets
-                WHERE DATE(opened_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') = :target_date
+                WHERE DATE(opened_at AT TIME ZONE 'America/Mexico_City') = :target_date
                   AND opened_by IS NOT NULL
                 GROUP BY opened_by
             ),
@@ -240,7 +245,7 @@ def get_staff_performance(target_date):
                     COALESCE(SUM(total_cents) / 100.0, 0) AS sales_mxn,
                     COALESCE(SUM(tip_cents) / 100.0, 0) AS tips_mxn
                 FROM tickets
-                WHERE DATE(closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') = :target_date
+                WHERE DATE(closed_at AT TIME ZONE 'America/Mexico_City') = :target_date
                   AND status = 'CLOSED'
                   AND closed_by IS NOT NULL
                 GROUP BY closed_by
@@ -269,17 +274,17 @@ async def staff_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     /staff 2026-08-05 - Specific date
     /staff -10 - 10 days ago
     """
-    target_date = datetime.now().date()
+    target_date = datetime.now(BAR_TZ).date()
     date_label = "Today"
 
     if context.args:
         arg = context.args[0].lower()
         if arg == "yesterday":
-            target_date = datetime.now().date() - timedelta(days=1)
+            target_date = datetime.now(BAR_TZ).date() - timedelta(days=1)
             date_label = "Yesterday"
         elif arg.startswith("-") and arg[1:].isdigit():
             days_ago = int(arg[1:])
-            target_date = datetime.now().date() - timedelta(days=days_ago)
+            target_date = datetime.now(BAR_TZ).date() - timedelta(days=days_ago)
             date_label = f"{days_ago} day{'s' if days_ago > 1 else ''} ago"
         elif len(arg) == 10 and arg[4] == '-' and arg[7] == '-':
             try:
@@ -330,12 +335,12 @@ def get_hourly_sales():
     with engine.connect() as conn:
         result = conn.execute(text("""
             SELECT 
-                EXTRACT(HOUR FROM (closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City'))::int AS hora_mx,
+                EXTRACT(HOUR FROM (closed_at AT TIME ZONE 'America/Mexico_City'))::int AS hora_mx,
                 COUNT(DISTINCT t.id) AS tickets,
                 COALESCE(SUM(tli.quantity * tli.unit_price_cents) / 100.0, 0) AS ventas_mxn
             FROM tickets t
             LEFT JOIN ticket_line_items tli ON t.id = tli.ticket_id
-            WHERE DATE(closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') = CURRENT_DATE
+            WHERE DATE(closed_at AT TIME ZONE 'America/Mexico_City') = (now() AT TIME ZONE 'America/Mexico_City')::date
               AND t.status = 'CLOSED'
             GROUP BY hora_mx
             ORDER BY hora_mx
@@ -371,8 +376,8 @@ def get_weekly_executive():
                 COALESCE(SUM(tip_cents) / 100.0, 0) AS propinas_mxn,
                 COALESCE(AVG(total_cents) / 100.0, 0) AS ticket_promedio_mxn
             FROM tickets
-            WHERE DATE(closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') >= CURRENT_DATE - INTERVAL '6 days'
-              AND DATE(closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') <= CURRENT_DATE
+            WHERE DATE(closed_at AT TIME ZONE 'America/Mexico_City') >= (now() AT TIME ZONE 'America/Mexico_City')::date - INTERVAL '6 days'
+              AND DATE(closed_at AT TIME ZONE 'America/Mexico_City') <= (now() AT TIME ZONE 'America/Mexico_City')::date
               AND status = 'CLOSED'
         """))
         return result.fetchone()
@@ -391,7 +396,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/stock <name> - Check inventory stock\n"
         "/stockall - Check full inventory stock\n"
         "/lowstock - List all low-stock items\n"
-        "/recipe <menu_item> - Check if menu item can be made\n\n"
+        "/recipe <menu_item> - Check if menu item can be made\n"
+        "/compras - What to buy next week (also every Sunday 10:00)\n\n"
         "👔 MANAGEMENT:\n"
         "/executive - Today's executive KPIs\n"
         "/anomalies - Suspicious tickets today\n"
@@ -583,17 +589,17 @@ async def staff_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     /staff 2026-08-05 - Specific date
     /staff -10 - 10 days ago (supports any number)
     """
-    target_date = datetime.now().date()
+    target_date = datetime.now(BAR_TZ).date()
     date_label = "Today"
 
     if context.args:
         arg = context.args[0].lower()
         if arg == "yesterday":
-            target_date = datetime.now().date() - timedelta(days=1)
+            target_date = datetime.now(BAR_TZ).date() - timedelta(days=1)
             date_label = "Yesterday"
         elif arg.startswith("-") and arg[1:].isdigit():
             days_ago = int(arg[1:])
-            target_date = datetime.now().date() - timedelta(days=days_ago)
+            target_date = datetime.now(BAR_TZ).date() - timedelta(days=days_ago)
             date_label = f"{days_ago} day{'s' if days_ago > 1 else ''} ago"
         elif len(arg) == 10 and arg[4] == '-' and arg[7] == '-':
             try:
@@ -640,7 +646,7 @@ async def staff_dates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         with engine.connect() as conn:
             result = conn.execute(text("""
-                SELECT DISTINCT DATE(closed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') AS fecha
+                SELECT DISTINCT DATE(closed_at AT TIME ZONE 'America/Mexico_City') AS fecha
                 FROM tickets
                 WHERE status = 'CLOSED'
                   AND (closed_by IS NOT NULL OR opened_by IS NOT NULL)
@@ -760,6 +766,110 @@ async def send_weekly_report(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"Auto weekly report failed: {e}")
 
+
+# ===================== PURCHASE FORECAST (batch E3) =====================
+# Reads v_purchase_forecast -- the same view the backend's Sunday email and the
+# Reportes screen use -- and mirrors backend app/services/purchase_svc.py
+# format_text(). Keep the two in step.
+
+_MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+_ESTADOS = [('URGENTE', '🔴', 'Urgente — se acaba esta semana'),
+            ('COMPRAR', '🟡', 'Comprar para la semana'),
+            ('MINIMO', '⚪', 'Por tu mínimo de stock')]
+
+
+def _q(v):
+    v = float(v or 0)
+    return f'{v:.0f}' if v == int(v) else f'{v:.1f}'
+
+
+def _plural(word: str, n) -> str:
+    """Spanish plural of a unit name for a quantity: botella -> botellas, porcion -> porciones."""
+    w = (word or '').strip()
+    try:
+        one = float(n) == 1
+    except (TypeError, ValueError):
+        one = False
+    if one or not w or w.endswith('s') or w in ('ml', 'kg', 'g', 'l', 'oz'):
+        return w
+    return w + ('s' if w[-1] in 'aeiouáéó' else 'es')
+
+
+def _fecha(d):
+    return f'{d.day} {_MESES[d.month - 1]}'
+
+
+def fetch_purchase_forecast():
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT f.*, lower(COALESCE(bu.name_es, f.base_unit_key)) AS unidad,
+                   lower(COALESCE(pu.name_es, 'paquete'))            AS unidad_compra
+              FROM v_purchase_forecast f
+              LEFT JOIN unit_catalog bu ON bu.key = f.base_unit_key
+              LEFT JOIN unit_catalog pu ON pu.key = f.purchase_unit_key""")).mappings().all()
+        sin_receta = []
+        if conn.execute(text("SELECT to_regclass('public.v_menu_items_without_recipe') IS NOT NULL")).scalar():
+            sin_receta = [r[0] for r in conn.execute(text("""
+                SELECT name FROM v_menu_items_without_recipe
+                 WHERE NOT COALESCE(has_modifier_coverage, FALSE) AND COALESCE(times_sold, 0) > 0
+                 ORDER BY times_sold DESC LIMIT 5""")).all()]
+        safety = conn.execute(text("SELECT value FROM settings WHERE key = 'purchasing.safety_pct'")).scalar()
+    return rows, sin_receta, float(safety) if safety else 20.0
+
+
+def format_purchase_forecast(rows, sin_receta, safety):
+    today = datetime.now(BAR_TZ).date()
+    lunes = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
+    out = [f"🛒 Compras — semana del {_fecha(lunes)} al {_fecha(lunes + timedelta(days=6))}"]
+    if rows and rows[0]['datos_hasta']:
+        hasta = rows[0]['datos_hasta'].astimezone(BAR_TZ).date()
+        out.append(f"Según ventas del {_fecha(hasta - timedelta(days=27))} al {_fecha(hasta)} "
+                   f"(4 semanas) + {safety:.0f}% de colchón")
+    out.append('')
+    buy = [r for r in rows if r['estado'] in ('URGENTE', 'COMPRAR', 'MINIMO')]
+    if not buy:
+        out.append('✅ Con lo que hay alcanza para la semana.')
+    for est, icon, title in _ESTADOS:
+        grp = [r for r in buy if r['estado'] == est]
+        if not grp:
+            continue
+        out.append(f'{icon} {title}')
+        for r in grp:
+            qty = (f"{r['comprar_paquetes']} {_plural(r['unidad_compra'], r['comprar_paquetes'])} "
+                   f"({_q(r['comprar_unidades'])} {_plural(r['unidad'], r['comprar_unidades'])})"
+                   if r['comprar_paquetes'] else f"{_q(r['comprar_unidades'])} {_plural(r['unidad'], r['comprar_unidades'])}")
+            extra = (f" · se venden ~{_q(r['pronostico_semana'])}/sem, hay {_q(r['disponible'])}"
+                     if est != 'MINIMO' else f" · hay {_q(r['disponible'])}, mínimo {_q(r['minimo'])}")
+            out.append(f"• {r['name']}: {qty}{extra}")
+        out.append('')
+    if buy:
+        total = sum(int(r['costo_estimado_cents'] or 0) for r in buy)
+        sin_costo = sum(1 for r in buy if not r['costo_estimado_cents'])
+        out.append(f"💰 Costo estimado: ${total / 100:,.2f}" + (f" ({sin_costo} sin costo registrado)" if sin_costo else ''))
+    if sin_receta:
+        out.append(f"⚠️ Se venden sin receta (no cuentan aquí): {', '.join(sin_receta)}")
+    revisar = [r['name'] for r in rows if float(r['semanal_4s'] or 0) > 0 and float(r['dias_cobertura'] or 0) > 365][:6]
+    if revisar:
+        out.append(f"🔎 Revisar receta o stock (duraría más de un año): {', '.join(revisar)}")
+    msg = '\n'.join(out).strip()
+    return msg if len(msg) <= 3800 else msg[:3760].rsplit('\n', 1)[0] + '\n… (ver Reportes → Inventario)'
+
+
+async def purchase_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        await update.message.reply_text(format_purchase_forecast(*fetch_purchase_forecast()))
+    except Exception as e:
+        logging.error(f"/compras failed: {e}")
+        await update.message.reply_text("⚠️ No se pudo calcular el pronóstico de compras.")
+
+
+async def send_purchase_forecast(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID,
+                                       text=format_purchase_forecast(*fetch_purchase_forecast()))
+    except Exception as e:
+        logging.error(f"Weekly purchase forecast failed: {e}")
+
 # ===================== MAIN =====================
 
 def main():
@@ -782,10 +892,15 @@ def main():
     app.add_handler(CommandHandler("profit", product_profitability))
     app.add_handler(CommandHandler("tables", list_tables))
     app.add_handler(CommandHandler("report", full_report))
+    app.add_handler(CommandHandler("compras", purchase_forecast))
 
-    scheduler = AsyncIOScheduler()
+    # Bar time: without a timezone these fired in the container's UTC
+    # (the 09:00 report went out at 03:00 in Mexico City).
+    scheduler = AsyncIOScheduler(timezone=BAR_TZ)
     scheduler.add_job(send_auto_report, "cron", hour=9, minute=0, args=[app])
     scheduler.add_job(send_weekly_report, "cron", day_of_week="mon", hour=8, minute=0, args=[app])
+    scheduler.add_job(send_purchase_forecast, "cron", day_of_week="sun",
+                      hour=int(os.getenv('PURCHASE_FORECAST_HOUR', '10')), minute=0, args=[app])
     scheduler.start()
 
     logging.info("🤖 Telegram Bot is running...")

@@ -15,11 +15,14 @@ HARD RULES (docs/analytics-blueprint.md)
   * Dates are bar-local (America/Mexico_City). The views already expose
     fecha_mx, so `from`/`to` compare directly against it — no UTC round-trip.
 
-COST-COVERAGE DISCIPLINE
-    Reported gross margin is currently ~97% because 64 of 76 inventory items
-    have no unit cost. Every response that carries a margin also carries
-    cobertura_costo_pct. A margin without its coverage next to it is a number
-    the owner will act on and shouldn't.
+COST-COVERAGE DISCIPLINE (batch B)
+    A sale line is COSTED only when every ingredient it deducted had a cost
+    (v_bola8_lineas_venta.costo_estado = 'COMPLETO'). Margin is measured on
+    costed lines only; coverage = costed sales / evaluable sales (exempt
+    categories excluded). Profit is stated only when coverage reaches
+    MARGIN_RELIABLE_PCT -- below that every profit field is null and the UI
+    says "sin costo suficiente" instead of showing a 100%-margin fiction.
+    See _margin().
 """
 
 from datetime import datetime, timedelta
@@ -33,7 +36,9 @@ from sqlalchemy import text
 from app.config import Config
 from app.extensions import db
 
-LOCAL_TZ = ZoneInfo(Config.TZ)
+# The bar's timezone, from venue settings (batch D1). Call bar_tz() at use
+# time -- the owner can change it in Ajustes without a restart.
+from app.services.venue_svc import bar_tz  # noqa: E402
 
 analytics_bp = Blueprint('analytics', __name__)
 
@@ -55,6 +60,63 @@ _NEW_VIEWS = (
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+# Below this share of costed sales a margin is not stated as fact. Same value is
+# hard-coded in v_bola8_rentabilidad_diaria (analytics_views.py); keep in sync.
+MARGIN_RELIABLE_PCT = 80
+
+# Aggregates over v_bola8_lineas_venta that _margin() turns into a margin block.
+COV_AGG = """
+    COALESCE(SUM(net_sales_cents), 0)                                          AS net_cents,
+    COALESCE(SUM(total_cost_cents), 0)                                         AS costo_cents,
+    COALESCE(SUM(net_sales_cents)  FILTER (WHERE NOT exenta_costo), 0)         AS net_eval_cents,
+    COALESCE(SUM(net_sales_cents)  FILTER (WHERE exenta_costo), 0)             AS net_exento_cents,
+    COALESCE(SUM(net_sales_cents)  FILTER (WHERE costo_estado = 'COMPLETO'), 0) AS net_cov_cents,
+    COALESCE(SUM(total_cost_cents) FILTER (WHERE costo_estado = 'COMPLETO'), 0) AS cost_cov_cents,
+    COALESCE(SUM(net_sales_cents)  FILTER (WHERE costo_estado = 'COMPLETO'
+                                             AND costo_reexpresado), 0)        AS net_reexp_cents
+"""
+
+
+def _margin(r) -> dict:
+    """Honest margin block from a COV_AGG row.
+
+    margen_pct          measured on fully-costed lines only
+    cobertura_costo_pct fully-costed sales / evaluable sales
+    utilidad_estimada   margin applied to all evaluable sales + exempt sales;
+                        None unless coverage >= MARGIN_RELIABLE_PCT
+    reexpresado_pct     share of costed sales whose cost was filled in later
+                        with today's cost (an estimate, not the cost at the time)
+    """
+    net_eval = int(r['net_eval_cents'] or 0)
+    net_cov = int(r['net_cov_cents'] or 0)
+    cost_cov = int(r['cost_cov_cents'] or 0)
+    exento = int(r['net_exento_cents'] or 0)
+    reexp = int(r['net_reexp_cents'] or 0)
+    cobertura = round(net_cov / net_eval * 100, 1) if net_eval else None
+    margen = round((net_cov - cost_cov) / net_cov * 100, 1) if net_cov else None
+    if net_eval == 0:
+        # only exempt sales (or none): nothing to cost, all of it is margin
+        confiable, estimada = True, exento
+    else:
+        confiable = (cobertura is not None and cobertura >= MARGIN_RELIABLE_PCT
+                     and margen is not None)
+        estimada = (int(round(net_eval * (net_cov - cost_cov) / net_cov)) + exento
+                    if confiable else None)
+    return {
+        'cobertura_costo_pct': cobertura,
+        'margen_pct': margen,
+        'margen_confiable': confiable,
+        'venta_con_costo_cents': net_cov,
+        'utilidad_conocida_cents': net_cov - cost_cov,
+        'utilidad_estimada_cents': estimada,
+        'reexpresado_pct': round(reexp / net_cov * 100, 1) if net_cov else None,
+    }
+
+
+def _exempt_categories() -> list:
+    return [r[0] for r in db.session.execute(text(
+        "SELECT name FROM menu_categories WHERE exenta_costo ORDER BY name")).fetchall()]
+
 def _require_admin():
     """Analytics is ADMIN-only. Returns an error tuple, or None when allowed."""
     claims = get_jwt()
@@ -67,10 +129,11 @@ def _parse_range(default_days: int = 30):
     """`from`/`to` as YYYY-MM-DD, interpreted as bar-local dates.
 
     Compared directly against fecha_mx, which the views already derive with
-    AT TIME ZONE 'America/Mexico_City'. Defaults to the trailing `default_days`
+    AT TIME ZONE fn_bar_tz(). Defaults to the trailing `default_days`
     ending today.
     """
-    today = datetime.now(LOCAL_TZ).date()
+    from app.services.venue_svc import business_today
+    today = business_today()            # business day (closing-hour cutoff)
     to_str = request.args.get('to')
     from_str = request.args.get('from')
     try:
@@ -161,7 +224,7 @@ def health():
 def overview():
     """Executive dashboard.
 
-    v_bola8_kpis_ejecutivos cannot serve this — it aggregates ALL history into a
+    (The old v_bola8_kpis_ejecutivos, dropped in 047, could not serve this -- it aggregated ALL history into a
     single row with no date predicate. Period totals are therefore rebuilt from
     the two grain views, which are the only date-filterable ones.
 
@@ -183,12 +246,7 @@ def overview():
     # has no COGS at all, so profit must come from lineas_venta.
     daily = db.session.execute(text("""
         WITH profit AS (
-            SELECT fecha_mx,
-                   SUM(net_sales_cents)   AS net_cents,
-                   SUM(total_cost_cents)  AS costo_cents,
-                   SUM(gross_profit_cents) AS utilidad_cents,
-                   SUM(CASE WHEN total_cost_cents > 0 THEN net_sales_cents ELSE 0 END)
-                                          AS net_con_costo_cents
+            SELECT fecha_mx, """ + COV_AGG + """
             FROM v_bola8_lineas_venta
             WHERE fecha_mx BETWEEN :f AND :t
             GROUP BY fecha_mx
@@ -200,10 +258,13 @@ def overview():
                k.descuentos_mxn,
                k.propinas_mxn,
                k.ticket_promedio_mxn,
-               COALESCE(p.net_cents, 0)            AS net_cents,
-               COALESCE(p.costo_cents, 0)          AS costo_cents,
-               COALESCE(p.utilidad_cents, 0)       AS utilidad_cents,
-               COALESCE(p.net_con_costo_cents, 0)  AS net_con_costo_cents
+               COALESCE(p.net_cents, 0)          AS net_cents,
+               COALESCE(p.costo_cents, 0)        AS costo_cents,
+               COALESCE(p.net_eval_cents, 0)     AS net_eval_cents,
+               COALESCE(p.net_exento_cents, 0)   AS net_exento_cents,
+               COALESCE(p.net_cov_cents, 0)      AS net_cov_cents,
+               COALESCE(p.cost_cov_cents, 0)     AS cost_cov_cents,
+               COALESCE(p.net_reexp_cents, 0)    AS net_reexp_cents
         FROM v_bola8_kpis_diarios k
         LEFT JOIN profit p ON p.fecha_mx = k.fecha_mx
         WHERE k.fecha_mx BETWEEN :f AND :t
@@ -221,15 +282,9 @@ def overview():
             FROM v_bola8_tickets_cerrados t
             WHERE t.fecha_mx BETWEEN :%s AND :%s
         """ % (f_key, t_key)), params).mappings().first()
-        prof = db.session.execute(text("""
-            SELECT COALESCE(SUM(net_sales_cents), 0)   AS net_cents,
-                   COALESCE(SUM(total_cost_cents), 0)  AS costo_cents,
-                   COALESCE(SUM(gross_profit_cents), 0) AS utilidad_cents,
-                   COALESCE(SUM(CASE WHEN total_cost_cents > 0
-                                     THEN net_sales_cents ELSE 0 END), 0) AS net_con_costo_cents
-            FROM v_bola8_lineas_venta
-            WHERE fecha_mx BETWEEN :%s AND :%s
-        """ % (f_key, t_key)), params).mappings().first()
+        prof = db.session.execute(text(
+            "SELECT " + COV_AGG + " FROM v_bola8_lineas_venta "
+            "WHERE fecha_mx BETWEEN :%s AND :%s" % (f_key, t_key)), params).mappings().first()
         return row, prof
 
     cur, cur_p = _period_totals('f', 't')
@@ -248,21 +303,27 @@ def overview():
         ORDER BY SUM(monto_cents) DESC
     """), params).mappings().all()
 
+    # By the hour the item was ORDERED (sent_at), not when the tab was paid:
+    # the median tab is open ~107 minutes, so close-time bucketing put 87% of
+    # lines in the wrong hour and shifted every "peak hour" late.
     por_hora = db.session.execute(text("""
-        SELECT hora_mx,
-               COUNT(DISTINCT ticket_id) AS tickets,
-               SUM(net_sales_cents)      AS net_cents,
-               SUM(gross_profit_cents)   AS utilidad_cents
-        FROM v_bola8_lineas_venta
-        WHERE fecha_mx BETWEEN :f AND :t
-        GROUP BY hora_mx ORDER BY hora_mx
+        SELECT EXTRACT(HOUR FROM COALESCE(li.sent_at, v.closed_at)
+                                 AT TIME ZONE fn_bar_tz())::int AS hora_mx,
+               COUNT(DISTINCT v.ticket_id) AS tickets,
+               """ + COV_AGG.replace('net_sales_cents', 'v.net_sales_cents')
+                        .replace('total_cost_cents', 'v.total_cost_cents')
+                        .replace('exenta_costo', 'v.exenta_costo')
+                        .replace('costo_estado', 'v.costo_estado')
+                        .replace('costo_reexpresado', 'v.costo_reexpresado') + """
+        FROM v_bola8_lineas_venta v
+        LEFT JOIN ticket_line_items li ON li.id = v.line_item_id
+        WHERE v.fecha_mx BETWEEN :f AND :t
+        GROUP BY 1 ORDER BY 1
     """), params).mappings().all()
 
     por_categoria = db.session.execute(text("""
         SELECT categoria,
-               SUM(quantity)           AS unidades,
-               SUM(net_sales_cents)    AS net_cents,
-               SUM(gross_profit_cents) AS utilidad_cents
+               SUM(quantity)           AS unidades, """ + COV_AGG + """
         FROM v_bola8_lineas_venta
         WHERE fecha_mx BETWEEN :f AND :t
         GROUP BY categoria
@@ -279,8 +340,9 @@ def overview():
             return None
         return round((now_v - prev_v) / prev_v * 100, 2)
 
-    cobertura = (round(cur_p['net_con_costo_cents'] / cur_p['net_cents'] * 100, 2)
-                 if cur_p['net_cents'] else None)
+    m_cur, m_prv = _margin(cur_p), _margin(prv_p)
+    cobertura = m_cur['cobertura_costo_pct']
+    billar_now = int(cur['billar_cents'])
 
     return jsonify({
         'rango': {'from': str(date_from), 'to': str(date_to), 'dias': span},
@@ -290,9 +352,11 @@ def overview():
             'billar_cents': int(cur['billar_cents']),
             'venta_articulos_cents': int(cur_p['net_cents']),
             'costo_cents': int(cur_p['costo_cents']),
-            'utilidad_cents': int(cur_p['utilidad_cents']),
+            # Item profit only when enough sales are costed; else null.
+            'utilidad_cents': m_cur['utilidad_estimada_cents'],
             # Billiard time has no COGS row, so it is pure contribution.
-            'utilidad_total_cents': int(cur_p['utilidad_cents']) + int(cur['billar_cents']),
+            'utilidad_total_cents': (m_cur['utilidad_estimada_cents'] + billar_now
+                                     if m_cur['utilidad_estimada_cents'] is not None else None),
             'propinas_cents': int(cur['propinas_cents']),
             'descuentos_cents': int(cur['descuentos_cents']),
             'tickets': int(cur['tickets']),
@@ -301,14 +365,20 @@ def overview():
                                       if cur['tickets'] else 0),
             'venta_diaria_promedio_cents': (int(cur['ventas_cents'] // cur['dias'])
                                             if cur['dias'] else 0),
-            'margen_pct': (round(cur_p['utilidad_cents'] / cur_p['net_cents'] * 100, 2)
-                           if cur_p['net_cents'] else None),
-            'cobertura_costo_pct': cobertura,
+            **m_cur,
         },
         'variacion_pct': {
             'ventas': _delta(int(cur['ventas_cents']), int(prv['ventas_cents'])),
             'tickets': _delta(int(cur['tickets']), int(prv['tickets'])),
-            'utilidad': _delta(int(cur_p['utilidad_cents']), int(prv_p['utilidad_cents'])),
+            # Only comparable when BOTH periods have enough cost data.
+            'utilidad': (_delta(m_cur['utilidad_estimada_cents'], m_prv['utilidad_estimada_cents'])
+                         if m_cur['margen_confiable'] and m_prv['margen_confiable']
+                         and m_cur['utilidad_estimada_cents'] is not None
+                         and m_prv['utilidad_estimada_cents'] else None),
+            'margen_pp': (round(m_cur['margen_pct'] - m_prv['margen_pct'], 1)
+                          if m_cur['margen_confiable'] and m_prv['margen_confiable']
+                          and m_cur['margen_pct'] is not None
+                          and m_prv['margen_pct'] is not None else None),
         },
         'serie_diaria': [{
             'fecha': str(r['fecha_mx']),
@@ -319,7 +389,8 @@ def overview():
             'descuentos_cents': _cents(r['descuentos_mxn']),
             'venta_articulos_cents': int(r['net_cents']),
             'costo_cents': int(r['costo_cents']),
-            'utilidad_cents': int(r['utilidad_cents']),
+            'utilidad_cents': _margin(r)['utilidad_estimada_cents'],
+            'cobertura_costo_pct': _margin(r)['cobertura_costo_pct'],
             'ticket_promedio_cents': _cents(r['ticket_promedio_mxn']),
         } for r in daily],
         'mezcla_pago': [{
@@ -332,13 +403,15 @@ def overview():
             'hora': int(r['hora_mx']),
             'tickets': int(r['tickets']),
             'venta_cents': int(r['net_cents']),
-            'utilidad_cents': int(r['utilidad_cents']),
+            'utilidad_cents': _margin(r)['utilidad_estimada_cents'],
         } for r in por_hora],
         'por_categoria': [{
             'categoria': r['categoria'],
             'unidades': int(r['unidades']),
             'venta_cents': int(r['net_cents']),
-            'utilidad_cents': int(r['utilidad_cents']),
+            **{k: v for k, v in _margin(r).items()
+               if k in ('margen_pct', 'cobertura_costo_pct', 'margen_confiable')},
+            'utilidad_cents': _margin(r)['utilidad_estimada_cents'],
         } for r in por_categoria],
         'pronostico_7d': [{
             'fecha': str(r['fecha_forecast']),
@@ -347,10 +420,12 @@ def overview():
             'tickets': float(r['forecast_tickets'] or 0),
         } for r in forecast],
         'nota_cobertura': (
-            'El margen mostrado es provisional: solo '
-            f'{cobertura if cobertura is not None else 0}% de la venta de artículos '
-            'tiene costo real capturado.'
+            None if m_cur['margen_confiable'] else
+            f'Solo {cobertura if cobertura is not None else 0}% de la venta de artículos '
+            f'tiene costo completo (se necesita {MARGIN_RELIABLE_PCT}%). La utilidad no se '
+            'muestra hasta capturar los costos faltantes (pestaña Costos).'
         ),
+        'margen_umbral_pct': MARGIN_RELIABLE_PCT,
     })
 
 
@@ -365,9 +440,9 @@ def menu_engineering():
     mean — a single runaway seller (Cubeta Premium at $106k) would drag a mean
     so far right that almost everything classifies as unpopular.
 
-    Products whose cost coverage is 0% are flagged: their margin is not a
-    measurement, it is an artefact of a missing unit cost, and they must not be
-    read as Stars.
+    Only products with at least MARGIN_RELIABLE_PCT of their sales fully costed
+    are classified; the rest are cuadrante SIN_COSTO (their "margin" is an
+    artefact of a missing unit cost).
     """
     denied = _guard()
     if denied:
@@ -376,45 +451,14 @@ def menu_engineering():
     params = {'f': date_from, 't': date_to}
 
     rows = db.session.execute(text("""
-        WITH prod AS (
-            SELECT producto,
-                   categoria,
-                   SUM(quantity)                                   AS unidades,
-                   COUNT(DISTINCT ticket_id)                       AS tickets,
-                   SUM(net_sales_cents)                            AS net_cents,
-                   SUM(total_cost_cents)                           AS costo_cents,
-                   SUM(gross_profit_cents)                         AS utilidad_cents,
-                   SUM(CASE WHEN total_cost_cents > 0
-                            THEN net_sales_cents ELSE 0 END)       AS net_con_costo_cents,
-                   SUM(allocated_discount_cents)                   AS descuento_cents
-            FROM v_bola8_lineas_venta
-            WHERE fecha_mx BETWEEN :f AND :t
-            GROUP BY producto, categoria
-        ),
-        stats AS (
-            SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY unidades) AS med_unidades,
-                   percentile_cont(0.5) WITHIN GROUP (
-                       ORDER BY CASE WHEN net_cents > 0
-                                     THEN utilidad_cents::numeric / net_cents
-                                     ELSE 0 END)                          AS med_margen
-            FROM prod
-        )
-        SELECT p.*,
-               s.med_unidades,
-               (s.med_margen * 100)::numeric(18,2) AS med_margen_pct,
-               CASE
-                   WHEN p.unidades >= s.med_unidades
-                    AND (CASE WHEN p.net_cents > 0
-                              THEN p.utilidad_cents::numeric / p.net_cents
-                              ELSE 0 END) >= s.med_margen THEN 'ESTRELLA'
-                   WHEN p.unidades >= s.med_unidades                  THEN 'CABALLO'
-                   WHEN (CASE WHEN p.net_cents > 0
-                              THEN p.utilidad_cents::numeric / p.net_cents
-                              ELSE 0 END) >= s.med_margen             THEN 'ROMPECABEZAS'
-                   ELSE 'PERRO'
-               END AS cuadrante
-        FROM prod p CROSS JOIN stats s
-        ORDER BY p.utilidad_cents DESC
+        SELECT producto,
+               categoria,
+               SUM(quantity)                  AS unidades,
+               COUNT(DISTINCT ticket_id)      AS tickets,
+               SUM(allocated_discount_cents)  AS descuento_cents, """ + COV_AGG + """
+        FROM v_bola8_lineas_venta
+        WHERE fecha_mx BETWEEN :f AND :t
+        GROUP BY producto, categoria
     """), params).mappings().all()
 
     lentos = db.session.execute(text("""
@@ -427,8 +471,8 @@ def menu_engineering():
 
     productos = []
     for r in rows:
+        m = _margin(r)
         net = int(r['net_cents'])
-        cobertura = round(int(r['net_con_costo_cents']) / net * 100, 2) if net else None
         productos.append({
             'producto': r['producto'],
             'categoria': r['categoria'],
@@ -436,26 +480,52 @@ def menu_engineering():
             'tickets': int(r['tickets']),
             'venta_cents': net,
             'costo_cents': int(r['costo_cents']),
-            'utilidad_cents': int(r['utilidad_cents']),
+            'utilidad_cents': m['utilidad_estimada_cents'],
             'descuento_cents': int(r['descuento_cents'] or 0),
-            'margen_pct': round(int(r['utilidad_cents']) / net * 100, 2) if net else None,
+            'margen_pct': m['margen_pct'] if m['margen_confiable'] else None,
             'precio_promedio_cents': int(net // r['unidades']) if r['unidades'] else 0,
-            'cobertura_costo_pct': cobertura,
-            'cuadrante': r['cuadrante'],
-            # A 100%-margin product with no cost captured is not a Star.
-            'margen_confiable': bool(cobertura and cobertura >= 50),
+            'cobertura_costo_pct': m['cobertura_costo_pct'],
+            'margen_confiable': m['margen_confiable'],
+            'cuadrante': None,
         })
 
-    med_unidades = float(rows[0]['med_unidades']) if rows else 0
-    med_margen = float(rows[0]['med_margen_pct']) if rows else 0
+    # Classify ONLY products whose margin is a measurement. A product with no
+    # cost captured shows 100% margin; letting it in made 69 of 92 products
+    # "100%", put the median margin at 100%, and meant a product with a real
+    # cost could never be a Star. Medians are taken over reliable products only.
+    fiables = [p for p in productos if p['margen_confiable'] and p['margen_pct'] is not None]
+
+    def _median(vals):
+        v = sorted(vals)
+        if not v:
+            return 0.0
+        mid = len(v) // 2
+        return float(v[mid]) if len(v) % 2 else (v[mid - 1] + v[mid]) / 2
+
+    med_unidades = _median([p['unidades'] for p in fiables])
+    med_margen = _median([p['margen_pct'] for p in fiables])
+    for p in productos:
+        if p not in fiables:
+            p['cuadrante'] = 'SIN_COSTO'
+        elif p['unidades'] >= med_unidades and p['margen_pct'] >= med_margen:
+            p['cuadrante'] = 'ESTRELLA'
+        elif p['unidades'] >= med_unidades:
+            p['cuadrante'] = 'CABALLO'
+        elif p['margen_pct'] >= med_margen:
+            p['cuadrante'] = 'ROMPECABEZAS'
+        else:
+            p['cuadrante'] = 'PERRO'
+    productos.sort(key=lambda p: (p['cuadrante'] == 'SIN_COSTO', -(p['utilidad_cents'] or 0),
+                                  -p['venta_cents']))
 
     return jsonify({
         'rango': {'from': str(date_from), 'to': str(date_to)},
         'medianas': {'unidades': med_unidades, 'margen_pct': med_margen},
         'resumen_cuadrantes': {
             q: sum(1 for p in productos if p['cuadrante'] == q)
-            for q in ('ESTRELLA', 'CABALLO', 'ROMPECABEZAS', 'PERRO')
+            for q in ('ESTRELLA', 'CABALLO', 'ROMPECABEZAS', 'PERRO', 'SIN_COSTO')
         },
+        'margen_umbral_pct': MARGIN_RELIABLE_PCT,
         'productos': productos,
         'productos_lentos': [{
             'producto': r['producto'],
@@ -591,9 +661,8 @@ def cash_flow():
 def inventory():
     """Purchasing + shrinkage.
 
-    v_bola8_forecast_compras is reused wholesale — it already classifies items as
-    'Comprar urgente' / 'Comprar esta semana' / 'Debajo de mínimo'. Rebuilding
-    that would duplicate an existing report. Both it and
+    Compras come from purchase_svc (view v_purchase_forecast, batch E3) -- the
+    same forecast the Sunday email and the Telegram bot send. Both it and
     v_bola8_varianza_inventario use a fixed 28-day window, so this endpoint takes
     no date parameters by design.
     """
@@ -601,13 +670,8 @@ def inventory():
     if denied:
         return denied
 
-    compras = db.session.execute(text("""
-        SELECT insumo, category, unit, stock_quantity, low_stock_threshold,
-               unit_cost_mxn, supplier, consumo_neto_28d, consumo_promedio_semanal,
-               dias_cobertura, sugerido_comprar_unidades,
-               costo_estimado_compra_mxn, recomendacion_compra
-        FROM v_bola8_forecast_compras
-    """)).mappings().all()
+    from app.services import purchase_svc
+    fc = purchase_svc.forecast()
 
     merma = db.session.execute(text("""
         SELECT insumo, category, unit, consumo_neto_28d, merma_declarada_28d,
@@ -619,36 +683,21 @@ def inventory():
         LIMIT 60
     """)).mappings().all()
 
-    urgentes = [c for c in compras
-                if c['recomendacion_compra'] in ('Comprar urgente', 'Comprar esta semana',
-                                                 'Debajo de mínimo')]
-
     return jsonify({
-        'ventana': '28 días (fija — definida por las vistas base)',
+        'ventana': (f"ventas del {fc['datos_txt']} + {fc['colchon_pct']:.0f}% de colchón"
+                    if fc['datos_txt'] else 'sin ventas registradas'),
         'resumen': {
-            'insumos': len(compras),
-            'por_comprar': len(urgentes),
-            'costo_compra_estimado_cents': sum(_cents(c['costo_estimado_compra_mxn'])
-                                               for c in urgentes),
+            'insumos': len(fc['items']),
+            'por_comprar': len(fc['por_comprar']),
+            'costo_compra_estimado_cents': fc['costo_total_cents'],
+            'sin_costo': fc['sin_costo'],
             'merma_valorizada_cents': sum(_cents(m['merma_valorizada_mxn']) for m in merma),
             'insumos_con_merma': sum(1 for m in merma if m['merma_total_unidades'] > 0),
         },
-        'compras': [{
-            'insumo': c['insumo'],
-            'categoria': c['category'],
-            'unidad': c['unit'],
-            'stock': float(c['stock_quantity'] or 0),
-            'minimo': float(c['low_stock_threshold'] or 0),
-            'costo_unitario_cents': _cents(c['unit_cost_mxn']),
-            'proveedor': c['supplier'],
-            'consumo_28d': float(c['consumo_neto_28d'] or 0),
-            'consumo_semanal': float(c['consumo_promedio_semanal'] or 0),
-            'dias_cobertura': (float(c['dias_cobertura'])
-                               if c['dias_cobertura'] is not None else None),
-            'sugerido_comprar': float(c['sugerido_comprar_unidades'] or 0),
-            'costo_estimado_cents': _cents(c['costo_estimado_compra_mxn']),
-            'recomendacion': c['recomendacion_compra'],
-        } for c in compras],
+        'semana': fc['semana_txt'],
+        'compras': fc['items'],
+        'sin_receta': fc['sin_receta'],
+        'revisar': fc['revisar'],
         'merma': [{
             'insumo': m['insumo'],
             'categoria': m['category'],
@@ -679,7 +728,8 @@ def cost_coverage():
     revenue exposure so the shortest possible list of edits recovers the most
     margin accuracy.
 
-    After entering costs, run:  flask restate-costs
+    After entering costs, POST /analytics/restate-costs (the "Recalcular
+    histórico" button) fills the past $0 rows with today's cost.
     """
     denied = _guard()
     if denied:
@@ -687,43 +737,70 @@ def cost_coverage():
 
     rows = db.session.execute(text("""
         SELECT inventory_item_id, insumo, category, unit, supplier,
-               unit_cost_mxn, tiene_costo, lineas_expuestas,
-               ventas_expuestas_mxn, ultima_venta, prioridad
+               unit_cost_cents, unit_cost_mxn, tiene_costo, lineas_expuestas,
+               ventas_expuestas_mxn, ultima_venta, prioridad,
+               base_unit_key, unidad_base, purchase_unit_key, unidad_compra,
+               unidades_por_compra, ultimo_precio_compra_cents, revisar_motivo
         FROM v_bola8_cobertura_costo
     """)).mappings().all()
 
-    # Line-level coverage. 'Daños' (damage recovery) and 'INGRESOS' (misc income)
-    # are legitimately costless and are excluded from the denominator — otherwise
-    # coverage can never reach 100% and the metric stops being trusted.
+    # Line-level coverage over the last 30 days (what the owner can still fix by
+    # entering costs + "Recalcular histórico"). Exempt categories are excluded
+    # from the denominator -- that is now a per-category setting
+    # (menu_categories.exenta_costo), not a hard-coded list of names.
+    date_from, date_to = _parse_range()
     cov = db.session.execute(text("""
-        SELECT COALESCE(SUM(net_sales_cents), 0) AS net_cents,
-               COALESCE(SUM(CASE WHEN total_cost_cents > 0
-                                 THEN net_sales_cents ELSE 0 END), 0) AS con_costo_cents,
-               COUNT(*)                                               AS lineas,
-               COUNT(*) FILTER (WHERE total_cost_cents > 0)           AS lineas_con_costo
+        SELECT """ + COV_AGG + """,
+               COUNT(*) FILTER (WHERE NOT exenta_costo)                 AS lineas,
+               COUNT(*) FILTER (WHERE costo_estado = 'COMPLETO')        AS lineas_con_costo,
+               COUNT(*) FILTER (WHERE costo_estado = 'PARCIAL')         AS lineas_parcial,
+               COUNT(*) FILTER (WHERE costo_estado = 'SIN_COSTO')       AS lineas_sin_costo,
+               COUNT(*) FILTER (WHERE costo_estado = 'SIN_RECETA')      AS lineas_sin_receta
         FROM v_bola8_lineas_venta
-        WHERE categoria NOT IN ('Daños', 'INGRESOS')
-    """)).mappings().first()
+        WHERE fecha_mx BETWEEN :f AND :t
+    """), {'f': date_from, 't': date_to}).mappings().first()
+    m = _margin(cov)
 
     sin_costo = [r for r in rows if not r['tiene_costo']]
     expuesto = sum(_cents(r['ventas_expuestas_mxn']) for r in sin_costo)
+
+    # Products whose FULLY-costed sales lost money in the range: cost above the
+    # selling price usually means a cost typed in the wrong unit (or a price
+    # that really is too low -- either way the owner must look).
+    perdida = db.session.execute(text("""
+        SELECT producto,
+               SUM(net_sales_cents)  AS venta_cents,
+               SUM(total_cost_cents) AS costo_cents
+        FROM v_bola8_lineas_venta
+        WHERE fecha_mx BETWEEN :f AND :t AND costo_estado = 'COMPLETO'
+        GROUP BY producto
+        HAVING SUM(total_cost_cents) > SUM(net_sales_cents)
+        ORDER BY SUM(total_cost_cents) - SUM(net_sales_cents) DESC
+        LIMIT 20
+    """), {'f': date_from, 't': date_to}).mappings().all()
 
     return jsonify({
         'resumen': {
             'insumos_activos': len(rows),
             'insumos_sin_costo': len(sin_costo),
             'venta_expuesta_cents': expuesto,
+            'rango': {'from': str(date_from), 'to': str(date_to)},
             'lineas': int(cov['lineas']),
             'lineas_con_costo': int(cov['lineas_con_costo']),
-            'venta_evaluable_cents': int(cov['net_cents']),
-            'venta_con_costo_cents': int(cov['con_costo_cents']),
-            'cobertura_pct': (round(int(cov['con_costo_cents']) / int(cov['net_cents']) * 100, 2)
-                              if cov['net_cents'] else None),
-            'excluidas': ['Daños', 'INGRESOS'],
+            'lineas_parcial': int(cov['lineas_parcial']),
+            'lineas_sin_costo': int(cov['lineas_sin_costo']),
+            'lineas_sin_receta': int(cov['lineas_sin_receta']),
+            'venta_evaluable_cents': int(cov['net_eval_cents']),
+            'venta_con_costo_cents': int(cov['net_cov_cents']),
+            'cobertura_pct': m['cobertura_costo_pct'],
+            'margen_confiable': m['margen_confiable'],
+            'margen_umbral_pct': MARGIN_RELIABLE_PCT,
+            'reexpresado_pct': m['reexpresado_pct'],
+            'excluidas': _exempt_categories(),
         },
-        'accion': ('Captura unit_cost_cents para los insumos listados (mayor exposición '
-                   'primero), después ejecuta `flask restate-costs` para recalcular el '
-                   'histórico.'),
+        'accion': ('Captura el costo de los insumos listados (mayor exposición primero) y '
+                   'luego usa "Recalcular histórico" para aplicar esos costos a las ventas '
+                   'pasadas que quedaron en $0.'),
         'insumos': [{
             'inventory_item_id': r['inventory_item_id'],
             'insumo': r['insumo'],
@@ -736,8 +813,58 @@ def cost_coverage():
             'venta_expuesta_cents': _cents(r['ventas_expuestas_mxn']),
             'ultima_venta': str(r['ultima_venta']) if r['ultima_venta'] else None,
             'prioridad': r['prioridad'],
+            # exact cost per base unit (centavos, 4 decimals)
+            'costo_unitario_exacto_cents': float(r['unit_cost_cents'] or 0),
+            'unidad_base': r['unidad_base'],
+            'unidad_compra': r['unidad_compra'],
+            'unidades_por_compra': float(r['unidades_por_compra'] or 1),
+            'ultimo_precio_compra_cents': r['ultimo_precio_compra_cents'],
+            'revisar_motivo': r['revisar_motivo'],
         } for r in rows],
+        'revisar': {
+            'insumos': [{
+                'inventory_item_id': r['inventory_item_id'],
+                'insumo': r['insumo'],
+                'costo_unitario_exacto_cents': float(r['unit_cost_cents'] or 0),
+                'unidad_base': r['unidad_base'],
+                'unidad_compra': r['unidad_compra'],
+                'unidades_por_compra': float(r['unidades_por_compra'] or 1),
+                'motivo': r['revisar_motivo'],
+            } for r in rows if r['revisar_motivo']],
+            'productos_con_perdida': [{
+                'producto': p['producto'],
+                'venta_cents': int(p['venta_cents']),
+                'costo_cents': int(p['costo_cents']),
+            } for p in perdida],
+        },
     })
+
+
+# ── POST /api/v1/analytics/restate-costs ─────────────────────────────────────
+
+@analytics_bp.route('/restate-costs', methods=['POST'])
+@jwt_required()
+def restate_costs():
+    """"Recalcular histórico": fill past $0 cost rows with today's cost.
+
+    Body {"dry_run": true} returns the preview only. Restated rows are stamped,
+    so every margin reports what share of it is an estimate (reexpresado_pct).
+    """
+    denied = _guard()
+    if denied:
+        return denied
+    from flask_jwt_extended import get_jwt_identity
+    from app.services import audit_svc, cost_svc
+
+    preview = cost_svc.restate_preview()
+    if (request.get_json(silent=True) or {}).get('dry_run'):
+        return jsonify({'preview': preview, 'aplicado': False})
+    n = cost_svc.restate() if preview['filas'] else 0
+    audit_svc.log(get_jwt_identity(), 'COSTS_RESTATED', 'sale_item_costs', None,
+                  after={'filas': n, 'nuevo_costo_cents': preview['nuevo_costo_cents']},
+                  reason='Recalcular histórico con costos actuales')
+    db.session.commit()
+    return jsonify({'preview': preview, 'aplicado': True, 'filas_reexpresadas': n})
 
 
 # ── GET /api/v1/analytics/profitability ──────────────────────────────────────
@@ -792,21 +919,29 @@ def profitability():
         WHERE t.fecha_mx BETWEEN :f AND :t
     """), params).mappings().first()
 
-    lin = db.session.execute(text("""
-        SELECT COALESCE(SUM(net_sales_cents), 0)    AS articulos_cents,
-               COALESCE(SUM(total_cost_cents), 0)   AS cogs_cents,
-               COALESCE(SUM(gross_profit_cents), 0) AS utilidad_art_cents,
-               COALESCE(SUM(CASE WHEN total_cost_cents > 0
-                                 THEN net_sales_cents ELSE 0 END), 0) AS con_costo_cents
-        FROM v_bola8_lineas_venta
-        WHERE fecha_mx BETWEEN :f AND :t
-    """), params).mappings().first()
+    lin = db.session.execute(text(
+        "SELECT " + COV_AGG + " FROM v_bola8_lineas_venta WHERE fecha_mx BETWEEN :f AND :t"
+    ), params).mappings().first()
+    m = _margin(lin)
 
     ventas = int(tot['ventas_cents'])
     billar = int(tot['billar_cents'])
-    articulos = int(lin['articulos_cents'])
-    utilidad_bruta = int(lin['utilidad_art_cents']) + billar
-    utilidad_neta = utilidad_bruta - fijo_periodo_cents
+    articulos = int(lin['net_cents'])
+    # Gross / net profit only when cost coverage is high enough to state them.
+    # Otherwise the scenarios table (profit at 25-45% COGS) and the break-even
+    # COGS rate are the honest answer, and both work without any cost data.
+    # Product given away (batch E5): cortesías and staff consumption at cost,
+    # their own lines instead of eroding product margins.
+    regalo = db.session.execute(text("""
+        SELECT COALESCE(SUM(costo_cents) FILTER (WHERE tipo = 'CORTESIA'), 0) AS cortesias,
+               COALESCE(SUM(costo_cents) FILTER (WHERE tipo = 'PERSONAL'), 0) AS personal
+          FROM v_consumo_sin_venta WHERE fecha BETWEEN :f AND :t"""), params).mappings().first()
+    cortesias_cents, personal_cents = int(regalo['cortesias']), int(regalo['personal'])
+
+    utilidad_art = m['utilidad_estimada_cents']
+    utilidad_bruta = utilidad_art + billar if utilidad_art is not None else None
+    utilidad_neta = (utilidad_bruta - cortesias_cents - personal_cents - fijo_periodo_cents
+                     if utilidad_bruta is not None else None)
     meses = Decimal(dias_calendario) / Decimal('30.4167')
 
     # What COGS rate would wipe out the profit? Billiard time has no COGS, so it
@@ -821,7 +956,7 @@ def profitability():
     for pct in (25, 30, 35, 40, 45):
         cogs_sim = int(articulos * pct / 100)
         bruta_sim = (articulos - cogs_sim) + billar
-        neta_sim = bruta_sim - fijo_periodo_cents
+        neta_sim = bruta_sim - cortesias_cents - personal_cents - fijo_periodo_cents
         escenarios.append({
             'cogs_pct': pct,
             'cogs_cents': cogs_sim,
@@ -851,16 +986,22 @@ def profitability():
             'ventas_cents': ventas,
             'articulos_cents': articulos,
             'billar_cents': billar,
-            'cogs_cents': int(lin['cogs_cents']),
-            'utilidad_articulos_cents': int(lin['utilidad_art_cents']),
+            'cogs_cents': int(lin['costo_cents']),
+            'utilidad_articulos_cents': utilidad_art,
             'utilidad_bruta_cents': utilidad_bruta,
+            'cortesias_cents': cortesias_cents,
+            'consumo_personal_cents': personal_cents,
             'costos_fijos_cents': fijo_periodo_cents,
             'utilidad_neta_cents': utilidad_neta,
-            'utilidad_neta_mensual_cents': int(Decimal(utilidad_neta) / meses) if meses else 0,
-            'margen_neto_pct': round(utilidad_neta / ventas * 100, 2) if ventas else None,
+            'utilidad_neta_mensual_cents': (int(Decimal(utilidad_neta) / meses)
+                                            if meses and utilidad_neta is not None else None),
+            'margen_neto_pct': (round(utilidad_neta / ventas * 100, 2)
+                                if ventas and utilidad_neta is not None else None),
             'tickets': int(tot['tickets']),
-            'cobertura_costo_pct': (round(int(lin['con_costo_cents']) / articulos * 100, 2)
-                                    if articulos else None),
+            'cobertura_costo_pct': m['cobertura_costo_pct'],
+            'margen_articulos_pct': m['margen_pct'],
+            'margen_confiable': m['margen_confiable'],
+            'margen_umbral_pct': MARGIN_RELIABLE_PCT,
             # Share of the fixed nut that billiard time alone pays for.
             'billar_cubre_fijos_pct': (round(billar / fijo_periodo_cents * 100, 1)
                                        if fijo_periodo_cents else None),
@@ -869,7 +1010,7 @@ def profitability():
             'venta_diaria_necesaria_cents': (
                 int(Decimal(fijo_periodo_cents) / Decimal(dias_calendario)
                     / (Decimal(utilidad_bruta) / Decimal(ventas)))
-                if ventas and utilidad_bruta > 0 else None),
+                if ventas and utilidad_bruta is not None and utilidad_bruta > 0 else None),
             'venta_diaria_actual_cents': (int(ventas / int(tot['dias_operados']))
                                           if tot['dias_operados'] else 0),
             'cogs_equilibrio_pct': cogs_equilibrio_pct,
@@ -883,9 +1024,13 @@ def profitability():
             'ventas_cents': _cents(r['ventas_mxn']),
             'billar_cents': _cents(r['billar_mxn']),
             'cogs_cents': _cents(r['cogs_mxn']),
-            'utilidad_bruta_cents': _cents(r['utilidad_bruta_mxn']),
+            # null on days without enough cost data (see v_bola8_rentabilidad_diaria)
+            'utilidad_bruta_cents': (_cents(r['utilidad_bruta_mxn'])
+                                     if r['utilidad_bruta_mxn'] is not None else None),
             'costo_fijo_cents': _cents(r['costo_fijo_diario_mxn']),
-            'utilidad_neta_cents': _cents(r['utilidad_neta_mxn']),
+            'utilidad_neta_cents': (_cents(r['utilidad_neta_mxn'])
+                                    if r['utilidad_neta_mxn'] is not None else None),
+            'cobertura_costo_pct': _pct(r['cobertura_costo_pct']),
             'equilibrio_cents': (_cents(r['punto_equilibrio_ventas_mxn'])
                                  if r['punto_equilibrio_ventas_mxn'] is not None else None),
         } for r in serie],
@@ -948,8 +1093,47 @@ def fixed_costs_update(cost_id):
            'a': body.get('is_active'), 'i': cost_id})
     if not result.rowcount:
         return jsonify({'error': 'NOT_FOUND'}), 404
+    from flask_jwt_extended import get_jwt_identity
+    from app.services import audit_svc
+    audit_svc.log(get_jwt_identity(), 'FIXED_COST_UPDATED', 'fixed_cost', cost_id,
+                  after={'mensual_cents': monto, 'is_active': body.get('is_active'),
+                         'notas': body.get('notas')})
     db.session.commit()
     return jsonify({'ok': True, 'id': cost_id, 'mensual_cents': monto})
+
+
+@analytics_bp.route('/fixed-costs', methods=['POST'])
+@jwt_required()
+def fixed_costs_create():
+    """Add a fixed cost (rent, payroll, internet...). A new pool hall starts with
+    none of Bola8's, so it must be able to enter its own. Remove = PUT is_active=false.
+    """
+    denied = _require_admin()
+    if denied:
+        return denied
+    body = request.get_json(silent=True) or {}
+    concepto = (body.get('concepto') or '').strip()
+    if not concepto:
+        return jsonify({'error': 'concepto requerido'}), 400
+    try:
+        monto = int(body.get('mensual_cents'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'mensual_cents debe ser entero (centavos)'}), 400
+    if monto < 0:
+        return jsonify({'error': 'mensual_cents no puede ser negativo'}), 400
+    import uuid
+    new_id = str(uuid.uuid4())
+    db.session.execute(text("""
+        INSERT INTO fixed_costs (id, concepto, categoria, monto_cents, is_active, notas, updated_at)
+        VALUES (:i, :c, :cat, :m, true, :n, now())
+    """), {'i': new_id, 'c': concepto[:120], 'cat': (body.get('categoria') or 'Otros')[:40],
+           'm': monto, 'n': body.get('notas')})
+    from flask_jwt_extended import get_jwt_identity
+    from app.services import audit_svc
+    audit_svc.log(get_jwt_identity(), 'FIXED_COST_CREATED', 'fixed_cost', new_id,
+                  after={'concepto': concepto, 'mensual_cents': monto})
+    db.session.commit()
+    return jsonify({'ok': True, 'id': new_id}), 201
 
 
 # ── GET /api/v1/analytics/pool-tables ────────────────────────────────────────
@@ -1095,7 +1279,11 @@ def staff():
                SUM(unidades)                                      AS unidades,
                SUM(round(total_mxn * 100))                        AS ventas_cents,
                SUM(round(venta_articulos_mxn * 100))              AS articulos_cents,
-               SUM(round(utilidad_mxn * 100))                     AS utilidad_cents,
+               SUM(articulos_evaluables_cents)                    AS net_eval_cents,
+               SUM(articulos_exentos_cents)                       AS net_exento_cents,
+               SUM(articulos_con_costo_cents)                     AS net_cov_cents,
+               SUM(costo_articulos_con_costo_cents)               AS cost_cov_cents,
+               0                                                  AS net_reexp_cents,
                SUM(round(propina_mxn * 100))                      AS propinas_cents,
                SUM(round(descuento_mxn * 100))                    AS descuentos_cents,
                SUM(round(billar_mxn * 100))                       AS billar_cents,
@@ -1122,7 +1310,9 @@ def staff():
             'ventas_cents': int(r['ventas_cents'] or 0),
             'articulos_cents': int(r['articulos_cents'] or 0),
             'billar_cents': int(r['billar_cents'] or 0),
-            'utilidad_cents': int(r['utilidad_cents'] or 0),
+            # null unless enough of this person's item sales are costed
+            'utilidad_cents': _margin(r)['utilidad_estimada_cents'],
+            'cobertura_costo_pct': _margin(r)['cobertura_costo_pct'],
             'propinas_cents': int(r['propinas_cents'] or 0),
             'descuentos_cents': int(r['descuentos_cents'] or 0),
             'ticket_promedio_cents': (int((r['ventas_cents'] or 0) // r['tickets'])
@@ -1203,4 +1393,58 @@ def anomalies():
             'rol': r['rol_usuario'],
             'monto_cents': _cents(r['monto_mxn']),
         } for r in detalle],
+    })
+
+
+# ── GET /api/v1/analytics/comps ──────────────────────────────────────────────
+
+@analytics_bp.route('/comps', methods=['GET'])
+@jwt_required()
+def comps_report():
+    """Cortesías and staff consumption (batch E5): what was given away, why, who
+    authorized it, for whom, at list value and at cost."""
+    denied = _guard()
+    if denied:
+        return denied
+    date_from, date_to = _parse_range(default_days=30)
+    params = {'f': date_from, 't': date_to}
+
+    def q(sql):
+        return [dict(r) for r in db.session.execute(text(sql), params).mappings().all()]
+
+    base = "FROM v_consumo_sin_venta WHERE fecha BETWEEN :f AND :t"
+    tot = q(f"""SELECT tipo, COUNT(*) AS lineas, SUM(quantity)::int AS unidades,
+                       SUM(valor_lista_cents)::bigint AS valor_lista_cents, SUM(costo_cents)::bigint AS costo_cents,
+                       COUNT(*) FILTER (WHERE costo_incompleto) AS sin_costo
+                {base} GROUP BY tipo""")
+    # unidades = items given (a line of 3 beers is 3), not ticket lines
+    por = lambda col: q(f"""SELECT tipo, COALESCE({col}, '—') AS nombre, COUNT(*) AS lineas,
+                                   SUM(quantity)::int AS unidades,
+                                   SUM(valor_lista_cents)::bigint AS valor_lista_cents, SUM(costo_cents)::bigint AS costo_cents
+                            {base} GROUP BY tipo, 2 ORDER BY 6 DESC NULLS LAST, 5 DESC""")
+    dias = q(f"""SELECT fecha, SUM(costo_cents) FILTER (WHERE tipo='CORTESIA')::bigint AS cortesias_cents,
+                        SUM(costo_cents) FILTER (WHERE tipo='PERSONAL')::bigint AS personal_cents
+                 {base} GROUP BY fecha ORDER BY fecha""")
+    ventas = int(db.session.execute(text(
+        "SELECT COALESCE(SUM(total_cents),0) FROM v_bola8_tickets_cerrados WHERE fecha_mx BETWEEN :f AND :t"),
+        params).scalar() or 0)
+    t = {r['tipo']: r for r in tot}
+    blank = {'lineas': 0, 'unidades': 0, 'valor_lista_cents': 0, 'costo_cents': 0, 'sin_costo': 0}
+    return jsonify({
+        'rango': {'from': str(date_from), 'to': str(date_to)},
+        'cortesias': {k: int(v or 0) for k, v in {**blank, **t.get('CORTESIA', {})}.items() if k != 'tipo'},
+        'personal': {k: int(v or 0) for k, v in {**blank, **t.get('PERSONAL', {})}.items() if k != 'tipo'},
+        'ventas_cents': ventas,
+        'por_motivo': por('motivo'),
+        'por_autorizo': por('autorizo'),
+        'por_empleado': [r for r in por('empleado') if r['tipo'] == 'PERSONAL'],
+        'por_producto': por('producto')[:40],
+        # who consumed what (staff): one row per employee and product
+        'personal_detalle': q(f"""SELECT COALESCE(empleado, '—') AS empleado, producto,
+                                          SUM(quantity)::int AS unidades, SUM(costo_cents)::bigint AS costo_cents,
+                                          SUM(valor_lista_cents)::bigint AS valor_lista_cents
+                                     {base} AND tipo = 'PERSONAL'
+                                     GROUP BY 1, 2 ORDER BY 1, 3 DESC"""),
+        'por_dia': [{**d, 'fecha': str(d['fecha']), 'cortesias_cents': int(d['cortesias_cents'] or 0),
+                     'personal_cents': int(d['personal_cents'] or 0)} for d in dias],
     })

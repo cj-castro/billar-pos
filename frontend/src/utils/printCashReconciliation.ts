@@ -1,11 +1,12 @@
-import { LOGO_BASE64 } from './logoBase64'
+import { getVenue, venueLogo, formatLocal } from './venue'
 import { formatMXN } from './money'
 
 export interface ReconSummary {
   opening_fund_cents: number
-  total_sales_cents: number
-  cash_sales_cents: number
-  card_sales_cents: number
+  // Absent when a MANAGER closes: sales figures are owner-only (the server omits them).
+  total_sales_cents?: number
+  cash_sales_cents?: number
+  card_sales_cents?: number
   total_tips_cents: number
   cash_tips_cents: number
   card_tips_cents: number
@@ -88,7 +89,7 @@ export function printCashReconciliation(summary: ReconSummary, sessionDate: stri
 </style></head><body>
 
   <div style="text-align:center">
-    <img src="${LOGO_BASE64}" class="logo" alt="Bola 8" />
+    <img src="${venueLogo()}" class="logo" alt="${getVenue().name}" />
     <h1>CORTE DE CAJA</h1>
     <div class="sub">${sessionDate}${closingTime ? ' · ' + closingTime : ''}</div>
     <div class="sub">${s.ticket_count} ticket${s.ticket_count === 1 ? '' : 's'} cerrado${s.ticket_count === 1 ? '' : 's'}</div>
@@ -99,11 +100,13 @@ export function printCashReconciliation(summary: ReconSummary, sessionDate: stri
   <div class="section-title">Fondo Inicial</div>
   <div class="row bold"><span>Fondo de Apertura</span><span>${c(s.opening_fund_cents)}</span></div>
 
+  ${s.total_sales_cents != null ? `
   <div class="divider"></div>
   <div class="section-title">Ventas por Tipo</div>
-  <div class="row indent"><span>💵 Efectivo</span><span>${c(s.cash_sales_cents)}</span></div>
-  <div class="row indent"><span>💳 Tarjeta</span><span>${c(s.card_sales_cents)}</span></div>
+  <div class="row indent"><span>💵 Efectivo</span><span>${c(s.cash_sales_cents ?? 0)}</span></div>
+  <div class="row indent"><span>💳 Tarjeta</span><span>${c(s.card_sales_cents ?? 0)}</span></div>
   <div class="total-row"><span>Total Ventas</span><span>${c(s.total_sales_cents)}</span></div>
+  ` : ''}
 
   <div class="divider"></div>
   <div class="section-title">Propinas</div>
@@ -121,7 +124,7 @@ export function printCashReconciliation(summary: ReconSummary, sessionDate: stri
   <div class="divider"></div>
   <div class="section-title">Efectivo en Caja</div>
   <div class="row indent"><span>Fondo de Apertura</span><span>${c(s.opening_fund_cents)}</span></div>
-  <div class="row indent"><span>+ Ventas Efectivo</span><span>${c(s.cash_sales_cents)}</span></div>
+  ${s.cash_sales_cents != null ? `<div class="row indent"><span>+ Ventas Efectivo</span><span>${c(s.cash_sales_cents)}</span></div>` : ''}
   <div class="row indent"><span>+ Propinas Efectivo</span><span>${c(s.cash_tips_cents)}</span></div>
   <div class="row indent"><span>- Gastos Efectivo</span><span>-${c(s.cash_expenses_cents)}</span></div>
   <div class="row indent"><span>- Pago de Propinas</span><span>-${c(s.tip_payout_cents)}</span></div>
@@ -133,7 +136,7 @@ export function printCashReconciliation(summary: ReconSummary, sessionDate: stri
   ${tipBlock}
 
   <div class="divider-solid"></div>
-  <div class="footer">Impreso ${new Date().toLocaleString('es-MX')}</div>
+  <div class="footer">Impreso ${formatLocal(new Date())}</div>
 </body></html>`
 
   openPrint(html)
@@ -149,11 +152,11 @@ export function printTipDistribution(summary: ReconSummary, sessionDate: string)
 </style></head><body>
 
   <div style="text-align:center">
-    <img src="${LOGO_BASE64}" class="logo" alt="Bola 8" />
-    <h1>BOLA 8 POOL CLUB</h1>
+    <img src="${venueLogo()}" class="logo" alt="${getVenue().name}" />
+    <h1>${getVenue().name.toUpperCase()}</h1>
     <div class="sub">REPARTO DE PROPINAS</div>
     <div class="sub">${sessionDate}</div>
-    <div class="sub">Impreso ${new Date().toLocaleString('es-MX')}</div>
+    <div class="sub">Impreso ${formatLocal(new Date())}</div>
   </div>
 
   <div class="divider-solid"></div>

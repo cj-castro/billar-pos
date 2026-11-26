@@ -5,6 +5,21 @@ from ..models.setting import Setting
 from ..models.user import User
 
 settings_bp = Blueprint('settings', __name__)
+venue_bp = Blueprint('venue', __name__)
+
+# What a MANAGER may change: their own screen/device preferences. Everything
+# else -- venue identity, and system switches such as spirits.auto_convert_enabled,
+# inventory.negative_stock_mode or ledger.enforcement_mode -- is owner-only.
+# (Any manager used to be able to set ANY key, including those.)
+_MANAGER_KEYS = {'kds_sound_enabled', 'print_bar_tickets'}
+
+
+@venue_bp.route('', methods=['GET'])
+def get_venue():
+    """Public: the login screen needs the venue's name and logo before anyone
+    signs in. Contains nothing sensitive."""
+    from ..services import venue_svc
+    return jsonify(venue_svc.get_venue())
 
 # Server-side defaults — used when no DB row exists yet
 _DEFAULTS: dict[str, str] = {
@@ -22,6 +37,13 @@ def get_setting(key: str):
     return jsonify({'key': key, 'value': value})
 
 
+_NUMERIC_KEYS = {
+    'comps.owner_above_cents': (0, 10_000_000, 'Cortesías que autoriza el dueño (centavos)'),
+    'staff.allowance_cents':   (0, 10_000_000, 'Consumo libre de personal por día (centavos)'),
+    'purchasing.safety_pct':   (0, 200, 'Colchón del pronóstico de compras (%)'),
+}
+
+
 @settings_bp.route('/<key>', methods=['PUT', 'PATCH'])
 @jwt_required()
 def put_setting(key: str):
@@ -31,9 +53,32 @@ def put_setting(key: str):
     user = User.query.get(uid)
     if not user or user.role not in ('MANAGER', 'ADMIN'):
         return jsonify({'error': 'Forbidden'}), 403
+    if user.role != 'ADMIN' and key not in _MANAGER_KEYS:
+        return jsonify({'error': 'FORBIDDEN',
+                        'message': 'Solo el administrador puede cambiar este ajuste'}), 403
 
     body  = request.get_json(force=True) or {}
     value = str(body.get('value', ''))
+    if key.startswith('venue.'):
+        from ..services import venue_svc
+        if key not in venue_svc.KEYS:
+            return jsonify({'error': 'VALIDATION', 'message': f'Ajuste desconocido: {key}'}), 422
+        if key == 'venue.currency':
+            value = value.strip().upper()
+        err = venue_svc.validate(key, value)
+        if err:
+            return jsonify({'error': 'VALIDATION', 'message': err}), 422
+
+    # Owner limits (batches E3 / E5): whole, non-negative numbers.
+    if key in _NUMERIC_KEYS:
+        lo, hi, what = _NUMERIC_KEYS[key]
+        try:
+            n = int(float(value or 0))
+        except ValueError:
+            return jsonify({'error': 'VALIDATION', 'message': f'{what}: escribe un número'}), 422
+        if n < lo or n > hi:
+            return jsonify({'error': 'VALIDATION', 'message': f'{what}: entre {lo} y {hi}'}), 422
+        value = str(n)
 
     s = Setting.query.get(key)
     if s:
@@ -42,6 +87,9 @@ def put_setting(key: str):
         s = Setting(key=key, value=value)
         db.session.add(s)
     db.session.commit()
+    if key.startswith('venue.'):
+        from ..services import venue_svc
+        venue_svc.invalidate()
 
     # Broadcast to all connected clients so KDS pages update without reload
     socketio.emit('settings:changed', {'key': key, 'value': value})

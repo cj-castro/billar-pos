@@ -20,6 +20,37 @@ def _current_session():
     return CashSession.query.filter_by(status='OPEN').order_by(CashSession.opened_at.desc()).first()
 
 
+# ── Blind count (batch C) ──────────────────────────────────────────────────────
+# While a drawer is OPEN, a MANAGER does not see sales or expected cash: they
+# count, submit the close, and only then see the expected amount and the
+# difference. Showing "expected" next to the count box invites counting TO the
+# number. Tips, the tip split and expenses stay visible (managers pay tips out
+# and record expenses). Sales are owner-only anyway. The owner (ADMIN) always
+# sees everything.
+# Sales figures are owner-only (policy, Nov 2026): a manager never receives them,
+# for an open OR a closed session. While the drawer is open a manager also does
+# not get the expected cash / difference (blind count); after the close they do,
+# because reconciling the drawer is their job.
+_SALES_FIELDS = ('total_sales_cents', 'cash_sales_cents', 'card_sales_cents')
+_BLIND_FIELDS = ('expected_cash_cents', 'cash_over_short_cents')
+
+
+def _is_owner() -> bool:
+    return get_jwt().get('role') == 'ADMIN'
+
+
+def _is_blind(session) -> bool:
+    return session is not None and session.status == 'OPEN' and not _is_owner()
+
+
+def _for_viewer(session, summary: dict) -> dict:
+    if _is_owner():
+        return {**summary, 'conteo_ciego': False, 'ventas_ocultas': False}
+    drop = _SALES_FIELDS + (_BLIND_FIELDS if _is_blind(session) else ())
+    return {**{k: v for k, v in summary.items() if k not in drop},
+            'conteo_ciego': _is_blind(session), 'ventas_ocultas': True}
+
+
 @cash_bp.route('/status', methods=['GET'])
 @jwt_required()
 def get_status():
@@ -98,25 +129,34 @@ def close_session():
     db.session.commit()
 
     tip_cfg = TipDistributionConfig.query.get(1)
-    return jsonify({'session': session.to_dict(), 'summary': _build_summary(session, tip_cfg)})
+    return jsonify({'session': session.to_dict(),
+                    'summary': _for_viewer(session, _build_summary(session, tip_cfg))})
 
 
 @cash_bp.route('/current/summary', methods=['GET'])
 @jwt_required()
 def current_summary():
+    # Was readable by ANY logged-in user (a waiter's token could read the
+    # night's sales). Money is manager/owner territory.
+    err = _require_manager()
+    if err: return err
     session = _current_session()
     if not session:
         return jsonify({'error': 'NO_OPEN_SESSION'}), 404
     tip_cfg = TipDistributionConfig.query.get(1)
-    return jsonify({'session': session.to_dict(), 'summary': _build_summary(session, tip_cfg)})
+    return jsonify({'session': session.to_dict(),
+                    'summary': _for_viewer(session, _build_summary(session, tip_cfg))})
 
 
 @cash_bp.route('/<session_id>/summary', methods=['GET'])
 @jwt_required()
 def session_summary(session_id):
+    err = _require_manager()
+    if err: return err
     session = CashSession.query.get_or_404(session_id)
     tip_cfg = TipDistributionConfig.query.get(1)
-    return jsonify({'session': session.to_dict(), 'summary': _build_summary(session, tip_cfg)})
+    return jsonify({'session': session.to_dict(),
+                    'summary': _for_viewer(session, _build_summary(session, tip_cfg))})
 
 
 @cash_bp.route('/sessions', methods=['GET'])
@@ -124,8 +164,23 @@ def session_summary(session_id):
 def list_sessions():
     err = _require_manager()
     if err: return err
+    from app.models.user import User
     sessions = CashSession.query.order_by(CashSession.opened_at.desc()).limit(30).all()
-    return jsonify([s.to_dict() for s in sessions])
+    names = {u.id: u.name for u in User.query.filter(User.id.in_(
+        {s.opened_by for s in sessions} | {s.closed_by for s in sessions if s.closed_by})).all()}
+    out = []
+    for s in sessions:
+        d = s.to_dict()
+        d['opened_by_name'] = names.get(s.opened_by)
+        d['closed_by_name'] = names.get(s.closed_by)
+        # History shows each close's result (over/short) -- the record that
+        # makes a pattern of shortages visible. Open sessions stay blind.
+        if s.status == 'CLOSED' and s.closing_cash_counted_cents is not None:
+            summ = _build_summary(s)
+            d['expected_cash_cents'] = summ['expected_cash_cents']
+            d['cash_over_short_cents'] = summ['cash_over_short_cents']
+        out.append(d)
+    return jsonify(out)
 
 
 # ── Tip Distribution Config ────────────────────────────────────────────────────
@@ -172,6 +227,8 @@ def update_tip_distribution():
 @cash_bp.route('/current/tickets', methods=['GET'])
 @jwt_required()
 def list_session_tickets():
+    err = _require_manager()
+    if err: return err
     session = _current_session()
     if not session:
         return jsonify([])
@@ -179,7 +236,13 @@ def list_session_tickets():
         Ticket.status == 'CLOSED',
         Ticket.closed_at >= session.opened_at,
     ).order_by(Ticket.closed_at.desc()).all()
-    return jsonify([_ticket_summary(t) for t in tickets])
+    rows = [_ticket_summary(t) for t in tickets]
+    if _is_blind(session):
+        # Per-ticket amounts + payment method would let the expected cash be
+        # rebuilt by hand, defeating the blind count.
+        rows = [{k: v for k, v in r.items() if k not in ('total_cents', 'payment_type')}
+                for r in rows]
+    return jsonify(rows)
 
 
 def _ticket_summary(t: Ticket):

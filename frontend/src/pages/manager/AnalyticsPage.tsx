@@ -1,5 +1,5 @@
 /**
- * Analytics — ADMIN ONLY.
+ * Analytics panels — ADMIN ONLY (shown inside Reportes, see ReportsHub).
  *
  * Every tab reads /api/v1/analytics/*, which in turn reads only v_bola8_* views.
  * Money arrives as INTEGER CENTS and is rendered with formatMXN(); charts divide
@@ -10,30 +10,18 @@
  * without its coverage is a number the owner will act on and shouldn't.
  */
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, ComposedChart,
   ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis,
 } from 'recharts'
-import NavBar from '../../components/NavBar'
-import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
-import { formatMXN } from '../../utils/money'
+import { formatMXN, formatUnitCost } from '../../utils/money'
+import { CostEntry } from '../../components/CostEntry'
+import { QueryState } from '../../components/QueryState'
 
-type Tab = 'resumen' | 'rentabilidad' | 'billar' | 'menu' | 'caja'
-         | 'inventario' | 'costos' | 'personal' | 'riesgos'
-
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'resumen',      label: 'Resumen',      icon: '📈' },
-  { id: 'rentabilidad', label: 'Rentabilidad', icon: '🧾' },
-  { id: 'billar',       label: 'Billar',       icon: '🎱' },
-  { id: 'menu',         label: 'Menú',         icon: '🍽️' },
-  { id: 'caja',         label: 'Flujo Caja',   icon: '💵' },
-  { id: 'inventario',   label: 'Inventario',   icon: '📦' },
-  { id: 'costos',       label: 'Costos',       icon: '🎯' },
-  { id: 'personal',     label: 'Personal',     icon: '👥' },
-  { id: 'riesgos',      label: 'Riesgos',      icon: '⚠️' },
-]
+export type AnalyticsTab = 'resumen' | 'rentabilidad' | 'billar' | 'menu' | 'caja'
+  | 'inventario' | 'costos' | 'personal' | 'riesgos'
 
 const DIAS_ISO = ['', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
@@ -44,20 +32,21 @@ const C = {
 }
 const QUADRANT_COLOR: Record<string, string> = {
   ESTRELLA: '#34d399', CABALLO: '#38bdf8', ROMPECABEZAS: '#fbbf24', PERRO: '#fb7185',
+  SIN_COSTO: '#64748b',
 }
 const QUADRANT_LABEL: Record<string, string> = {
   ESTRELLA: 'Estrella — popular y rentable',
   CABALLO: 'Caballo — popular, margen bajo',
   ROMPECABEZAS: 'Rompecabezas — rentable, poco vendido',
   PERRO: 'Perro — ni popular ni rentable',
+  SIN_COSTO: 'Sin costo — falta capturar el costo; no se clasifica',
 }
 
 const pesos = (cents: number) => (cents ?? 0) / 100
-const today = () => new Date().toISOString().slice(0, 10)
-const daysAgo = (n: number) => {
-  const d = new Date(); d.setDate(d.getDate() - n)
-  return d.toISOString().slice(0, 10)
-}
+/** For profit series: keep null as null so charts leave a gap instead of a fake $0. */
+const pesosN = (cents: number | null | undefined) => (cents == null ? null : cents / 100)
+/** Share of item sales that must be fully costed before a profit is shown (= backend). */
+const MARGIN_OK_PCT = 80
 
 function Card({ title, value, sub, tone = 'default' }: {
   title: string; value: string; sub?: string
@@ -85,22 +74,43 @@ function Delta({ v }: { v: number | null }) {
   )
 }
 
-/** Permanent, non-dismissible honesty banner on every margin surface. */
-function CoverageBanner({ pct }: { pct: number | null | undefined }) {
+/** Permanent, non-dismissible honesty banner on every margin surface.
+ *  Below MARGIN_OK_PCT the backend returns no profit at all; this says why. */
+function CoverageBanner({ pct, reexp, onFix }: {
+  pct: number | null | undefined; reexp?: number | null; onFix?: () => void
+}) {
   if (pct == null) return null
-  const bad = pct < 50
+  const ok = pct >= MARGIN_OK_PCT
   return (
     <div className={`rounded-xl p-3 mb-4 border text-sm ${
-      bad ? 'bg-amber-950/40 border-amber-700 text-amber-200'
-          : 'bg-slate-800 border-slate-700 text-slate-300'}`}>
+      ok ? 'bg-slate-800 border-slate-700 text-slate-300'
+         : 'bg-amber-950/40 border-amber-700 text-amber-200'}`}>
       <b>Cobertura de costo: {pct.toFixed(1)}%</b>
-      {bad && (
-        <> — el margen mostrado está inflado. Solo {pct.toFixed(1)}% de la venta de
-        artículos tiene costo real capturado. Ve a la pestaña <b>Costos</b> para ver
-        qué insumos faltan.</>
+      {ok ? (
+        <> — la utilidad mostrada se basa en ventas con costo completo.</>
+      ) : (
+        <> — solo {pct.toFixed(1)}% de la venta de artículos tiene costo completo (se
+        necesita {MARGIN_OK_PCT}%). La utilidad <b>no se muestra</b> para no dar un número
+        falso.{' '}
+        {onFix
+          ? <button onClick={onFix} className="underline font-bold">Capturar costos faltantes →</button>
+          : <>Captura los costos faltantes en la pestaña <b>Costos</b>.</>}</>
+      )}
+      {reexp != null && reexp > 0 && (
+        <div className="text-xs mt-1 opacity-80">
+          {reexp.toFixed(0)}% de la venta con costo usa el costo actual aplicado a ventas
+          pasadas (estimado).
+        </div>
       )}
     </div>
   )
+}
+
+/** Profit card value: the amount, or "—" plus why it is withheld. */
+function profitSub(cents: number | null | undefined, cobertura: number | null | undefined) {
+  return cents == null
+    ? `Sin costo suficiente (${(cobertura ?? 0).toFixed(0)}% de ventas con costo)`
+    : undefined
 }
 
 function ChartFrame({ title, note, children, height = 280 }: {
@@ -128,10 +138,14 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <div className="text-slate-500 text-sm p-6 text-center">{children}</div>
 }
 
-export default function AnalyticsPage() {
-  const [tab, setTab] = useState<Tab>('resumen')
-  const [from, setFrom] = useState(daysAgo(29))
-  const [to, setTo] = useState(today())
+/**
+ * One Analítica panel, rendered inside Reportes (ReportsHub, batch D3). The hub
+ * owns the nav bar, the shared date range and the page/sub-tab navigation;
+ * `onNavigate` lets a panel jump to another (e.g. "corregir costos" → Costos).
+ */
+export default function AnalyticsPanel({ tab, from, to, onNavigate }: {
+  tab: AnalyticsTab; from: string; to: string; onNavigate: (tab: AnalyticsTab) => void
+}) {
   const params = { from, to }
 
   const q = <T,>(key: string, url: string, enabled: boolean, withDates = true) =>
@@ -148,99 +162,46 @@ export default function AnalyticsPage() {
   const menu       = q<any>('an-menu', '/analytics/menu-engineering', tab === 'menu')
   const caja       = q<any>('an-caja', '/analytics/cash-flow', tab === 'caja')
   const inv        = q<any>('an-inv', '/analytics/inventory', tab === 'inventario', false)
-  const costos     = q<any>('an-costos', '/analytics/cost-coverage', tab === 'costos', false)
+  const costos     = q<any>('an-costos', '/analytics/cost-coverage', tab === 'costos')
   const personal   = q<any>('an-personal', '/analytics/staff', tab === 'personal')
   const riesgos    = q<any>('an-riesgos', '/analytics/anomalies', tab === 'riesgos')
 
   const notReady = health.data && !health.data.ready
+  const fix = () => onNavigate('costos')
 
   return (
-    <div className="min-h-screen bg-slate-950 page-root text-slate-100">
-      <NavBar />
-      <div className="max-w-7xl mx-auto p-4 sm:p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <ManagerBackButton />
-          <h1 className="text-2xl font-bold">Analítica</h1>
-          <span className="text-xs bg-red-900/60 border border-red-700 text-red-200
-                           px-2 py-0.5 rounded-full">solo ADMIN</span>
-        </div>
-
-        {notReady && (
-          <div className="bg-red-950/50 border border-red-700 text-red-200 rounded-xl p-4 mb-4">
-            <b>Capa analítica no instalada</b> — faltan {health.data.missing_views.length} vistas.
-            <div className="text-sm mt-2">
-              Ejecuta <code className="bg-slate-800 px-1 rounded">db_update_analytics.sql</code>{' '}
-              en esta base de datos:
-            </div>
-            <pre className="text-xs bg-slate-900 border border-slate-700 rounded p-2 mt-2
-                            overflow-x-auto whitespace-pre-wrap">
-{`docker cp db_update_analytics.sql billar-pos-postgres-1:/tmp/
-docker exec billar-pos-postgres-1 psql -U billiard -d billiardbar \\
-       -v ON_ERROR_STOP=1 -f /tmp/db_update_analytics.sql`}
-            </pre>
-            <details className="text-xs mt-2 text-red-300/80">
-              <summary className="cursor-pointer">Ver vistas faltantes</summary>
-              <div className="mt-1">{health.data.missing_views.join(', ')}</div>
-            </details>
+    <>
+      {notReady && (
+        <div className="bg-red-950/50 border border-red-700 text-red-200 rounded-xl p-4 mb-4">
+          <b>Capa analítica incompleta</b> — faltan {health.data.missing_views.length} vistas.
+          <div className="text-sm mt-2">
+            Se reconstruyen al reiniciar el backend (<code className="bg-slate-800 px-1 rounded">docker compose restart backend</code>).
+            Si el aviso sigue, revisa el registro del backend.
           </div>
-        )}
-
-        {/* date range */}
-        <div className="flex flex-wrap items-end gap-3 mb-4 bg-slate-900 p-3 rounded-xl
-                        border border-slate-800">
-          <label className="text-sm">
-            <span className="block text-xs text-slate-400 mb-1">Desde</span>
-            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-                   className="bg-slate-800 border border-slate-700 rounded px-2 py-1" />
-          </label>
-          <label className="text-sm">
-            <span className="block text-xs text-slate-400 mb-1">Hasta</span>
-            <input type="date" value={to} onChange={e => setTo(e.target.value)}
-                   className="bg-slate-800 border border-slate-700 rounded px-2 py-1" />
-          </label>
-          <div className="flex gap-2">
-            {[[7, '7d'], [30, '30d'], [90, '90d']].map(([n, l]) => (
-              <button key={l as string}
-                      onClick={() => { setFrom(daysAgo((n as number) - 1)); setTo(today()) }}
-                      className="text-xs bg-slate-800 hover:bg-slate-700 border
-                                 border-slate-700 rounded px-3 py-1.5">{l}</button>
-            ))}
-          </div>
-          {(tab === 'inventario' || tab === 'costos') && (
-            <span className="text-xs text-slate-500">
-              Esta pestaña usa una ventana fija de 28 días definida por las vistas base.
-            </span>
-          )}
+          <details className="text-xs mt-2 text-red-300/80">
+            <summary className="cursor-pointer">Ver vistas faltantes</summary>
+            <div className="mt-1">{health.data.missing_views.join(', ')}</div>
+          </details>
         </div>
+      )}
 
-        {/* tabs */}
-        <div className="flex gap-1 mb-5 overflow-x-auto">
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap transition-colors ${
-                tab === t.id ? 'bg-sky-600 text-white font-semibold'
-                             : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
-              <span className="mr-1">{t.icon}</span>{t.label}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'resumen'      && <Resumen d={overview.data} loading={overview.isLoading} />}
-        {tab === 'rentabilidad' && <Rentabilidad d={rent.data} loading={rent.isLoading} />}
-        {tab === 'billar'       && <Billar d={billar.data} loading={billar.isLoading} />}
-        {tab === 'menu'       && <Menu d={menu.data} loading={menu.isLoading} />}
-        {tab === 'caja'       && <Caja d={caja.data} loading={caja.isLoading} />}
-        {tab === 'inventario' && <Inventario d={inv.data} loading={inv.isLoading} />}
-        {tab === 'costos'     && <Costos d={costos.data} loading={costos.isLoading} />}
-        {tab === 'personal'   && <Personal d={personal.data} loading={personal.isLoading} />}
-        {tab === 'riesgos'    && <Riesgos d={riesgos.data} loading={riesgos.isLoading} />}
-      </div>
-    </div>
+      {/* QueryState: a failed request says so (it used to read as "Sin datos"),
+          and "actualizando…" shows while a new range replaces the old numbers. */}
+      {tab === 'resumen'      && <QueryState query={overview}><Resumen d={overview.data} loading={false} onFix={fix} /></QueryState>}
+      {tab === 'rentabilidad' && <QueryState query={rent}><Rentabilidad d={rent.data} loading={false} onFix={fix} /></QueryState>}
+      {tab === 'billar'       && <QueryState query={billar}><Billar d={billar.data} loading={false} /></QueryState>}
+      {tab === 'menu'         && <QueryState query={menu}><Menu d={menu.data} loading={false} onFix={fix} /></QueryState>}
+      {tab === 'caja'         && <QueryState query={caja}><Caja d={caja.data} loading={false} /></QueryState>}
+      {tab === 'inventario'   && <QueryState query={inv}><Inventario d={inv.data} loading={false} /></QueryState>}
+      {tab === 'costos'       && <QueryState query={costos}><Costos d={costos.data} loading={false} /></QueryState>}
+      {tab === 'personal'     && <QueryState query={personal}><Personal d={personal.data} loading={false} /></QueryState>}
+      {tab === 'riesgos'      && <QueryState query={riesgos}><Riesgos d={riesgos.data} loading={false} /></QueryState>}
+    </>
   )
 }
 
 /* ── Resumen (Executive) ─────────────────────────────────────────────────── */
-function Resumen({ d, loading }: { d: any; loading: boolean }) {
+function Resumen({ d, loading, onFix }: { d: any; loading: boolean; onFix?: () => void }) {
   if (loading) return <Empty>Cargando…</Empty>
   if (!d) return <Empty>Sin datos.</Empty>
   const t = d.totales, v = d.variacion_pct
@@ -248,20 +209,21 @@ function Resumen({ d, loading }: { d: any; loading: boolean }) {
   const serie = d.serie_diaria.map((r: any) => ({
     fecha: r.fecha.slice(5),
     ventas: pesos(r.ventas_cents),
-    utilidad: pesos(r.utilidad_cents),
+    utilidad: pesosN(r.utilidad_cents),
     billar: pesos(r.billar_cents),
   }))
 
   return (
     <div className="space-y-4">
-      <CoverageBanner pct={t.cobertura_costo_pct} />
+      <CoverageBanner pct={t.cobertura_costo_pct} reexp={t.reexpresado_pct} onFix={onFix} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card title="Ventas" value={formatMXN(t.ventas_cents)}
               sub={`${t.tickets} tickets · ${t.dias_operados} días`} />
         <Card title="Utilidad bruta" value={formatMXN(t.utilidad_total_cents)}
-              sub={`Artículos ${formatMXN(t.utilidad_cents)} + billar ${formatMXN(t.billar_cents)}`}
-              tone="good" />
+              sub={profitSub(t.utilidad_total_cents, t.cobertura_costo_pct)
+                   ?? `Artículos ${formatMXN(t.utilidad_cents)} (margen ${t.margen_pct?.toFixed(1)}%) + billar ${formatMXN(t.billar_cents)}`}
+              tone={t.utilidad_total_cents == null ? 'warn' : 'good'} />
         <Card title="Ticket promedio" value={formatMXN(t.ticket_promedio_cents)}
               sub={`Venta diaria ${formatMXN(t.venta_diaria_promedio_cents)}`} />
         <Card title="Propinas" value={formatMXN(t.propinas_cents)}
@@ -273,7 +235,9 @@ function Resumen({ d, loading }: { d: any; loading: boolean }) {
         <span>vs. periodo anterior ({d.comparativo.from} → {d.comparativo.to}):</span>
         <span>Ventas <Delta v={v.ventas} /></span>
         <span>Tickets <Delta v={v.tickets} /></span>
-        <span>Utilidad <Delta v={v.utilidad} /></span>
+        <span>Utilidad {v.utilidad == null
+          ? <span className="text-slate-500" title="Ambos periodos necesitan costos completos para compararse">—</span>
+          : <Delta v={v.utilidad} />}</span>
       </div>
 
       <ChartFrame title="Ventas y utilidad por día"
@@ -309,7 +273,7 @@ function Resumen({ d, loading }: { d: any; loading: boolean }) {
 
         <ChartFrame title="Venta y utilidad por hora">
           <ComposedChart data={d.por_hora.map((h: any) => ({
-            hora: `${h.hora}h`, venta: pesos(h.venta_cents), utilidad: pesos(h.utilidad_cents),
+            hora: `${h.hora}h`, venta: pesos(h.venta_cents), utilidad: pesosN(h.utilidad_cents),
           }))}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
             <XAxis dataKey="hora" stroke={C.muted} fontSize={11} />
@@ -329,7 +293,7 @@ function Resumen({ d, loading }: { d: any; loading: boolean }) {
           <BarChart layout="vertical"
                     data={d.por_categoria.slice(0, 10).map((c: any) => ({
                       categoria: c.categoria, venta: pesos(c.venta_cents),
-                      utilidad: pesos(c.utilidad_cents),
+                      utilidad: pesosN(c.utilidad_cents),
                     }))} margin={{ left: 40 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
             <XAxis type="number" stroke={C.muted} fontSize={11} />
@@ -360,17 +324,129 @@ function Resumen({ d, loading }: { d: any; loading: boolean }) {
   )
 }
 
+/* ── Fixed costs editor (batch C) ────────────────────────────────────────── */
+/** Rent, payroll, utilities... Every profit and break-even figure depends on
+ *  these, and a new pool hall must enter its own. ADMIN-only, audited. */
+function FixedCostsEditor() {
+  const qc = useQueryClient()
+  const list = useQuery<any>({
+    queryKey: ['an-fixed'],
+    queryFn: () => client.get('/analytics/fixed-costs').then(r => r.data),
+  })
+  const [edit, setEdit] = useState<Record<string, string>>({})
+  const [nuevo, setNuevo] = useState({ concepto: '', categoria: '', mensual: '' })
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['an-fixed'] })
+    qc.invalidateQueries({ queryKey: ['an-rent'] })
+  }
+  const run = async (fn: () => Promise<any>) => {
+    setBusy(true); setErr(null)
+    try { await fn(); refresh() } catch (e: any) {
+      setErr(e.response?.data?.error || e.response?.data?.message || 'No se pudo guardar')
+    } finally { setBusy(false) }
+  }
+  const save = (c: any) => run(async () => {
+    const pesosVal = parseFloat(edit[c.id])
+    if (!(pesosVal >= 0)) throw { response: { data: { error: 'Monto inválido' } } }
+    await client.put(`/analytics/fixed-costs/${c.id}`, { mensual_cents: Math.round(pesosVal * 100) })
+    setEdit(prev => { const n = { ...prev }; delete n[c.id]; return n })
+  })
+  const remove = (c: any) => {
+    if (!window.confirm(`¿Quitar "${c.concepto}" de los costos fijos?`)) return
+    run(() => client.put(`/analytics/fixed-costs/${c.id}`, { mensual_cents: c.mensual_cents, is_active: false }))
+  }
+  const add = () => run(async () => {
+    const pesosVal = parseFloat(nuevo.mensual)
+    if (!nuevo.concepto.trim() || !(pesosVal >= 0)) throw { response: { data: { error: 'Escribe el concepto y el monto mensual' } } }
+    await client.post('/analytics/fixed-costs', {
+      concepto: nuevo.concepto.trim(), categoria: nuevo.categoria.trim() || undefined,
+      mensual_cents: Math.round(pesosVal * 100),
+    })
+    setNuevo({ concepto: '', categoria: '', mensual: '' })
+  })
+
+  const d = list.data
+  return (
+    <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+      <div className="p-3 font-bold border-b border-slate-700 flex justify-between">
+        <span>Costos fijos mensuales</span>
+        {d && <span className="font-mono">{formatMXN(d.total_mensual_cents)}/mes</span>}
+      </div>
+      <div className="p-3">
+        <QueryState query={list}>
+          {err && <div className="text-sm text-red-300 mb-2">⚠ {err}</div>}
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-slate-400">
+              <th className="p-2">Concepto</th><th className="p-2">Categoría</th>
+              <th className="p-2 text-right">Mensual</th><th className="p-2 text-right">% del total</th><th />
+            </tr></thead>
+            <tbody>
+              {d?.conceptos.map((c: any) => (
+                <tr key={c.id} className="border-t border-slate-700/60">
+                  <td className="p-2">{c.concepto}</td>
+                  <td className="p-2 text-xs text-slate-400">{c.categoria}</td>
+                  <td className="p-2 text-right">
+                    {edit[c.id] == null ? (
+                      <button onClick={() => setEdit({ ...edit, [c.id]: String(c.mensual_cents / 100) })}
+                        className="font-mono hover:text-sky-300" title="Editar monto">{formatMXN(c.mensual_cents)} ✏️</button>
+                    ) : (
+                      <form className="flex justify-end gap-1" onSubmit={e => { e.preventDefault(); save(c) }}>
+                        <span className="text-slate-500">$</span>
+                        <input type="number" min={0} step={0.01} autoFocus value={edit[c.id]}
+                          onChange={e => setEdit({ ...edit, [c.id]: e.target.value })}
+                          className="w-28 bg-slate-700 border border-slate-600 rounded px-2 py-0.5 font-mono text-right" />
+                        <button disabled={busy} className="text-xs bg-emerald-700 px-2 rounded">OK</button>
+                        <button type="button" onClick={() => setEdit(prev => { const n = { ...prev }; delete n[c.id]; return n })}
+                          className="text-xs text-slate-400">✕</button>
+                      </form>
+                    )}
+                  </td>
+                  <td className="p-2 text-right font-mono text-slate-400">
+                    {d.total_mensual_cents ? (c.mensual_cents / d.total_mensual_cents * 100).toFixed(1) : '0'}%</td>
+                  <td className="p-2 text-right">
+                    <button onClick={() => remove(c)} disabled={busy} title="Quitar"
+                      className="text-xs text-red-400 hover:text-red-300">Quitar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <form className="flex flex-wrap gap-2 mt-3 items-center" onSubmit={e => { e.preventDefault(); add() }}>
+            <input value={nuevo.concepto} onChange={e => setNuevo({ ...nuevo, concepto: e.target.value })}
+              placeholder="Nuevo concepto (p. ej. Renta)"
+              className="flex-1 min-w-[10rem] bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm" />
+            <input value={nuevo.categoria} onChange={e => setNuevo({ ...nuevo, categoria: e.target.value })}
+              placeholder="Categoría" className="w-32 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm" />
+            <span className="text-slate-500">$</span>
+            <input type="number" min={0} step={0.01} value={nuevo.mensual}
+              onChange={e => setNuevo({ ...nuevo, mensual: e.target.value })} placeholder="por mes"
+              className="w-28 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm font-mono" />
+            <button disabled={busy} className="bg-sky-700 hover:bg-sky-600 px-3 py-1 rounded text-sm font-semibold disabled:opacity-50">
+              Agregar</button>
+          </form>
+          <p className="text-xs text-slate-500 mt-2">
+            Los cambios aplican a todo el historial (aún no hay fechas de vigencia por concepto).
+          </p>
+        </QueryState>
+      </div>
+    </div>
+  )
+}
+
 /* ── Rentabilidad (net profit vs fixed costs) ────────────────────────────── */
-function Rentabilidad({ d, loading }: { d: any; loading: boolean }) {
+function Rentabilidad({ d, loading, onFix }: { d: any; loading: boolean; onFix?: () => void }) {
   if (loading) return <Empty>Cargando…</Empty>
   if (!d) return <Empty>Sin datos.</Empty>
   const r = d.resultado, cf = d.costos_fijos, eq = d.equilibrio, rg = d.rango
 
   const serie = d.serie_diaria.map((s: any) => ({
     fecha: s.fecha.slice(5),
-    bruta: pesos(s.utilidad_bruta_cents),
+    bruta: pesosN(s.utilidad_bruta_cents),
     fijo: pesos(s.costo_fijo_cents),
-    neta: pesos(s.utilidad_neta_cents),
+    neta: pesosN(s.utilidad_neta_cents),
   }))
 
   const esc = d.escenarios.map((e: any) => ({
@@ -379,19 +455,20 @@ function Rentabilidad({ d, loading }: { d: any; loading: boolean }) {
     positivo: e.utilidad_neta_cents >= 0,
   }))
 
-  const unreliable = (r.cobertura_costo_pct ?? 0) < 50
+  const unreliable = !r.margen_confiable
 
   return (
     <div className="space-y-4">
       {unreliable && (
-        <div className="bg-red-950/50 border border-red-700 text-red-100 rounded-xl p-4">
-          <div className="font-bold mb-1">⚠ La utilidad neta de abajo no es confiable</div>
+        <div className="bg-amber-950/40 border border-amber-700 text-amber-100 rounded-xl p-4">
+          <div className="font-bold mb-1">Aún no se puede calcular tu utilidad real</div>
           <div className="text-sm">
-            Solo el <b>{r.cobertura_costo_pct?.toFixed(1)}%</b> de la venta de artículos tiene
-            costo real capturado, así que el COGS está enormemente subestimado y la utilidad
-            sobreestimada. Con <b>{formatMXN(cf.mensual_cents)}/mes</b> de costos fijos, esta
-            diferencia decide entre <b>ganar o perder dinero</b> — no solo el tamaño del margen.
-            Usa los escenarios de abajo mientras tanto.
+            Solo el <b>{(r.cobertura_costo_pct ?? 0).toFixed(1)}%</b> de la venta de artículos
+            tiene costo completo (se necesita {MARGIN_OK_PCT}%). Con{' '}
+            <b>{formatMXN(cf.mensual_cents)}/mes</b> de costos fijos, el costo real decide entre
+            ganar o perder dinero. Mientras tanto usa los <b>escenarios</b> y el{' '}
+            <b>COGS de equilibrio</b> de abajo: no dependen de los costos capturados.{' '}
+            {onFix && <button onClick={onFix} className="underline font-bold">Capturar costos faltantes →</button>}
           </div>
         </div>
       )}
@@ -400,14 +477,18 @@ function Rentabilidad({ d, loading }: { d: any; loading: boolean }) {
         <Card title="Ventas" value={formatMXN(r.ventas_cents)}
               sub={`${rg.dias_calendario} días · ${rg.dias_operados} operados`} />
         <Card title="Utilidad bruta" value={formatMXN(r.utilidad_bruta_cents)}
-              sub={`Artículos ${formatMXN(r.utilidad_articulos_cents)} + billar ${formatMXN(r.billar_cents)}`}
-              tone="good" />
+              sub={profitSub(r.utilidad_bruta_cents, r.cobertura_costo_pct)
+                   ?? `Artículos ${formatMXN(r.utilidad_articulos_cents)} + billar ${formatMXN(r.billar_cents)}`}
+              tone={r.utilidad_bruta_cents == null ? 'warn' : 'good'} />
         <Card title="Costos fijos del periodo" value={formatMXN(r.costos_fijos_cents)}
-              sub={`${formatMXN(cf.mensual_cents)}/mes · ${formatMXN(cf.diario_cents)}/día`}
+              sub={`${formatMXN(cf.mensual_cents)}/mes · ${formatMXN(cf.diario_cents)}/día`
+                   + ((r.cortesias_cents || r.consumo_personal_cents)
+                      ? ` · además: cortesías ${formatMXN(r.cortesias_cents ?? 0)}, personal ${formatMXN(r.consumo_personal_cents ?? 0)} (a costo)` : '')}
               tone="warn" />
         <Card title="Utilidad neta" value={formatMXN(r.utilidad_neta_cents)}
-              sub={`${formatMXN(r.utilidad_neta_mensual_cents)}/mes${unreliable ? ' — no confiable' : ''}`}
-              tone={r.utilidad_neta_cents >= 0 ? 'good' : 'bad'} />
+              sub={profitSub(r.utilidad_neta_cents, r.cobertura_costo_pct)
+                   ?? `${formatMXN(r.utilidad_neta_mensual_cents)}/mes`}
+              tone={r.utilidad_neta_cents == null ? 'warn' : r.utilidad_neta_cents >= 0 ? 'good' : 'bad'} />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
@@ -464,36 +545,7 @@ function Rentabilidad({ d, loading }: { d: any; loading: boolean }) {
         </ComposedChart>
       </ChartFrame>
 
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-        <div className="p-3 font-bold border-b border-slate-700 flex justify-between">
-          <span>Costos fijos mensuales</span>
-          <span className="font-mono">{formatMXN(cf.mensual_cents)}/mes</span>
-        </div>
-        <table className="w-full text-sm">
-          <thead className="bg-slate-900">
-            <tr className="text-left text-xs text-slate-400">
-              <th className="p-2">Concepto</th><th className="p-2">Categoría</th>
-              <th className="p-2 text-right">Mensual</th><th className="p-2 text-right">Diario</th>
-              <th className="p-2 text-right">Anual</th><th className="p-2 text-right">% del total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cf.conceptos.map((c: any) => (
-              <tr key={c.concepto} className="border-t border-slate-700/60">
-                <td className="p-2">{c.concepto}</td>
-                <td className="p-2 text-xs text-slate-400">{c.categoria}</td>
-                <td className="p-2 text-right font-mono">{formatMXN(c.mensual_cents)}</td>
-                <td className="p-2 text-right font-mono text-slate-400">
-                  {formatMXN(c.diario_cents)}</td>
-                <td className="p-2 text-right font-mono text-slate-400">
-                  {formatMXN(c.anual_cents)}</td>
-                <td className="p-2 text-right font-mono">
-                  {cf.mensual_cents ? (c.mensual_cents / cf.mensual_cents * 100).toFixed(1) : '0'}%</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <FixedCostsEditor />
     </div>
   )
 }
@@ -626,43 +678,48 @@ function Billar({ d, loading }: { d: any; loading: boolean }) {
 }
 
 /* ── Menú (Menu Engineering) ─────────────────────────────────────────────── */
-function Menu({ d, loading }: { d: any; loading: boolean }) {
+function Menu({ d, loading, onFix }: { d: any; loading: boolean; onFix?: () => void }) {
   const [filtro, setFiltro] = useState<string>('TODOS')
   if (loading) return <Empty>Cargando…</Empty>
   if (!d) return <Empty>Sin datos.</Empty>
 
   const prods = d.productos.filter((p: any) => filtro === 'TODOS' || p.cuadrante === filtro)
+  // Only products with a measured margin are plotted (the rest are SIN_COSTO).
   const scatter = d.productos
-    .filter((p: any) => p.margen_pct != null)
+    .filter((p: any) => p.cuadrante !== 'SIN_COSTO' && p.margen_pct != null)
     .map((p: any) => ({
-      x: p.unidades, y: p.margen_pct, z: pesos(p.utilidad_cents),
+      x: p.unidades, y: p.margen_pct, z: pesos(p.utilidad_cents ?? 0),
       producto: p.producto, cuadrante: p.cuadrante,
     }))
 
-  const cobertura = d.productos.length
-    ? d.productos.reduce((a: number, p: any) => a + (p.cobertura_costo_pct ?? 0), 0) / d.productos.length
+  // Coverage weighted by sales (a plain average let a $20 product count like a $20,000 one).
+  const ventaTotal = d.productos.reduce((a: number, p: any) => a + p.venta_cents, 0)
+  const cobertura = ventaTotal
+    ? d.productos.reduce((a: number, p: any) => a + p.venta_cents * (p.cobertura_costo_pct ?? 0), 0) / ventaTotal
     : null
 
   return (
     <div className="space-y-4">
-      <CoverageBanner pct={cobertura} />
+      <CoverageBanner pct={cobertura} onFix={onFix} />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {(['ESTRELLA', 'CABALLO', 'ROMPECABEZAS', 'PERRO'] as const).map(qd => (
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {(['ESTRELLA', 'CABALLO', 'ROMPECABEZAS', 'PERRO', 'SIN_COSTO'] as const).map(qd => (
           <button key={qd} onClick={() => setFiltro(filtro === qd ? 'TODOS' : qd)}
             className={`text-left rounded-xl p-4 border transition-colors ${
               filtro === qd ? 'border-sky-500 bg-slate-700' : 'border-slate-700 bg-slate-800'
             } hover:bg-slate-700`}>
             <div className="text-xs uppercase tracking-wide"
                  style={{ color: QUADRANT_COLOR[qd] }}>{qd}</div>
-            <div className="text-2xl font-bold font-mono">{d.resumen_cuadrantes[qd]}</div>
+            <div className="text-2xl font-bold font-mono">{d.resumen_cuadrantes[qd] ?? 0}</div>
             <div className="text-xs text-slate-500 mt-1">{QUADRANT_LABEL[qd]}</div>
           </button>
         ))}
       </div>
 
       <ChartFrame title="Matriz de ingeniería de menú" height={340}
-        note={`Comparado contra la MEDIANA del periodo (${d.medianas.unidades} unidades, ${d.medianas.margen_pct.toFixed(1)}% margen). Se usa mediana y no promedio porque un solo producto enorme deformaría el promedio.`}>
+        note={scatter.length
+          ? `Solo productos con al menos ${MARGIN_OK_PCT}% de su venta con costo completo (${scatter.length}). Comparado contra la MEDIANA de esos productos (${d.medianas.unidades} unidades, ${d.medianas.margen_pct.toFixed(1)}% margen).`
+          : `Ningún producto tiene aún ${MARGIN_OK_PCT}% de su venta con costo completo. Captura costos para ver la matriz.`}>
         <ScatterChart margin={{ left: 10, bottom: 10 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
           <XAxis type="number" dataKey="x" name="Unidades" stroke={C.muted} fontSize={11}
@@ -716,7 +773,7 @@ function Menu({ d, loading }: { d: any; loading: boolean }) {
                   <td className="p-2">
                     {p.producto}
                     {!p.margen_confiable && (
-                      <span title="Margen no confiable: falta costo capturado"
+                      <span title={`Sin costo suficiente: ${(p.cobertura_costo_pct ?? 0).toFixed(0)}% de su venta con costo completo`}
                             className="ml-1 text-amber-400">⚠</span>
                     )}
                   </td>
@@ -725,12 +782,12 @@ function Menu({ d, loading }: { d: any; loading: boolean }) {
                   <td className="p-2 text-right font-mono">{formatMXN(p.venta_cents)}</td>
                   <td className="p-2 text-right font-mono text-slate-400">
                     {formatMXN(p.costo_cents)}</td>
-                  <td className="p-2 text-right font-mono text-emerald-400">
+                  <td className={`p-2 text-right font-mono ${p.utilidad_cents == null ? 'text-slate-500' : 'text-emerald-400'}`}>
                     {formatMXN(p.utilidad_cents)}</td>
                   <td className="p-2 text-right font-mono">
                     {p.margen_pct == null ? '—' : `${p.margen_pct.toFixed(1)}%`}</td>
                   <td className="p-2 text-xs" style={{ color: QUADRANT_COLOR[p.cuadrante] }}>
-                    {p.cuadrante}</td>
+                    {p.cuadrante === 'SIN_COSTO' ? 'Sin costo' : p.cuadrante}</td>
                 </tr>
               ))}
             </tbody>
@@ -823,7 +880,12 @@ function Caja({ d, loading }: { d: any; loading: boolean }) {
         salen del cajón:
         <div className="font-mono text-xs mt-2 text-slate-400">
           esperado = fondo + ventas en efectivo + propinas en efectivo − propinas pagadas
-          − gastos − retiros
+          − gastos en efectivo
+        </div>
+        <div className="text-xs mt-1 text-slate-500">
+          Es el mismo cálculo que la pantalla de Caja. Los <b>retiros a caja fuerte</b> se
+          muestran como referencia pero no se restan: se registran después del conteo (a veces
+          días después), así que restarlos inventaba sobrantes.
         </div>
         <div className="text-xs mt-1 text-slate-500">
           Las propinas en efectivo entran y vuelven a salir, así que se cancelan: el drenaje
@@ -916,13 +978,13 @@ function Inventario({ d, loading }: { d: any; loading: boolean }) {
   if (loading) return <Empty>Cargando…</Empty>
   if (!d) return <Empty>Sin datos.</Empty>
   const r = d.resumen
-  const urgentes = d.compras.filter((c: any) => c.recomendacion !== 'OK'
-                                             && c.recomendacion !== 'Sin consumo últimos 28 días')
-
-  const tone = (rec: string) =>
-    rec === 'Comprar urgente' ? 'text-red-400'
-    : rec === 'Comprar esta semana' ? 'text-amber-400'
-    : rec === 'Debajo de mínimo' ? 'text-yellow-400' : 'text-slate-400'
+  // Same forecast the Sunday email and the Telegram bot send (batch E3).
+  const urgentes = d.compras.filter((c: any) => ['URGENTE', 'COMPRAR', 'MINIMO'].includes(c.estado))
+  const LABEL: Record<string, [string, string]> = {
+    URGENTE: ['Urgente: se acaba esta semana', 'text-red-400'],
+    COMPRAR: ['Comprar para la semana', 'text-amber-400'],
+    MINIMO: ['Por tu mínimo de stock', 'text-slate-300'],
+  }
 
   return (
     <div className="space-y-4">
@@ -930,7 +992,8 @@ function Inventario({ d, loading }: { d: any; loading: boolean }) {
         <Card title="Insumos activos" value={String(r.insumos)} />
         <Card title="Por comprar" value={String(r.por_comprar)}
               tone={r.por_comprar > 0 ? 'warn' : 'good'} />
-        <Card title="Compra estimada" value={formatMXN(r.costo_compra_estimado_cents)} />
+        <Card title={`Compra semana ${d.semana ?? ''}`} value={formatMXN(r.costo_compra_estimado_cents)}
+              sub={r.sin_costo ? `${r.sin_costo} sin costo registrado` : undefined} />
         <Card title="Merma valorizada 28d" value={formatMXN(r.merma_valorizada_cents)}
               tone={r.merma_valorizada_cents > 0 ? 'bad' : 'good'}
               sub={`${r.insumos_con_merma} insumos`} />
@@ -938,41 +1001,50 @@ function Inventario({ d, loading }: { d: any; loading: boolean }) {
 
       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
         <div className="p-3 font-bold border-b border-slate-700">
-          Compras sugeridas <span className="text-xs text-slate-500 font-normal">
-            ({d.ventana})</span>
+          Compras para la semana {d.semana} <span className="text-xs text-slate-500 font-normal">
+            ({d.ventana}) · se envía por correo y Telegram cada domingo</span>
         </div>
         <div className="overflow-x-auto max-h-96">
           <table className="w-full text-sm">
             <thead className="bg-slate-900 sticky top-0">
               <tr className="text-left text-xs text-slate-400">
-                <th className="p-2">Insumo</th><th className="p-2">Proveedor</th>
-                <th className="p-2 text-right">Stock</th><th className="p-2 text-right">Cobertura</th>
+                <th className="p-2">Producto</th><th className="p-2">Proveedor</th>
+                <th className="p-2 text-right">Hay</th><th className="p-2 text-right">Venta/sem</th>
+                <th className="p-2 text-right">Cobertura</th>
                 <th className="p-2 text-right">Comprar</th><th className="p-2 text-right">Costo est.</th>
-                <th className="p-2">Recomendación</th>
+                <th className="p-2">Por qué</th>
               </tr>
             </thead>
             <tbody>
               {urgentes.map((c: any, i: number) => (
                 <tr key={i} className="border-t border-slate-700/60">
-                  <td className="p-2">{c.insumo} <span className="text-xs text-slate-500">
-                    {c.unidad}</span></td>
+                  <td className="p-2">{c.nombre} <span className="text-xs text-slate-500">
+                    {c.unidad}</span>{c.abierto && <div className="text-[11px] text-slate-500">incluye {c.abierto}</div>}</td>
                   <td className="p-2 text-xs text-slate-400">{c.proveedor ?? '—'}</td>
-                  <td className="p-2 text-right font-mono">{c.stock}</td>
+                  <td className="p-2 text-right font-mono">{Number(c.disponible.toFixed(2))}</td>
+                  <td className="p-2 text-right font-mono">{Number(c.pronostico.toFixed(1))}</td>
                   <td className="p-2 text-right font-mono">
-                    {c.dias_cobertura == null ? '—' : `${c.dias_cobertura.toFixed(1)}d`}</td>
-                  <td className="p-2 text-right font-mono">{c.sugerido_comprar}</td>
-                  <td className="p-2 text-right font-mono">{formatMXN(c.costo_estimado_cents)}</td>
-                  <td className={`p-2 text-xs ${tone(c.recomendacion)}`}>{c.recomendacion}</td>
+                    {c.dias_cobertura == null ? '—' : c.dias_cobertura > 365 ? '365+ d' : `${c.dias_cobertura.toFixed(1)}d`}</td>
+                  <td className="p-2 text-right font-mono whitespace-nowrap">{c.comprar_txt}</td>
+                  <td className="p-2 text-right font-mono">{c.costo_estimado_cents == null ? '—' : formatMXN(c.costo_estimado_cents)}</td>
+                  <td className={`p-2 text-xs ${LABEL[c.estado]?.[1] ?? 'text-slate-400'}`}>{LABEL[c.estado]?.[0] ?? c.estado}</td>
                 </tr>
               ))}
               {!urgentes.length && (
-                <tr><td colSpan={7} className="p-6 text-center text-slate-500">
-                  Nada por comprar.</td></tr>
+                <tr><td colSpan={8} className="p-6 text-center text-slate-500">
+                  Con lo que hay alcanza para la semana.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {(d.sin_receta?.length > 0 || d.revisar?.length > 0) && (
+        <div className="bg-amber-950/30 border border-amber-800 rounded-xl p-3 text-sm space-y-1">
+          {d.sin_receta?.length > 0 && <div>⚠️ Se venden sin receta y no cuentan en el pronóstico: {d.sin_receta.join(', ')}.</div>}
+          {d.revisar?.length > 0 && <div>🔎 Revisar receta o stock (durarían más de un año): {d.revisar.join(', ')}.</div>}
+        </div>
+      )}
 
       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
         <div className="p-3 font-bold border-b border-slate-700">
@@ -1019,54 +1091,233 @@ function Inventario({ d, loading }: { d: any; loading: boolean }) {
 
 /* ── Costos (COGS remediation worklist) ──────────────────────────────────── */
 function Costos({ d, loading }: { d: any; loading: boolean }) {
+  const qc = useQueryClient()
+  const [draft, setDraft] = useState<Record<string, string>>({})      // price per purchase unit
+  const [packDraft, setPackDraft] = useState<Record<string, string>>({})
+  const [fixing, setFixing] = useState<any>(null)                     // item being corrected
+  const [fixPrice, setFixPrice] = useState('')
+  const [fixPack, setFixPack] = useState('1')
+  const [fixReason, setFixReason] = useState('')
+  const [saving, setSaving] = useState<string | null>(null)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [preview, setPreview] = useState<any>(null)
+  const [restating, setRestating] = useState(false)
   if (loading) return <Empty>Cargando…</Empty>
   if (!d) return <Empty>Sin datos.</Empty>
   const r = d.resumen
   const faltantes = d.insumos.filter((i: any) => !i.tiene_costo)
 
+  const refresh = () => {
+    for (const k of ['an-costos', 'an-overview', 'an-rent', 'an-menu', 'an-personal'])
+      qc.invalidateQueries({ queryKey: [k] })
+  }
+
+  const packOf = (i: any) => packDraft[i.inventory_item_id] ?? String(i.unidades_por_compra ?? 1)
+
+  /** First cost, typed as the price of one purchase unit (the backend divides). */
+  const saveCost = async (i: any, reason?: string, price?: string, pack?: string) => {
+    const pesosVal = parseFloat(price ?? draft[i.inventory_item_id] ?? '')
+    if (!(pesosVal > 0)) { setMsg({ ok: false, text: 'Escribe un costo mayor a $0' }); return false }
+    setSaving(i.inventory_item_id); setMsg(null)
+    try {
+      const res = await client.post(`/inventory/${i.inventory_item_id}/set-cost`, {
+        purchase_cost_cents: Math.round(pesosVal * 100),
+        pack_size: parseFloat(pack ?? packOf(i)) || 1,
+        ...(reason ? { reason } : {}),
+      })
+      const der = res.data?.derivados ?? []
+      const unit = res.data?.item?.unit_cost_cents
+      setMsg({ ok: true, text: `${i.insumo}: ${formatUnitCost(unit)} por ${String(i.unidad_base ?? 'unidad').toLowerCase()}`
+        + (res.data?.mode === 'CORRECCION' ? ' (corregido)' : '')
+        + (der.length ? ` · también ${der.map((x: any) => `${x.name} ${formatUnitCost(x.unit_cost_cents)}`).join(', ')}` : '') })
+      setDraft(prev => { const n = { ...prev }; delete n[i.inventory_item_id]; return n })
+      setPreview(null)
+      refresh()
+      return true
+    } catch (err: any) {
+      setMsg({ ok: false, text: err.response?.data?.message || 'No se pudo guardar' })
+      return false
+    } finally { setSaving(null) }
+  }
+
+  const openFix = (i: any) => {
+    setFixing(i); setFixPrice(''); setFixReason('')
+    setFixPack(String(i.unidades_por_compra ?? 1))
+  }
+  const saveFix = async () => {
+    if (!fixReason.trim()) { setMsg({ ok: false, text: 'Indica el motivo de la corrección' }); return }
+    if (await saveCost(fixing, fixReason.trim(), fixPrice, fixPack)) setFixing(null)
+  }
+
+  const loadPreview = async () => {
+    setRestating(true); setMsg(null)
+    try {
+      const res = await client.post('/analytics/restate-costs', { dry_run: true })
+      setPreview(res.data.preview)
+    } catch (err: any) {
+      setMsg({ ok: false, text: err.response?.data?.message || 'No se pudo calcular' })
+    } finally { setRestating(false) }
+  }
+
+  const applyRestate = async () => {
+    setRestating(true)
+    try {
+      const res = await client.post('/analytics/restate-costs', {})
+      setMsg({ ok: true, text: `Histórico recalculado: ${res.data.filas_reexpresadas} registros de costo` })
+      setPreview(null)
+      refresh()
+    } catch (err: any) {
+      setMsg({ ok: false, text: err.response?.data?.message || 'No se pudo recalcular' })
+    } finally { setRestating(false) }
+  }
+
+  const ok = (r.cobertura_pct ?? 0) >= MARGIN_OK_PCT
+
   return (
     <div className="space-y-4">
-      <div className="bg-amber-950/40 border border-amber-700 text-amber-100 rounded-xl p-4">
-        <div className="font-bold mb-1">Por qué esta pantalla es la más importante</div>
+      <div className={`rounded-xl p-4 border ${ok
+        ? 'bg-slate-800 border-slate-700 text-slate-200'
+        : 'bg-amber-950/40 border-amber-700 text-amber-100'}`}>
+        <div className="font-bold mb-1">
+          {ok ? 'Tus costos están completos' : 'Captura tus costos para ver tu utilidad real'}
+        </div>
         <div className="text-sm">
-          El motor de descuento de inventario <b>sí funciona</b>: resuelve la receta,
-          encuentra el insumo y lo multiplica por un costo unitario de <b>cero</b>.
-          Por eso el margen reportado es imposible. No faltan recetas —{' '}
-          <b>faltan costos</b>. {r.insumos_sin_costo} de {r.insumos_activos} insumos
-          activos no tienen costo, y {formatMXN(r.venta_expuesta_cents)} de venta pasa
-          por ellos.
-          <div className="mt-2">{d.accion}</div>
+          {r.insumos_sin_costo} de {r.insumos_activos} insumos no tienen costo.{' '}
+          {ok ? <>La utilidad ya se muestra en Resumen y Rentabilidad.</> : <>
+            Escribe lo que te cuesta cada uno (por la unidad indicada), de arriba hacia abajo:
+            los primeros cubren la mayor parte de la venta. Al llegar a {MARGIN_OK_PCT}% de
+            cobertura la utilidad aparece sola.</>}
         </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card title="Cobertura de costo" value={`${(r.cobertura_pct ?? 0).toFixed(1)}%`}
-              tone={(r.cobertura_pct ?? 0) < 50 ? 'bad' : 'good'}
-              sub={`${r.lineas_con_costo} de ${r.lineas} líneas`} />
+              tone={ok ? 'good' : 'warn'}
+              sub={`meta ${MARGIN_OK_PCT}% · ${r.lineas_con_costo} de ${r.lineas} líneas completas`} />
         <Card title="Insumos sin costo" value={`${r.insumos_sin_costo}/${r.insumos_activos}`}
-              tone="bad" />
-        <Card title="Venta expuesta" value={formatMXN(r.venta_expuesta_cents)} tone="bad"
-              sub="pasa por insumos sin costo" />
-        <Card title="Venta evaluable" value={formatMXN(r.venta_evaluable_cents)}
-              sub={`Excluye ${r.excluidas.join(', ')}`} />
+              tone={r.insumos_sin_costo ? 'warn' : 'good'} />
+        <Card title="Venta expuesta" value={formatMXN(r.venta_expuesta_cents)}
+              tone={r.insumos_sin_costo ? 'warn' : 'default'} sub="pasa por insumos sin costo" />
+        <Card title="Líneas parciales / sin receta" value={`${r.lineas_parcial} / ${r.lineas_sin_receta}`}
+              sub={r.excluidas?.length ? `Excluye ${r.excluidas.join(', ')}` : undefined} />
+      </div>
+
+      {msg && (
+        <div className={`rounded-lg px-3 py-2 text-sm border ${msg.ok
+          ? 'bg-emerald-950/40 border-emerald-700 text-emerald-200'
+          : 'bg-red-950/40 border-red-700 text-red-200'}`}>{msg.text}</div>
+      )}
+
+      {(d.revisar?.insumos?.length > 0 || d.revisar?.productos_con_perdida?.length > 0) && (
+        <div className="bg-slate-800 rounded-xl border border-orange-800 overflow-hidden">
+          <div className="p-3 border-b border-slate-700">
+            <div className="font-bold text-orange-300">Costos a revisar</div>
+            <div className="text-xs text-slate-400">
+              Costos que parecen mal capturados. Corregir reemplaza el costo desde hoy (las ventas
+              pasadas conservan el suyo) y queda registrado con el motivo.
+            </div>
+          </div>
+          {d.revisar.insumos.map((i: any) => (
+            <div key={i.inventory_item_id} className="p-3 border-t border-slate-700/60 text-sm">
+              <div className="flex flex-wrap items-center gap-3 justify-between">
+                <div>
+                  <b>{i.insumo}</b>{' '}
+                  <span className="font-mono text-orange-300">{formatUnitCost(i.costo_unitario_exacto_cents)}</span>
+                  <span className="text-slate-400"> por {String(i.unidad_base).toLowerCase()}</span>
+                  <div className="text-xs text-slate-500">{i.motivo}</div>
+                </div>
+                {fixing?.inventory_item_id !== i.inventory_item_id && (
+                  <button onClick={() => openFix(i)}
+                    className="bg-orange-800 hover:bg-orange-700 px-3 py-1 rounded text-xs font-semibold">
+                    Corregir costo</button>
+                )}
+              </div>
+              {fixing?.inventory_item_id === i.inventory_item_id && (
+                <form className="mt-3 space-y-2" onSubmit={e => { e.preventDefault(); saveFix() }}>
+                  <CostEntry pricePesos={fixPrice} onPrice={setFixPrice}
+                    packSize={fixPack} onPackSize={i.unidad_compra ? setFixPack : undefined}
+                    baseUnitName={i.unidad_base ?? 'unidad'} purchaseUnitName={i.unidad_compra} autoFocus />
+                  <input value={fixReason} onChange={e => setFixReason(e.target.value)}
+                    placeholder="Motivo (obligatorio), p. ej. se capturó el precio de la caja como unitario"
+                    className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm" />
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={saving === i.inventory_item_id}
+                      className="bg-orange-700 hover:bg-orange-600 px-3 py-1 rounded text-xs font-semibold disabled:opacity-50">
+                      {saving === i.inventory_item_id ? '…' : 'Guardar corrección'}</button>
+                    <button type="button" onClick={() => setFixing(null)}
+                      className="text-xs text-slate-400 underline">cancelar</button>
+                  </div>
+                </form>
+              )}
+            </div>
+          ))}
+          {d.revisar.productos_con_perdida.length > 0 && (
+            <div className="p-3 border-t border-slate-700/60 text-sm">
+              <div className="text-xs text-slate-400 mb-1">
+                Productos que costaron más de lo que se vendieron en el periodo (revisa el costo de
+                sus insumos o su precio):
+              </div>
+              {d.revisar.productos_con_perdida.map((p: any) => (
+                <div key={p.producto} className="flex justify-between text-xs py-0.5">
+                  <span>{p.producto}</span>
+                  <span className="font-mono">venta {formatMXN(p.venta_cents)} · costo{' '}
+                    <span className="text-red-400">{formatMXN(p.costo_cents)}</span></span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+        <div className="flex flex-wrap items-center gap-3 justify-between">
+          <div className="text-sm">
+            <div className="font-bold">Recalcular histórico</div>
+            <div className="text-slate-400 text-xs max-w-xl">
+              Aplica los costos que ya capturaste a las ventas pasadas que quedaron en $0, para
+              que los periodos anteriores también muestren utilidad. Es una estimación con el
+              costo de hoy, y así se indica en los reportes. No toca ventas que ya tenían costo.
+            </div>
+          </div>
+          {!preview ? (
+            <button onClick={loadPreview} disabled={restating}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+              {restating ? 'Calculando…' : 'Ver qué cambiaría'}
+            </button>
+          ) : (
+            <div className="flex items-center gap-3 text-sm">
+              <span className="text-slate-300">
+                {preview.filas
+                  ? <>{preview.lineas} ventas recibirán {formatMXN(preview.nuevo_costo_cents)} de costo</>
+                  : <>Nada que recalcular todavía: captura costos primero.</>}
+              </span>
+              {preview.filas > 0 && (
+                <button onClick={applyRestate} disabled={restating}
+                  className="bg-sky-600 hover:bg-sky-500 px-4 py-2 rounded-lg font-semibold disabled:opacity-50">
+                  {restating ? 'Aplicando…' : 'Recalcular'}
+                </button>
+              )}
+              <button onClick={() => setPreview(null)} className="text-slate-400 text-xs underline">cancelar</button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
         <div className="p-3 font-bold border-b border-slate-700">
-          Insumos sin costo — ordenados por venta expuesta
-          <div className="text-xs text-slate-500 font-normal mt-1">
-            Captura de arriba hacia abajo: los primeros 10 recuperan la mayor parte de la
-            exactitud del margen.
-          </div>
+          Costos faltantes — ordenados por venta expuesta
         </div>
+        {faltantes.length === 0 ? (
+          <div className="p-6 text-center text-emerald-300 text-sm">Todos los insumos activos tienen costo. 🎉</div>
+        ) : (
         <div className="overflow-x-auto max-h-[560px]">
           <table className="w-full text-sm">
             <thead className="bg-slate-900 sticky top-0">
               <tr className="text-left text-xs text-slate-400">
                 <th className="p-2">#</th><th className="p-2">Insumo</th>
-                <th className="p-2">Categoría</th><th className="p-2">Proveedor</th>
-                <th className="p-2 text-right">Líneas</th>
-                <th className="p-2 text-right">Venta expuesta</th><th className="p-2">Prioridad</th>
+                <th className="p-2">Proveedor</th>
+                <th className="p-2 text-right">Venta expuesta</th>
+                <th className="p-2">Costo (como lo compras)</th>
               </tr>
             </thead>
             <tbody>
@@ -1075,18 +1326,32 @@ function Costos({ d, loading }: { d: any; loading: boolean }) {
                     className={`border-t border-slate-700/60 ${idx < 10 ? 'bg-amber-950/20' : ''}`}>
                   <td className="p-2 text-slate-500 font-mono">{idx + 1}</td>
                   <td className="p-2 font-medium">{i.insumo}
-                    <span className="text-xs text-slate-500 ml-1">{i.unidad}</span></td>
-                  <td className="p-2 text-xs text-slate-400">{i.categoria}</td>
+                    <div className="text-xs text-slate-500">{i.categoria}</div></td>
                   <td className="p-2 text-xs text-slate-400">{i.proveedor ?? '—'}</td>
-                  <td className="p-2 text-right font-mono">{i.lineas_expuestas}</td>
                   <td className="p-2 text-right font-mono text-amber-400">
                     {formatMXN(i.venta_expuesta_cents)}</td>
-                  <td className="p-2 text-xs">{i.prioridad}</td>
+                  <td className="p-2">
+                    <form className="flex items-start gap-2"
+                          onSubmit={e => { e.preventDefault(); saveCost(i) }}>
+                      <CostEntry compact
+                        pricePesos={draft[i.inventory_item_id] ?? ''}
+                        onPrice={v => setDraft({ ...draft, [i.inventory_item_id]: v })}
+                        packSize={packOf(i)}
+                        onPackSize={i.unidad_compra ? (v => setPackDraft({ ...packDraft, [i.inventory_item_id]: v })) : undefined}
+                        baseUnitName={i.unidad_base ?? i.unidad ?? 'unidad'}
+                        purchaseUnitName={i.unidad_compra} />
+                      <button type="submit" disabled={saving === i.inventory_item_id || !draft[i.inventory_item_id]}
+                        className="bg-emerald-700 hover:bg-emerald-600 px-3 py-1 rounded text-xs font-semibold disabled:opacity-40">
+                        {saving === i.inventory_item_id ? '…' : 'Guardar'}
+                      </button>
+                    </form>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   )
@@ -1106,7 +1371,7 @@ function Personal({ d, loading }: { d: any; loading: boolean }) {
       <ChartFrame title="Ventas y utilidad por empleado">
         <BarChart data={d.empleados.map((e: any) => ({
           empleado: e.empleado, ventas: pesos(e.ventas_cents),
-          utilidad: pesos(e.utilidad_cents),
+          utilidad: pesosN(e.utilidad_cents),
         }))}>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
           <XAxis dataKey="empleado" stroke={C.muted} fontSize={11} />
@@ -1139,7 +1404,9 @@ function Personal({ d, loading }: { d: any; loading: boolean }) {
                 <td className="p-2 text-right font-mono">{e.tickets}</td>
                 <td className="p-2 text-right font-mono">{formatMXN(e.ventas_cents)}</td>
                 <td className="p-2 text-right font-mono">{formatMXN(e.ticket_promedio_cents)}</td>
-                <td className="p-2 text-right font-mono text-emerald-400">
+                <td className={`p-2 text-right font-mono ${e.utilidad_cents == null ? 'text-slate-500' : 'text-emerald-400'}`}
+                    title={e.utilidad_cents == null
+                      ? `Sin costo suficiente: ${(e.cobertura_costo_pct ?? 0).toFixed(0)}% de su venta con costo` : undefined}>
                   {formatMXN(e.utilidad_cents)}</td>
                 <td className="p-2 text-right font-mono">{formatMXN(e.propinas_cents)}</td>
                 <td className="p-2 text-right font-mono text-yellow-400">
@@ -1165,7 +1432,11 @@ const RISK_LABEL: Record<string, string> = {
   TICKET_REABIERTO: 'Tickets reabiertos',
   DESCUENTO_MANUAL: 'Descuentos manuales',
   EDITADO_POST_CIERRE: 'Editados tras cierre',
+  TICKET_CANCELADO: 'Tickets cancelados con consumo',
+  CIERRE_FORZADO: 'Cierres forzados sin cobro',
 }
+// Types that mean money may have left without being recorded.
+const RISK_BAD = new Set(['VOID_LINEA', 'TICKET_CANCELADO', 'CIERRE_FORZADO'])
 
 function Riesgos({ d, loading }: { d: any; loading: boolean }) {
   if (loading) return <Empty>Cargando…</Empty>
@@ -1182,7 +1453,7 @@ function Riesgos({ d, loading }: { d: any; loading: boolean }) {
         {d.resumen.map((r: any) => (
           <Card key={r.tipo} title={RISK_LABEL[r.tipo] ?? r.tipo}
                 value={formatMXN(r.monto_cents)} sub={`${r.eventos} eventos`}
-                tone={r.tipo === 'VOID_LINEA' ? 'bad' : 'warn'} />
+                tone={RISK_BAD.has(r.tipo) ? 'bad' : 'warn'} />
         ))}
       </div>
 
@@ -1202,6 +1473,8 @@ function Riesgos({ d, loading }: { d: any; loading: boolean }) {
           <Bar dataKey="DESCUENTO_MANUAL" name="Descuentos" stackId="a" fill={C.warn} />
           <Bar dataKey="TICKET_REABIERTO" name="Reaperturas" stackId="a" fill={C.accent} />
           <Bar dataKey="EDITADO_POST_CIERRE" name="Ediciones" stackId="a" fill={C.muted} />
+          <Bar dataKey="TICKET_CANCELADO" name="Cancelados con consumo" stackId="a" fill="#e11d48" />
+          <Bar dataKey="CIERRE_FORZADO" name="Cierres forzados" stackId="a" fill="#f97316" />
         </BarChart>
       </ChartFrame>
 

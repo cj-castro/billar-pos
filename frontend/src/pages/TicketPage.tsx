@@ -6,6 +6,10 @@ import NavBar from '../components/NavBar'
 import AddItemModal from '../components/AddItemModal'
 import TransferModal from '../components/TransferModal'
 import ManagerPinDialog from '../components/ManagerPinDialog'
+import ReasonDialog from '../components/ReasonDialog'
+import { formatLocalTime } from '../utils/venue'
+import MoveItemsDialog from '../components/MoveItemsDialog'
+import TimerEditDialog from '../components/TimerEditDialog'
 import EditPaymentModal from '../components/EditPaymentModal'
 import PrintRetryBanner from '../components/PrintRetryBanner'
 import { useAuthStore } from '../stores/authStore'
@@ -18,6 +22,7 @@ import {
   getPendingJob, storePendingJob, removePendingJob,
   hasPrinted, markPrinted,
 } from '../utils/printJobStorage'
+import { venueLogo, getVenue } from '../utils/venue'
 
 
 function cents(n: number) { return `$${(n / 100).toFixed(2)}` }
@@ -54,11 +59,13 @@ function groupLineItemsUI(items: any[]) {
     promotions: Map<string, number>
     lastId: string          // most recently added line item in this group
     lastQty: number         // its own quantity, for the +/- stepper
+    comp_reason?: string | null      // cortesía (batch E5)
+    comp_list_cents: number
   }>()
   const statusRank: Record<string, number> = { STAGED: 5, SENT: 4, IN_PROGRESS: 3, READY: 2, SERVED: 1 }
   for (const item of items) {
     const modKey = (item.modifiers ?? []).map((m: any) => m.name).sort().join('|')
-    const key = `${item.menu_item_name}::${item.unit_price_cents}::${modKey}::${item.notes ?? ''}`
+    const key = `${item.menu_item_name}::${item.unit_price_cents}::${modKey}::${item.notes ?? ''}::${item.comp_reason ?? ''}`
     const existing = map.get(key)
     if (existing) {
       existing.ids.push(item.id)
@@ -66,6 +73,7 @@ function groupLineItemsUI(items: any[]) {
       existing.lastId = item.id
       existing.lastQty = item.quantity
       existing.promo_discount_cents += item.promo_discount_cents ?? 0
+      existing.comp_list_cents += item.comp_list_cents ?? 0
       for (const p of item.promotions ?? []) {
         existing.promotions.set(p.name, (existing.promotions.get(p.name) ?? 0) + p.discount_cents)
       }
@@ -85,6 +93,8 @@ function groupLineItemsUI(items: any[]) {
         lastId: item.id,
         lastQty: item.quantity,
         promo_discount_cents: item.promo_discount_cents ?? 0,
+        comp_reason: item.comp_reason ?? null,
+        comp_list_cents: item.comp_list_cents ?? 0,
         promotions: new Map<string, number>(
           (item.promotions ?? []).map((p: any) => [p.name, p.discount_cents])
         ),
@@ -112,6 +122,19 @@ export default function TicketPage() {
   // reason modal to the void request, so the server verifies it. Held in memory
   // only; replaced by a short-lived server-issued grant token in 028.
   const [showVoidReason, setShowVoidReason] = useState<{ ids: string[]; pin: string } | null>(null)
+  // Batch E: what happened to a sent item's product -- thrown away (default:
+  // never invent stock) or back on the shelf.
+  const [voidDisposition, setVoidDisposition] = useState<Disposition>('WASTED')
+  // Batch E5: reason first, then the manager PIN (comps, discounts, staff close).
+  const [reasonAsk, setReasonAsk] = useState<{ title: string; options: string[]; hint?: string;
+                                               then: (reason: string) => void } | null>(null)
+  const [pinAsk, setPinAsk] = useState<{ action: string; run: (pin: string) => void } | null>(null)
+  const [discountReason, setDiscountReason] = useState('')
+  const [editingTimer, setEditingTimer] = useState<any>(null)            // batch E7
+  const [freeOther, setFreeOther] = useState('')                         // minutes for "Otro"
+  const [moving, setMoving] = useState<{ name: string; ids: string[] } | null>(null)   // batch E6
+  const [voidPick, setVoidPick] = useState('')
+  const [qtyDisposition, setQtyDisposition] = useState<{ itemId: string; quantity: number; name: string; value: Disposition } | null>(null)
   const [showPinForDiscount, setShowPinForDiscount] = useState(false)
   const [pendingDiscountPct, setPendingDiscountPct] = useState<number | null>(null)
   const [showPayment, setShowPayment] = useState(false)
@@ -138,7 +161,7 @@ export default function TicketPage() {
   const [showPinForReprint, setShowPinForReprint] = useState<string | null>(null) // ticketId
   const [reprintBannerKey, setReprintBannerKey] = useState(0)
   const [voidingTimer, setVoidingTimer] = useState(false)
-  const [showPinForQty, setShowPinForQty] = useState<{ itemId: string; quantity: number } | null>(null)
+  const [showPinForQty, setShowPinForQty] = useState<{ itemId: string; quantity: number; disposition?: Disposition } | null>(null)
   const [decidingPromo, setDecidingPromo] = useState<string | null>(null)
 
   // Join ticket-specific socket room so ticket:updated events are received
@@ -146,9 +169,22 @@ export default function TicketPage() {
   const socket = useSocket()
   useEffect(() => {
     if (!socket || !id) return
-    socket.emit('join', { room: `ticket:${id}` })
-    return () => { socket.emit('leave', { room: `ticket:${id}` }) }
-  }, [socket, id])
+    const join = () => socket.emit('join', { room: `ticket:${id}` })
+    join()
+    // The server forgets room memberships when the connection drops (tablet
+    // sleeps, Wi-Fi blip). Without re-joining on reconnect this screen silently
+    // stopped receiving ticket:updated until the page was reopened. Re-join and
+    // refetch, since updates sent while disconnected are never replayed.
+    const onReconnect = () => {
+      join()
+      qc.invalidateQueries({ queryKey: ['ticket', id] })
+    }
+    socket.on('connect', onReconnect)
+    return () => {
+      socket.off('connect', onReconnect)
+      socket.emit('leave', { room: `ticket:${id}` })
+    }
+  }, [socket, id, qc])
 
   // Close modals with Escape
   useEscKey(() => {
@@ -157,8 +193,9 @@ export default function TicketPage() {
     if (voidQtyPicker) { setVoidQtyPicker(null); return }
     if (showPinForVoid) { setShowPinForVoid(null); return }
     if (showPinForQty) { setShowPinForQty(null); return }
+    if (qtyDisposition) { setQtyDisposition(null); return }
     if (showPinForDiscount) { setShowPinForDiscount(false); setPendingDiscountPct(null); return }
-  }, showPayment || !!voidQtyPicker || !!showPinForVoid || !!showPinForQty || showPinForDiscount)
+  }, showPayment || !!voidQtyPicker || !!showPinForVoid || !!showPinForQty || !!qtyDisposition || showPinForDiscount)
 
   const { data: ticket, refetch } = useQuery({
     queryKey: ['ticket', id],
@@ -173,11 +210,12 @@ export default function TicketPage() {
 
   // Reducing a quantity sends the manager PIN itself; the server verifies it and
   // derives who authorised the change. Sending a manager_id is not proof.
-  const changeQty = async (itemId: string, newQty: number, pin?: string) => {
+  const changeQty = async (itemId: string, newQty: number, pin?: string, disposition?: Disposition) => {
     try {
       await client.patch(`/tickets/${id}/items/${itemId}`, {
         quantity: newQty,
         ...(pin ? { pin } : {}),
+        ...(disposition ? { disposition } : {}),
       })
       refetch()
     } catch (err: any) {
@@ -207,6 +245,8 @@ export default function TicketPage() {
     // Open the reason modal instead of using prompt()
     setShowVoidReason({ ids, pin })
     setVoidReason('')
+    setVoidPick('')
+    setVoidDisposition('WASTED')
     setShowPinForVoid(null)
     setVoidQtyPicker(null)
   }
@@ -214,10 +254,11 @@ export default function TicketPage() {
   const confirmVoid = async () => {
     if (!showVoidReason) return
     const { ids, pin } = showVoidReason
-    const reason = voidReason.trim() || 'Void'
+    if (!voidPick || (voidPick === 'Otro' && voidReason.trim().length < 3)) { toast.error('Elige el motivo de la anulación'); return }
+    const reason = voidPick === 'Otro' ? `Otro: ${voidReason.trim()}` : (voidReason.trim() ? `${voidPick}: ${voidReason.trim()}` : voidPick)
     try {
       for (const itemId of ids) {
-        await client.delete(`/tickets/${id}/items/${itemId}`, { data: { pin, reason } })
+        await client.delete(`/tickets/${id}/items/${itemId}`, { data: { pin, reason, disposition: voidDisposition } })
       }
       toast.success(ids.length > 1 ? `${ids.length} artículos anulados` : 'Artículo anulado')
       refetch()
@@ -273,14 +314,62 @@ export default function TicketPage() {
   const handleApplyDiscount = async (managerId: string) => {
     if (pendingDiscountPct === null) return
     try {
-      await client.patch(`/tickets/${id}/discount`, { pct: pendingDiscountPct, reason: 'Manual discount by manager' })
+      await client.patch(`/tickets/${id}/discount`, { pct: pendingDiscountPct, reason: discountReason })
       toast.success(pendingDiscountPct === 0 ? 'Descuento eliminado' : `Descuento de ${pendingDiscountPct}% aplicado`)
       refetch()
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'No se pudo aplicar el descuento')
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'No se pudo aplicar el descuento')
     }
     setShowPinForDiscount(false)
     setPendingDiscountPct(null)
+    setDiscountReason('')
+  }
+
+  // ── Cortesías y consumo de personal (batch E5) ──────────────────────────────
+  const doComp = async (ids: string[], reason: string, pin: string) => {
+    try {
+      for (const itemId of ids) await client.post(`/tickets/${id}/items/${itemId}/comp`, { pin, reason })
+      toast.success(ids.length > 1 ? `${ids.length} cortesías` : 'Cortesía registrada')
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'No se pudo registrar la cortesía')
+    }
+    refetch()
+  }
+  const doUncomp = async (ids: string[], pin: string) => {
+    try {
+      for (const itemId of ids) await client.delete(`/tickets/${id}/items/${itemId}/comp`, { data: { pin } })
+      toast.success('Cortesía quitada')
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'No se pudo quitar la cortesía')
+    }
+    refetch()
+  }
+  // Free table time without a promotion (055): minutes + reason + manager PIN.
+  const askFreeTime = (minutes: number) => {
+    if (!(minutes > 0)) { toast.error('Escribe los minutos'); return }
+    const label = minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`
+    setReasonAsk({
+      title: `🎱 ${label} de billar gratis`, options: compReasons,
+      then: r => setPinAsk({ action: `Autorizar ${label} gratis`, run: async pin => {
+        try { await client.post(`/tickets/${id}/timer/free`, { minutes, reason: r, pin }); toast.success(`${label} gratis aplicado`) }
+        catch (err: any) { toast.error(err.response?.data?.message || 'No se pudo aplicar') }
+        refetch()
+      } }),
+    })
+  }
+
+  const closeStaff = async (pin?: string) => {
+    try {
+      await client.post(`/tickets/${id}/staff-close`, pin ? { pin } : {})
+      toast.success('Consumo de personal cerrado')
+      navigate('/floor')
+    } catch (err: any) {
+      const d = err.response?.data
+      if (err.response?.status === 403 && d?.error === 'OWNER_REQUIRED') {
+        toast(d.message)
+        setPinAsk({ action: 'PIN del dueño (pasa el consumo libre del día)', run: p => closeStaff(p) })
+      } else toast.error(d?.message || 'No se pudo cerrar')
+    }
   }
 
   const handleVoidTimer = async () => {
@@ -401,7 +490,8 @@ export default function TicketPage() {
   const openItems = ticket.line_items?.filter((i: any) => i.status !== 'VOIDED') ?? []
   const groupedItems = groupLineItemsUI(openItems)
   const resource = ticket.resource_code
-  const isPoolTable = (ticket.timer_sessions ?? []).length > 0
+  // On a pool table now (an Express ticket may keep a cancelled session from before).
+  const isPoolTable = ticket.resource_type === 'POOL_TABLE'
     || ticket.resource_code?.startsWith('BT')
     || ticket.resource_code?.startsWith('PT')  // legacy codes pre-2026-04-27 rename
 
@@ -473,6 +563,11 @@ export default function TicketPage() {
           <div className="text-center">
             <div className="font-bold text-lg">{resource}</div>
             <div className="text-xs text-slate-400">Ticket #{ticket.id?.slice(-6).toUpperCase()}</div>
+            {ticket.ticket_type === 'STAFF' && (
+              <div className="mt-1 text-xs bg-teal-900/50 border border-teal-600 text-teal-100 rounded-full px-3 py-0.5">
+                🍽 Consumo de personal: <b>{ticket.staff_name}</b> · {ticket.staff_reason} · sin cobro
+              </div>
+            )}
             {/* Customer name */}
             {ticket.status === 'OPEN' && !editingName && (
               <button
@@ -576,12 +671,16 @@ export default function TicketPage() {
                     group.status === 'STAGED' ? 'text-yellow-400' :
                     group.status === 'SERVED' ? 'text-green-400' : 'text-slate-400'
                   }`}>{group.status}{group.ids.length > 1 ? ` (${group.ids.length})` : ''}</div>
-                  {ticket.status === 'OPEN' && (
+                  {ticket.status === 'OPEN' && !group.comp_reason && (
                     <div className="flex items-center gap-2 mt-1">
                       <button
                         onClick={() => {
                           if (group.lastQty > 1) {
-                            setShowPinForQty({ itemId: group.lastId, quantity: group.lastQty - 1 })
+                            // Not sent yet: nothing left stock, so no question.
+                            const last = (ticket.line_items ?? []).find((i: any) => i.id === group.lastId)
+                            if (last?.status === 'STAGED') setShowPinForQty({ itemId: group.lastId, quantity: group.lastQty - 1 })
+                            else setQtyDisposition({ itemId: group.lastId, quantity: group.lastQty - 1,
+                                                     name: group.menu_item_name, value: 'WASTED' })
                           }
                         }}
                         disabled={group.lastQty <= 1}
@@ -597,16 +696,39 @@ export default function TicketPage() {
                   )}
                 </div>
                 <div className="text-right">
+                  {group.comp_reason ? (
+                    <div className="font-mono">
+                      <span className="line-through text-slate-500 text-xs mr-1">{cents(group.comp_list_cents)}</span>{cents(0)}
+                      <div className="text-[11px] text-pink-300 font-sans">🎁 {group.comp_reason}</div>
+                    </div>
+                  ) : (
                   <div className="font-mono">{cents(
                     group.quantity * (
                       group.unit_price_cents +
                       (group.modifiers ?? []).reduce((s: number, m: any) => s + (m.price_cents ?? 0), 0)
                     )
                   )}</div>
+                  )}
                   {group.promo_discount_cents > 0 && (
                     <div className="font-mono text-xs text-green-400">
                       −{cents(group.promo_discount_cents)}
                     </div>
+                  )}
+                  {ticket.status === 'OPEN' && ticket.ticket_type !== 'STAFF' && (
+                    group.comp_reason ? (
+                      <button onClick={() => setPinAsk({ action: 'Quitar cortesía', run: pin => doUncomp(group.ids, pin) })}
+                        className="block ml-auto text-xs text-pink-300 hover:text-pink-200 mt-1">Quitar cortesía</button>
+                    ) : (
+                      <button onClick={() => setReasonAsk({
+                          title: `🎁 Cortesía: ${group.quantity} × ${group.menu_item_name}`, options: compReasons,
+                          then: r => setPinAsk({ action: 'Autorizar cortesía', run: pin => doComp(group.ids, r, pin) }),
+                        })}
+                        className="block ml-auto text-xs text-pink-300 hover:text-pink-200 mt-1">🎁 Cortesía</button>
+                    )
+                  )}
+                  {ticket.status === 'OPEN' && ticket.ticket_type !== 'STAFF' && (
+                    <button onClick={() => setMoving({ name: group.menu_item_name, ids: group.ids })}
+                      className="block ml-auto text-xs text-sky-300 hover:text-sky-200 mt-1">↔ Mover</button>
                   )}
                   {ticket.status === 'OPEN' && (
                     <button
@@ -628,75 +750,87 @@ export default function TicketPage() {
           )}
         </div>
 
-        {/* Timer Sessions */}
-        {ticket.timer_sessions?.length > 0 && (
+        {/* Timer Sessions (batch E7: stop / new count / correct times; money from the server) */}
+        {(ticket.timer_sessions?.length > 0 || isPoolTable) && (() => {
+          const sessions: any[] = ticket.timer_sessions ?? []
+          const running = sessions.find(x => !x.end_time && x.status !== 'CANCELLED')
+          const money = (x: any) => x.status === 'CANCELLED' ? 0 : (!x.end_time ? (x.estimate_cents ?? 0) : (x.charge_cents ?? 0))
+          const canAct = ticket.status === 'OPEN'
+          return (
           <div className="mb-4 rounded-xl overflow-hidden border-2 border-yellow-600">
-            {/* Header */}
-            <div className="bg-yellow-900/60 px-4 py-3 flex items-center justify-between">
+            <div className="bg-yellow-900/60 px-4 py-3 flex items-center justify-between gap-2">
               <span className="font-bold text-yellow-300 flex items-center gap-2 text-base">
                 🎱 {t('ticket.poolTime')}
               </span>
-              <span className="font-mono font-bold text-yellow-300 text-xl">
-                {/* Show live estimate for the running session + closed sessions */}
-                {cents(
-                  ticket.timer_sessions.reduce((sum: number, s: any) => {
-                    if (!s.end_time && s.start_time) {
-                      // live estimate
-                      const secs = Math.max(0, (Date.now() - new Date(s.start_time).getTime()) / 1000)
-                      return sum + Math.floor(secs / 3600 * s.rate_cents)
-                    }
-                    return sum + (s.charge_cents ?? 0)
-                  }, 0)
-                )}
-              </span>
+              <span className="font-mono font-bold text-yellow-300 text-xl">{cents(sessions.reduce((sum, x) => sum + money(x), 0))}</span>
             </div>
-
-            {ticket.timer_sessions.map((s: any) => {
-              const isRunning = !s.end_time
-              // Compute displayed duration
+            {canAct && isPoolTable && !running && (
+              <div className="bg-slate-800 px-4 py-2 border-t border-yellow-800/50 flex items-center justify-between">
+                <span className="text-xs text-amber-300">⏸ Tiempo detenido</span>
+                <button onClick={async () => {
+                    try { await client.post(`/tickets/${ticket.id}/timer/start`); refetch(); toast.success('Tiempo iniciado') }
+                    catch (err: any) { toast.error(err.response?.data?.message || 'No se pudo iniciar') }
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-green-700 hover:bg-green-600 text-sm font-bold">▶ Nuevo tiempo</button>
+              </div>
+            )}
+            {sessions.map((x: any) => {
+              const isRunning = !x.end_time && x.status !== 'CANCELLED'
+              const isCancelled = x.status === 'CANCELLED'
               const totalSec = isRunning
-                ? Math.floor((Date.now() - new Date(s.start_time).getTime()) / 1000)
-                : (s.duration_seconds ?? 0)
-              const h = Math.floor(totalSec / 3600)
-              const m = Math.floor((totalSec % 3600) / 60)
-              const sec = totalSec % 60
+                ? Math.floor((Date.now() - new Date(x.start_time).getTime()) / 1000)
+                : (x.duration_seconds ?? 0)
+              const h = Math.floor(totalSec / 3600), m = Math.floor((totalSec % 3600) / 60), sec = totalSec % 60
               const durationStr = h > 0 ? `${h}h ${m}m ${sec}s` : m > 0 ? `${m}m ${sec}s` : `${sec}s`
-              // Live cost estimate for running session
-              const liveCost = isRunning
-                ? Math.floor(totalSec / 3600 * s.rate_cents)
-                : (s.charge_cents ?? 0)
-
               return (
-                <div key={s.id} className="bg-slate-800 px-4 py-3 flex items-center justify-between border-t border-yellow-800/50">
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-white text-base">{s.resource_code}</span>
+                <div key={x.id} className={`bg-slate-800 px-4 py-3 border-t border-yellow-800/50 ${isCancelled ? 'opacity-60' : ''}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-white text-base">{x.resource_code}</span>
+                        {isRunning && <span className="text-xs bg-green-700 text-green-200 px-1.5 py-0.5 rounded font-medium animate-pulse">● LIVE</span>}
+                        {x.is_manual_edit && !isCancelled && <span className="text-[10px] text-yellow-400" title={x.manual_edit_reason}>✏️ corregido</span>}
+                        {(x.manual_free_seconds ?? 0) > 0 && !isCancelled && (
+                          <span className="text-[10px] text-pink-300" title={x.manual_free_reason}>🎁 {Math.round(x.manual_free_seconds / 60)} min gratis</span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {x.billing_mode === 'PER_MINUTE' ? 'Por minuto' :
+                         x.billing_mode === 'ROUND_15' ? 'Redondeado 15 min' : 'Por bloque de hora'}
+                        &nbsp;·&nbsp;{cents(x.rate_cents)}/hr
+                        &nbsp;·&nbsp;{formatLocalTime(x.start_time)}{x.end_time ? `–${formatLocalTime(x.end_time)}` : ''}
+                      </div>
+                      <div className="text-sm text-slate-200 font-mono">
+                        {isCancelled ? 'Cancelado — sin cargo' : `⏱ ${isRunning ? elapsed || durationStr : durationStr}`}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className={`font-mono font-bold text-2xl ${isRunning ? 'text-yellow-300' : 'text-yellow-100'}`}>
+                        {cents(money(x))}
+                      </div>
+                      <div className="text-xs text-slate-500 mt-0.5">{isCancelled ? 'sin cargo' : isRunning ? 'hasta ahora' : 'por cobrar'}</div>
+                    </div>
+                  </div>
+                  {canAct && !isCancelled && (
+                    <div className="flex gap-2 mt-2 justify-end">
                       {isRunning && (
-                        <span className="text-xs bg-green-700 text-green-200 px-1.5 py-0.5 rounded font-medium animate-pulse">● LIVE</span>
+                        <button onClick={async () => {
+                            if (!confirm('¿Detener el tiempo? La cuenta sigue abierta en la mesa.')) return
+                            try { await client.post(`/tickets/${ticket.id}/timer/stop`); refetch(); toast.success('Tiempo detenido') }
+                            catch (err: any) { toast.error(err.response?.data?.message || 'No se pudo detener') }
+                          }}
+                          className="px-3 py-1 rounded-lg bg-amber-700 hover:bg-amber-600 text-xs font-bold">⏹ Detener tiempo</button>
                       )}
+                      <button onClick={() => setEditingTimer(x)}
+                        className="px-3 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs">✏️ Corregir horas</button>
                     </div>
-                    <div className="text-xs text-slate-400">
-                      {s.billing_mode === 'PER_MINUTE' ? 'Por minuto' :
-                       s.billing_mode === 'ROUND_15' ? 'Redondeado 15 min' : 'Por bloque de hora'}
-                      &nbsp;·&nbsp;{cents(s.rate_cents)}/hr
-                    </div>
-                    <div className="text-sm text-slate-200 font-mono">
-                      ⏱ {isRunning ? elapsed || durationStr : durationStr}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className={`font-mono font-bold text-2xl ${isRunning ? 'text-yellow-300' : 'text-yellow-100'}`}>
-                      {cents(liveCost)}
-                    </div>
-                    <div className="text-xs text-slate-500 mt-0.5">
-                      {isRunning ? 'est.' : 'cobrado'}
-                    </div>
-                  </div>
+                  )}
                 </div>
               )
             })}
           </div>
-        )}
+          )
+        })()}
 
         {/* Promotions waiting for the waiter to confirm */}
         {ticket.status === 'OPEN' && availablePromos.length > 0 && (
@@ -761,7 +895,33 @@ export default function TicketPage() {
         </div>
 
         {/* Actions */}
-        {ticket.status === 'OPEN' && (
+        {ticket.status === 'OPEN' && ticket.ticket_type === 'STAFF' && (
+          <div className="flex flex-col gap-2">
+            {openItems.length > 0 ? (
+              <>
+                <button onClick={() => closeStaff()}
+                  className="w-full py-3 bg-teal-600 hover:bg-teal-500 rounded-xl font-bold text-lg">✅ Cerrar consumo de personal</button>
+                <p className="text-xs text-slate-500 text-center">No se cobra ni entra a caja; su costo queda registrado a nombre de {ticket.staff_name}.</p>
+              </>
+            ) : (
+              <button
+                onClick={async () => {
+                  if (!confirm('¿Cancelar este consumo de personal vacío?')) return
+                  try {
+                    await client.post(`/tickets/${ticket.id}/cancel`)
+                    toast.success('Consumo de personal cancelado')
+                    navigate('/floor')
+                  } catch (err: any) {
+                    toast.error(err.response?.data?.message || 'No se pudo cancelar')
+                  }
+                }}
+                className="w-full py-2.5 border border-red-700 text-red-400 hover:bg-red-900/30 rounded-xl font-semibold text-sm">
+                🗑 Cancelar consumo de personal (vacío)
+              </button>
+            )}
+          </div>
+        )}
+        {ticket.status === 'OPEN' && ticket.ticket_type !== 'STAFF' && (
           <div className="flex flex-col gap-3">
             {/* Discount quick buttons */}
             <div className="bg-slate-800 rounded-xl p-3 border border-slate-700">
@@ -770,7 +930,15 @@ export default function TicketPage() {
                 {[0, 5, 10, 15, 20, 25, 30, 50, 100].map(pct => (
                   <button
                     key={pct}
-                    onClick={() => { setPendingDiscountPct(pct); setShowPinForDiscount(true) }}
+                    onClick={() => {
+                      setPendingDiscountPct(pct)
+                      if (pct === 0) { setDiscountReason(''); setShowPinForDiscount(true); return }
+                      setReasonAsk({
+                        title: `Motivo del descuento de ${pct}%`, options: DISCOUNT_REASONS,
+                        hint: pct === 100 ? '¿Es un regalo? Mejor usa 🎁 Cortesía en cada artículo: así queda registrado qué se regaló y cuánto costó.' : undefined,
+                        then: r => { setDiscountReason(r); setShowPinForDiscount(true) },
+                      })
+                    }}
                     className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
                       (ticket.manual_discount_pct || 0) === pct
                         ? pct === 100 ? 'bg-purple-600 text-white ring-2 ring-purple-400' : 'bg-green-600 text-white'
@@ -785,6 +953,38 @@ export default function TicketPage() {
                   </button>
                 ))}
               </div>
+              {(ticket.timer_sessions ?? []).some((x: any) => x.status !== 'CANCELLED') && (() => {
+                const gift = (ticket.timer_sessions ?? []).find((x: any) => (x.manual_free_seconds ?? 0) > 0)
+                return (
+                  <div className="mt-3 pt-3 border-t border-slate-700">
+                    <div className="text-xs text-slate-400 mb-2 font-semibold">🎱 Tiempo de billar gratis (sin promoción)</div>
+                    {gift ? (
+                      <div className="flex items-center gap-2 flex-wrap text-sm">
+                        <span className="text-pink-300">🎁 {Math.round(gift.manual_free_seconds / 60)} min gratis · {gift.manual_free_reason}</span>
+                        <button onClick={() => setPinAsk({ action: 'Quitar tiempo gratis', run: async pin => {
+                            try { await client.delete(`/tickets/${id}/timer/free`, { data: { pin } }); toast.success('Tiempo gratis quitado') }
+                            catch (err: any) { toast.error(err.response?.data?.message || 'No se pudo quitar') }
+                            refetch()
+                          } })}
+                          className="text-xs text-slate-400 hover:text-white underline">Quitar</button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2 items-center">
+                        {[30, 60, 120].map(mn => (
+                          <button key={mn} onClick={() => askFreeTime(mn)}
+                            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-slate-700 hover:bg-pink-800 text-pink-200 border border-pink-900">
+                            {mn === 30 ? '30 min' : `${mn / 60} hora${mn > 60 ? 's' : ''}`}
+                          </button>
+                        ))}
+                        <input type="number" min={1} max={1440} value={freeOther} onChange={e => setFreeOther(e.target.value)}
+                          placeholder="min" className="w-16 bg-slate-700 border border-slate-600 rounded-lg px-2 py-1.5 text-sm" />
+                        <button onClick={() => askFreeTime(parseInt(freeOther))} disabled={!freeOther}
+                          className="px-3 py-1.5 rounded-lg text-sm bg-slate-700 hover:bg-pink-800 text-pink-200 border border-pink-900 disabled:opacity-40">Dar</button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
             <button onClick={() => setShowTransfer(true)} className="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-slate-900 rounded-xl font-bold text-lg">🔀 {t('ticket.transfer')}</button>
             {/* Join waiting list — only for floor tables (not pool) and not already queued */}
@@ -976,11 +1176,31 @@ export default function TicketPage() {
         />
       )}
 
+      {qtyDisposition && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80] p-4">
+          <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 p-5 space-y-4">
+            <h2 className="font-bold text-lg">Quitar 1{qtyDisposition.name ? ` × ${qtyDisposition.name}` : ''}</h2>
+            <DispositionChoice value={qtyDisposition.value}
+              onChange={v => setQtyDisposition({ ...qtyDisposition, value: v })} />
+            <div className="flex gap-3">
+              <button onClick={() => setQtyDisposition(null)}
+                className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-bold">Cancelar</button>
+              <button onClick={() => {
+                  setShowPinForQty({ itemId: qtyDisposition.itemId, quantity: qtyDisposition.quantity,
+                                     disposition: qtyDisposition.value })
+                  setQtyDisposition(null)
+                }}
+                className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 rounded-xl text-sm font-bold">Continuar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPinForQty && (
         <ManagerPinDialog
           action="Reducir cantidad"
           onConfirm={(_managerId, _managerName, pin) => {
-            changeQty(showPinForQty.itemId, showPinForQty.quantity, pin)
+            changeQty(showPinForQty.itemId, showPinForQty.quantity, pin, showPinForQty.disposition)
             setShowPinForQty(null)
           }}
           onCancel={() => setShowPinForQty(null)}
@@ -992,15 +1212,26 @@ export default function TicketPage() {
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80] p-4">
           <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 p-5 space-y-4">
             <h2 className="font-bold text-lg">Motivo de Anulación</h2>
+            {showVoidReason.ids.some(vid => (ticket.line_items ?? []).find((i: any) => i.id === vid)?.status !== 'STAGED') && (
+              <DispositionChoice value={voidDisposition} onChange={setVoidDisposition} />
+            )}
+            <div className="grid grid-cols-2 gap-1.5">
+              {VOID_REASONS.map(o => (
+                <button key={o} type="button" onClick={() => setVoidPick(o)}
+                  className={`text-left px-2.5 py-1.5 rounded-lg border text-xs ${voidPick === o
+                    ? 'bg-red-900/50 border-red-500 text-white font-semibold'
+                    : 'bg-slate-700/60 border-slate-600 text-slate-200 hover:border-slate-400'}`}>{o}</button>
+              ))}
+            </div>
             <input
-              autoFocus
               type="text"
               value={voidReason}
               onChange={(e) => setVoidReason(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') confirmVoid() }}
-              placeholder="Motivo (opcional)"
+              placeholder={voidPick === 'Otro' ? 'Escribe el motivo' : 'Detalle (opcional)'}
               className="w-full bg-slate-700 rounded-lg px-3 py-2 text-sm"
             />
+            <p className="text-[11px] text-slate-400">¿Se regaló al cliente? Cancela y usa 🎁 Cortesía.</p>
             <div className="flex gap-3">
               <button
                 onClick={() => { setShowVoidReason(null); setVoidReason('') }}
@@ -1013,6 +1244,26 @@ export default function TicketPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {editingTimer && (
+        <TimerEditDialog ticketId={ticket.id} session={editingTimer}
+          onDone={() => { setEditingTimer(null); refetch() }} onCancel={() => setEditingTimer(null)} />
+      )}
+      {moving && (
+        <MoveItemsDialog ticketId={ticket.id} name={moving.name}
+          lines={moving.ids.map(i => ({ id: i, quantity: (ticket.line_items ?? []).find((l: any) => l.id === i)?.quantity ?? 1 }))}
+          onDone={() => { setMoving(null); refetch() }} onCancel={() => setMoving(null)} />
+      )}
+      {reasonAsk && (
+        <ReasonDialog title={reasonAsk.title} options={reasonAsk.options} hint={reasonAsk.hint}
+          onConfirm={r => { const next = reasonAsk.then; setReasonAsk(null); next(r) }}
+          onCancel={() => { setReasonAsk(null); setPendingDiscountPct(null) }} />
+      )}
+      {pinAsk && (
+        <ManagerPinDialog action={pinAsk.action}
+          onConfirm={(_id, _name, pin) => { const run = pinAsk.run; setPinAsk(null); run(pin) }}
+          onCancel={() => setPinAsk(null)} />
       )}
 
       {showPinForDiscount && pendingDiscountPct !== null && (
@@ -1319,7 +1570,7 @@ export default function TicketPage() {
         <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-[60] p-4">
           <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-green-700 shadow-2xl shadow-green-900/40 overflow-hidden">
             <div className="bg-green-700/30 p-6 text-center border-b border-green-700">
-              <img src="/logo.jpg" alt="Bola 8 Pool Club" className="w-20 h-20 rounded-full object-cover mx-auto mb-3 border-2 border-green-500 shadow-lg" />
+              <img src={venueLogo()} alt={getVenue().name} className="w-20 h-20 rounded-full object-cover mx-auto mb-3 border-2 border-green-500 shadow-lg" />
               <div className="text-2xl font-extrabold text-green-400">{t('ticket.closed.title')}</div>
               <div className="text-slate-300 text-sm mt-1">#{closedTicket.id?.slice(-6).toUpperCase()}</div>
             </div>
@@ -1426,6 +1677,35 @@ export default function TicketPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+type Disposition = 'WASTED' | 'RETURNED'
+
+// Batch E5 — must match backend comp_svc.COMP_REASONS.
+const compReasons = ['Cumpleaños', 'Compensación por servicio', 'Cliente frecuente', 'Promoción del dueño', 'Otro']
+const DISCOUNT_REASONS = ['Cliente frecuente', 'Compensación por servicio', 'Promoción del dueño', 'Convenio', 'Otro']
+const VOID_REASONS = ['Error de captura', 'Cliente cambió de opinión', 'Producto con problema', 'Prueba', 'Otro']
+
+/** Void / quantity decrease of a sent item: what happened to the product (batch E). */
+function DispositionChoice({ value, onChange }: { value: Disposition; onChange: (v: Disposition) => void }) {
+  const opt = (v: Disposition, title: string, hint: string) => (
+    <button type="button" onClick={() => onChange(v)}
+      className={`text-left rounded-xl border p-3 transition-colors ${value === v
+        ? (v === 'WASTED' ? 'bg-red-950/60 border-red-500' : 'bg-emerald-950/60 border-emerald-500')
+        : 'bg-slate-700/50 border-slate-600 hover:border-slate-400'}`}>
+      <div className="text-sm font-semibold">{title}</div>
+      <div className="text-xs text-slate-400 mt-0.5">{hint}</div>
+    </button>
+  )
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-slate-300">¿Qué pasó con el producto?</p>
+      <div className="grid grid-cols-2 gap-2">
+        {opt('WASTED', '🗑 Se tiró', 'Ya servido, preparado o abierto')}
+        {opt('RETURNED', '↩ Regresó al inventario', 'Sin abrir, se puede vender')}
+      </div>
     </div>
   )
 }

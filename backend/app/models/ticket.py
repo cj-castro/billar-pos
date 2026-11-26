@@ -24,6 +24,11 @@ class Ticket(db.Model):
     payment_type_2 = db.Column(db.String(10))   # optional second payment method
     tendered_cents_2 = db.Column(db.Integer)
     manual_discount_pct = db.Column(db.Integer, default=0)   # 0–100 manual % discount
+    discount_reason     = db.Column(db.Text)                  # why (054)
+    # Staff consumption (054): ticket_type STAFF, closed as STAFF_DONE.
+    staff_user_id       = db.Column(db.String(36), db.ForeignKey('users.id'))
+    staff_reason        = db.Column(db.Text)
+    staff_authorized_by = db.Column(db.String(36), db.ForeignKey('users.id'))
     was_reopened = db.Column(db.Boolean, default=False)
     reopened_at = db.Column(db.DateTime(timezone=True))
     reopened_by = db.Column(db.String(36), db.ForeignKey('users.id'))
@@ -81,6 +86,13 @@ class Ticket(db.Model):
 
         self.total_cents = max(0, self.subtotal_cents - self.discount_cents + self.pool_time_cents)
 
+    def _staff_name(self):
+        if not self.staff_user_id:
+            return None
+        from app.models.user import User
+        u = User.query.get(self.staff_user_id)
+        return u.name if u else None
+
     def to_dict(self, include_items=True, include_timer=True, waiting_list_entry=None):
         d = {
             'id': self.id,
@@ -88,6 +100,7 @@ class Ticket(db.Model):
             'rappi_order_id': self.rappi_order_id,
             'resource_id': self.resource_id,
             'resource_code': self.resource.code if self.resource else None,
+            'resource_type': self.resource.type if self.resource else None,
             'status': self.status,
             'opened_by': self.opened_by,
             'opened_at': self.opened_at.isoformat() if self.opened_at else None,
@@ -101,6 +114,10 @@ class Ticket(db.Model):
             'payment_type_2': self.payment_type_2,
             'tendered_cents_2': self.tendered_cents_2,
             'manual_discount_pct': self.manual_discount_pct or 0,
+            'discount_reason': self.discount_reason,
+            'staff_user_id': self.staff_user_id,
+            'staff_name': self._staff_name(),
+            'staff_reason': self.staff_reason,
             'was_reopened': self.was_reopened or False,
             'reopened_at': self.reopened_at.isoformat() if self.reopened_at else None,
             'edited_after_close': self.edited_after_close or False,
@@ -180,6 +197,13 @@ class TicketLineItem(db.Model):
     voided_at = db.Column(db.DateTime(timezone=True))
     voided_by = db.Column(db.String(36), db.ForeignKey('users.id'))
     void_reason = db.Column(db.Text)
+    void_disposition = db.Column(db.String(10))   # RETURNED / WASTED / NONE (048)
+    # Cortesía (054): served free; prices zeroed, originals in comp_snapshot.
+    comp_reason     = db.Column(db.Text)
+    comped_by       = db.Column(db.String(36), db.ForeignKey('users.id'))
+    comped_at       = db.Column(db.DateTime(timezone=True))
+    comp_list_cents = db.Column(db.Integer)
+    comp_snapshot   = db.Column(db.JSON)
     notes = db.Column(db.Text)
     sort_order = db.Column(db.Integer, default=0)
     cost_snapshot_cents = db.Column(db.Integer, nullable=True)
@@ -224,6 +248,10 @@ class TicketLineItem(db.Model):
             'served_at': self.served_at.isoformat() if self.served_at else None,
             'voided_at': self.voided_at.isoformat() if self.voided_at else None,
             'void_reason': self.void_reason,
+            'void_disposition': self.void_disposition,
+            'comp_reason': self.comp_reason,
+            'comped_at': self.comped_at.isoformat() if self.comped_at else None,
+            'comp_list_cents': self.comp_list_cents,
             'notes': self.notes,
             'needs_reprint': bool(self.needs_reprint),
             'modifiers': [m.to_dict() for m in self.modifiers]
@@ -281,10 +309,20 @@ class PoolTimerSession(db.Model):
     charge_cents = db.Column(db.Integer)
     is_manual_edit = db.Column(db.Boolean, default=False)
     manual_edit_reason = db.Column(db.Text)
+    # Free table time given by a manager (055) -- a cortesía, not a promotion.
+    manual_free_seconds = db.Column(db.Integer, nullable=False, default=0)
+    manual_free_reason  = db.Column(db.Text)
+    manual_free_by      = db.Column(db.String(36), db.ForeignKey('users.id'))
+    manual_free_at      = db.Column(db.DateTime(timezone=True))
 
     resource = db.relationship('Resource')
 
     def effective_free_seconds(self, end_time=None) -> int:
+        """Free seconds for billing: table baseline + promotion grant + the
+        manual gift (055)."""
+        return self._promo_free_seconds(end_time) + int(self.manual_free_seconds or 0)
+
+    def _promo_free_seconds(self, end_time=None) -> int:
         """Config baseline + the derived POOL_TIME_FREE_MINUTES grant.
 
         Serialized so the client never has to re-derive promo eligibility; it
@@ -314,5 +352,16 @@ class PoolTimerSession(db.Model):
             'promo_free_seconds': self.promo_free_seconds,
             'promo_free_seconds_effective': self.effective_free_seconds(),
             'charge_cents': self.charge_cents,
-            'is_manual_edit': self.is_manual_edit
+            'is_manual_edit': self.is_manual_edit,
+            'manual_edit_reason': self.manual_edit_reason,
+            'manual_free_seconds': int(self.manual_free_seconds or 0),
+            'manual_free_reason': self.manual_free_reason,
+            # Running session: what closing now would charge (same rules as the close).
+            'estimate_cents': self._estimate(),
         }
+
+    def _estimate(self):
+        if self.end_time is not None:
+            return None
+        from app.services.ticket_ops_svc import estimate
+        return estimate(self)

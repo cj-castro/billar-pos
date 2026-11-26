@@ -466,6 +466,12 @@ export default function MenuManagementPage() {
                         <div className="flex items-center gap-3">
                           <span className="text-sm text-emerald-300 font-mono">
                             {qtyDisplay} {ing.deduction_unit_key}
+                            {(() => {
+                              const pour = Number((inventoryItems as any[]).find((i: any) => i.id === ing.inventory_item_id)?.pour_ml || 0)
+                              if (!pour) return null
+                              const n = parseFloat(ing.quantity) / pour
+                              return <span className="text-slate-400 font-sans text-xs"> · {Number.isInteger(n) ? n : n.toFixed(1)} shot{n === 1 ? '' : 's'}</span>
+                            })()}
                           </span>
                           <span className="text-xs text-slate-500">
                             ({ing.stock_quantity != null ? parseFloat(ing.stock_quantity).toFixed(0) : '?'} disp.)
@@ -560,7 +566,12 @@ export default function MenuManagementPage() {
                 <p className="text-xs text-slate-400 mb-2 font-semibold">AGREGAR INSUMO BASE</p>
                 <div className="flex gap-2">
                   <select value={addIngr.inventory_item_id}
-                    onChange={e => setAddIngr({ ...addIngr, inventory_item_id: e.target.value })}
+                    onChange={e => {
+                      // Open spirits are measured in ml: start from one standard pour.
+                      const sel = (inventoryItems as any[]).find((i: any) => i.id === e.target.value)
+                      setAddIngr({ inventory_item_id: e.target.value,
+                                   quantity: sel?.pour_ml ? String(sel.pour_ml) : addIngr.quantity })
+                    }}
                     className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-2 py-2 text-sm min-w-0">
                     <option value="">— selecciona artículo de inventario —</option>
                     {(inventoryItems as any[]).map((inv: any) => (
@@ -813,6 +824,24 @@ export default function MenuManagementPage() {
                     className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap">+ Agregar</button>
                 </div>
               </div>
+              {(() => {
+                const sel = (inventoryItems as any[]).find((i: any) => i.id === addIngr.inventory_item_id)
+                if (!sel?.pour_ml) return null
+                const p = Number(sel.pour_ml)
+                const opts: [string, number][] = [['1 shot', p], ['Doble', p * 2], ['Medio', p / 2], ['Chorrito', 20]]
+                return (
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap text-xs">
+                    <span className="text-slate-400">Licor en ml · 1 shot = {p} ml:</span>
+                    {opts.map(([label, ml]) => (
+                      <button key={label} type="button" onClick={() => setAddIngr({ ...addIngr, quantity: String(ml) })}
+                        className={`px-2 py-0.5 rounded border ${Number(addIngr.quantity) === ml
+                          ? 'border-amber-500 bg-amber-900/40 text-amber-200' : 'border-slate-600 text-slate-300 hover:border-slate-400'}`}>
+                        {label} <span className="text-slate-500">{ml} ml</span>
+                      </button>
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
             <div className="flex gap-3 p-5 border-t border-slate-700">
               <button onClick={() => { setShowAdd(false); setNewItem({ ...BLANK_ITEM }); setNewItemGroups([]) }}
