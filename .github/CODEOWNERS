@@ -1,0 +1,21 @@
+# Human gate. With branch protection "Require review from Code Owners" on main,
+# a PR touching any path below cannot merge without the owner's approval --
+# no matter which agent wrote it or how many reviews passed.
+#
+# Money, cash, auth, schema and the factory's own rules.
+/backend/migrations/                    @cj-castro
+/backend/app/migrations_runner.py       @cj-castro
+/backend/app/models/                    @cj-castro
+/backend/app/services/billing.py        @cj-castro
+/backend/app/api/cash_session.py        @cj-castro
+/backend/app/api/safe.py                @cj-castro
+/backend/app/api/tickets.py             @cj-castro
+/backend/app/api/auth.py                @cj-castro
+/backend/app/api/users.py               @cj-castro
+/frontend/src/components/EditPaymentModal.tsx  @cj-castro
+/frontend/src/pages/manager/CashSessionPage.tsx @cj-castro
+/frontend/src/pages/manager/SafeCollectionsPage.tsx @cj-castro
+/scripts/deploy/                        @cj-castro
+/docker-compose.yml                     @cj-castro
+/.github/                               @cj-castro
+/CLAUDE.md                              @cj-castro
