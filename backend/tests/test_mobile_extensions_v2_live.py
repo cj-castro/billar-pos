@@ -37,6 +37,8 @@ def run():
         'socket_handshake_auth', 'idempotent_add_item', 'idempotent_close'}, r)
 
     mgr, wtr = login('manager', 'manager123'), login('waiter1', 'waiter123')
+    # waiter_can_close_ticket is an owner-only setting (batch D1): set it as admin.
+    adm = login('admin', 'admin123')
     if not requests.get(BASE + '/cash/status', headers=H(mgr), timeout=15).json()['open']:
         requests.post(BASE + '/cash/open', json={'opening_fund_cents': 0}, headers=H(mgr), timeout=15)
 
@@ -85,7 +87,7 @@ def run():
                                  }, headers=H(wtr, **{'Idempotency-Key': key}), timeout=15)
     check('bad SPLIT tip parts + key -> AMOUNT_MISMATCH', r.status_code == 422 and r.json().get('error') == 'AMOUNT_MISMATCH', r.text)
 
-    put_setting(mgr, 'waiter_can_close_ticket', 'false')
+    put_setting(adm, 'waiter_can_close_ticket', 'false')
     try:
         body = {'payment_type': 'CASH', 'tendered_cents': total}
         r = requests.post(url, json=body, headers=H(wtr, **{'Idempotency-Key': key}), timeout=15)
@@ -93,7 +95,7 @@ def run():
         r = requests.post(url, json=dict(body, manager_pin='5678'), headers=H(wtr, **{'Idempotency-Key': key}), timeout=15)
         check('waiter close with manager_pin -> 200', r.status_code == 200, r.text)
     finally:
-        put_setting(mgr, 'waiter_can_close_ticket', 'true')
+        put_setting(adm, 'waiter_can_close_ticket', 'true')
     r2 = requests.post(url, json=body, headers=H(wtr, **{'Idempotency-Key': key}), timeout=15)
     check('replay same key on closed -> 200 same ticket', r2.status_code == 200 and r2.json()['id'] == tid, r2.text)
     check('F1 replay same key -> change_due present', 'change_due' in r2.json(), r2.text)
@@ -106,19 +108,19 @@ def run():
     # F4: gate only applies with Idempotency-Key (web unchanged)
     tid4 = new_ticket(wtr, mgr)
     tot4 = requests.get('%s/tickets/%s' % (BASE, tid4), headers=H(wtr), timeout=15).json()['total_cents']
-    put_setting(mgr, 'waiter_can_close_ticket', 'false')
+    put_setting(adm, 'waiter_can_close_ticket', 'false')
     try:
         r = requests.post('%s/tickets/%s/close' % (BASE, tid4), json={'payment_type': 'CASH', 'tendered_cents': tot4},
                           headers=H(wtr), timeout=15)
         check('F4 gate off-path: no key -> 200 (web unchanged)', r.status_code == 200, r.text)
     finally:
-        put_setting(mgr, 'waiter_can_close_ticket', 'true')
+        put_setting(adm, 'waiter_can_close_ticket', 'true')
 
     # F3: PIN lockout (waiter2; failures persist 10 min, so first miss may already be 429 on rerun)
     w2 = login('waiter2', 'waiter123')
     tid3 = new_ticket(w2, mgr)
     tot3 = requests.get('%s/tickets/%s' % (BASE, tid3), headers=H(w2), timeout=15).json()['total_cents']
-    put_setting(mgr, 'waiter_can_close_ticket', 'false')
+    put_setting(adm, 'waiter_can_close_ticket', 'false')
     try:
         codes = []
         for _ in range(6):
@@ -129,7 +131,7 @@ def run():
         check('F3 wrong PIN x5 -> 403 then 429 PIN_LOCKED', codes[-1] == 429 and r.json().get('error') == 'PIN_LOCKED'
               and set(codes[:-1]) <= {403, 429}, codes)
     finally:
-        put_setting(mgr, 'waiter_can_close_ticket', 'true')
+        put_setting(adm, 'waiter_can_close_ticket', 'true')
 
     # F5: queue expected_from compare-and-set
     tid5 = new_ticket(wtr, mgr)

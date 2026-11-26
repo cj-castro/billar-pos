@@ -1,4 +1,4 @@
-# Deploy 2026-11-26 — everything since August (migrations 040–056), one go
+# Deploy 2026-11-26 — everything since August (migrations 002–004 + 040–056), one go
 
 This is the single runbook for tomorrow. It follows the phases of
 `DEPLOY-WINDOWS.md` (bundle → backup → migrations → rebuild → verify → rollback)
@@ -25,10 +25,26 @@ change does; read them for detail.
 | E5 | **Cortesías** and **Consumo de personal** | 054 |
 | E6, E7 | **↔ Mover** lines; pool time: stop / new count / correct hours / free time | 055 |
 | E8 | **🔪 Porcionar**: raw kg → packs, yield, real cost per pack | 056 |
+| Girish #1 | Mobile staff app backend extensions (idempotent add / close, socket auth, health) | 002, 003, 004 |
+| Girish #2 | **`backup` service**: nightly `pg_dump` to S3 (needs AWS credentials, see Phase 1.5) | — |
+| Girish #3 | The backend container stops if a migration fails (instead of starting on a half schema) | — |
+
+`003_restore_reference_data` only inserts lookup rows (movement types, reason
+codes, settings) with "do nothing if present" — it never overwrites a setting.
 
 ---
 
-## Phase 0 — Rehearsal (done on the Mac, 2026-11-25)
+## Phase 0 — Rehearsal (done on the Mac, 2026-11-25, repeated after the merge on 2026-11-26)
+
+**After merging Girish's work (2026-11-26):** script order **20/20** (002–004 then
+040–056), invariants 0, new backend boots clean; all 21 suites pass again on the
+upgraded copy; his migration-exit test passes; on a **fresh install** (new pool
+hall) both mobile live suites pass (13 + 21 checks). Two fixes came out of it:
+fresh installs could not seed units (`unit_catalog.allows_fraction` had no
+database default), and his test now sets the owner-only `waiter_can_close_ticket`
+as admin.
+
+Original rehearsal (before the merge):
 
 Against a production-like copy (backup taken right before 040: schema at 039,
 1,217 tickets), both upgrade orders were tested:
@@ -80,14 +96,15 @@ Phase 1.2–1.3 unchanged (keep `.env`, zip the old folder, expand over it).
 ```powershell
 cd C:\Users\bola8lacalma\Desktop\POS\billiards
 Test-Path .\.env                                               # True
-(Get-ChildItem .\backend\migrations\sql\*.sql).Count             # 46
-(Get-Content .\backend\migrations\sql\manifest.txt | Select-String '^\d').Count   # 18
+(Get-ChildItem .\backend\migrations\sql\*.sql).Count             # 49
+(Get-Content .\backend\migrations\sql\manifest.txt | Select-String '^\d').Count   # 21
+Get-FileHash .\backend\migrations\sql\manifest.txt -Algorithm MD5          # A82AD10969CFC98BE939789ABE45F1A0
 Get-FileHash .\backend\migrations\sql\056_portioning.sql -Algorithm MD5   # AF81C455006E58387CE0BC8340A4E0A5
-Get-FileHash .\backend\migrations\sql\049_spirits_in_ml.sql -Algorithm MD5 # 748249E933417B4A1BC1A9028ABDAABA
-Get-FileHash .\backend\app\__init__.py -Algorithm MD5                     # 4CE1CB45FD7B35D6A4EC642BE788B33C
+Get-FileHash .\backend\migrations\sql\003_restore_reference_data.sql -Algorithm MD5 # 4DF6176B68FB1EE75B3D62254A8A0FF9
+Get-FileHash .\backend\app\__init__.py -Algorithm MD5                     # EC0C640953300A16A3BA2705143546B5
 ```
 
-(If you change any of these files after 2026-11-25 17:55, recompute on the Mac with `md5`.)
+(Values for the merged `main` of 2026-11-26. If any of these files changes, recompute on the Mac with `md5`.)
 
 **1.5 — Add to the POS `.env`** (do not copy the Mac's `.env`):
 
@@ -98,6 +115,13 @@ DAY_CUTOFF=06:00
 
 `SCHEDULED_REPORTS` (default `on`) and `PURCHASE_FORECAST_HOUR` (default `10`)
 need no line. `SMTP_*`, `REPORT_TO`, `TELEGRAM_TOKEN`, `ADMIN_CHAT_ID` stay as they are.
+
+**Backup to S3 (Girish #2) — decide before Phase 4.** The `backup` service needs
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` and
+`POSTGRES_PASSWORD` in `.env`. Without them it exits every minute and restarts
+forever (harmless to the POS, but no backups and noisy logs).
+- **Have the credentials:** add the lines to `.env`, build and start everything (Phases 4–5 as written).
+- **Not yet:** leave it out — in Phase 4 do not build `backup`, and in Phase 5 start the services by name (see there).
 
 ---
 
@@ -117,13 +141,13 @@ Write down the `.dump` path. That is the rollback.
 ## Phase 3 — Migrations
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy\Invoke-Migrations.ps1 -DryRun     # expect 17 pending: 040 … 056 (or 18, see below)
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy\Invoke-Migrations.ps1 -DryRun     # expect 20 pending: 002–004, 040 … 056 (or 21, see below)
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy\Invoke-Migrations.ps1 -SkipBackup
 ```
 
-Expect 17 lines ending in `OK` and the six invariants **all 0**.
+Expect **20** lines ending in `OK` (002, 003, 004, then 040 … 056) and the six invariants **all 0**.
 
-If the dry run lists **18** (`001_baseline_squash` first), the POS was installed
+If the dry run lists **21** (`001_baseline_squash` first), the POS was installed
 before the August squash and never recorded version `001`. That is safe: the file
 detects the existing install, records `001` and changes nothing else
 (rehearsed 2026-11-25 — tickets, lines, items, stock and movements identical
@@ -137,6 +161,8 @@ If a file fails it rolls back completely; send CJ the `ERROR` text (Phase 6 if n
 
 ```powershell
 docker compose build --no-cache backend frontend scheduler telegram-bot
+# only with S3 credentials in .env:
+docker compose build --no-cache backup
 ```
 
 ---
@@ -144,12 +170,13 @@ docker compose build --no-cache backend frontend scheduler telegram-bot
 ## Phase 5 — Start and verify
 
 ```powershell
-docker compose up -d
+docker compose up -d                                              # with S3 credentials
+# without them:  docker compose up -d postgres backend frontend scheduler telegram-bot
 docker compose ps                                   # backend healthy; scheduler/bot/frontend Up
 docker compose logs backend | Select-String "Migrations:|analytics layer|Venue settings|Traceback"
 ```
 
-Expect `Migrations: 0 applied, 18 already present, 0 failed`, `analytics layer ready`,
+Expect `Migrations: 0 applied, 21 already present, 0 failed`, `analytics layer ready`,
 `Venue settings: N default(s) copied` (first start only), no `Traceback`.
 (A line `STEP 26 ... FAILED` *before* the migrations line is harmless — the view
 rebuild after migrations is the one that counts.)
@@ -204,8 +231,8 @@ All of this is uncommitted on branch `fix/inventory-bottle-batch1`. Most files
 carry several batches at once (`TicketPage.tsx`, `inventory.py`,
 `analytics_views.py`…), so a commit per batch is not practical; two commits are:
 
-1. **Code** — `backend/`, `frontend/`, `docker-compose.yml`, `telegram-bot/bot.py`
-2. **Docs** — `docs/` and the project `CLAUDE.md`
+(Done: the overhaul is commit `2c64ffb7`; Girish's `main` is merged on top, plus a
+small fix commit — see the 2026-11-26 merge notes in Phase 0.)
 
 Leave out (they are not part of this work): `.claude/` (local permissions),
 `telegram-bot.zip`, `deploy/2026-08-02-email-report/`, `scripts/settings.json`,

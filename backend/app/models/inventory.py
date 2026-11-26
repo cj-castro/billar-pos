@@ -39,7 +39,11 @@ class UnitCatalog(db.Model):
     active  = db.Column(db.Boolean, nullable=False, default=True)
     # False = counted unit (botella, caballito, pieza...): manual entries must be
     # whole numbers. True = measured unit (ml, gramo...). Migration 041.
-    allows_fraction = db.Column(db.Boolean, nullable=False, default=False)
+    # server_default too: on a FRESH install db.create_all builds this table
+    # before migration 041, and init-db seeds units with raw SQL that omits the
+    # column -- a Python-only default left it NULL and every unit failed to seed.
+    allows_fraction = db.Column(db.Boolean, nullable=False, default=False,
+                                server_default=db.text('false'))
 
     def to_dict(self):
         return {
