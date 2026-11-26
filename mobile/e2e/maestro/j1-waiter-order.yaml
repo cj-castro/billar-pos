@@ -1,0 +1,88 @@
+# J1: waiter login -> table T05 -> add Chicken Wings (+mandatory Wing Flavor) and Soda -> send.
+# Leaves ticket OPEN on T05 for J2/J3 (kitchen then waiter). Host verifies lines via API.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- takeScreenshot: 02-floor-waiter
+- tapOn:
+    id: floor-card-T05
+- extendedWaitUntil:
+    visible:
+      id: open-table-only
+    timeout: 10000
+- takeScreenshot: 03-open-table
+- tapOn:
+    id: open-table-only
+- extendedWaitUntil:
+    visible:
+      id: ticket-add-products
+    timeout: 15000
+- takeScreenshot: 04-ticket-empty
+- tapOn:
+    id: ticket-add-products
+- extendedWaitUntil:
+    visible:
+      id: menu-search
+    timeout: 10000
+- takeScreenshot: 05-menu
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: menu-item-b0a8d9ac-da84-4f45-9832-5b5b30996f59
+# iOS runs against a local DB whose menu ids differ: pick the card by its name
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Chicken Wings.*"
+- extendedWaitUntil:
+    visible:
+      id: configure-sheet
+    timeout: 10000
+- takeScreenshot: 06-configurator-mandatory
+- tapOn:
+    id: configure-add
+- takeScreenshot: 06b-configurator-missing-choice
+- tapOn: "Buffalo.*"
+- takeScreenshot: 06c-configurator-chosen
+- tapOn:
+    id: configure-add
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: menu-item-c3e595db-04a6-4767-b4a8-dca352325c30
+# iOS runs against a local DB whose menu ids differ: pick the card by its name
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Soda.*"
+- tapOn:
+    id: menu-review-order
+- extendedWaitUntil:
+    visible:
+      id: draft-send
+    timeout: 10000
+- takeScreenshot: 07-draft-review
+- tapOn:
+    id: draft-send
+- extendedWaitUntil:
+    visible: "Pedido enviado a cocina y barra"
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      id: ticket-lines
+    timeout: 15000
+- takeScreenshot: 04b-ticket-sent

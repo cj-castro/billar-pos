@@ -1,0 +1,67 @@
+# J7: waiter1 builds an UNSENT draft on T06 -> logout (draft warning) -> waiter2 login -> floor loads, no draft visible.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- tapOn:
+    id: floor-card-T06
+- extendedWaitUntil:
+    visible:
+      id: ticket-add-products
+    timeout: 15000
+- tapOn:
+    id: ticket-add-products
+- tapOn:
+    id: menu-item-c3e595db-04a6-4767-b4a8-dca352325c30
+- assertVisible:
+    id: menu-review-order
+- takeScreenshot: 07b-unsent-draft-waiter1
+- tapOn:
+    id: header-back
+- tapOn:
+    id: header-back
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 10000
+- tapOn: "Yo"
+- tapOn:
+    id: logout
+- takeScreenshot: 17-logout-with-drafts-dialog
+- tapOn:
+    id: confirm-dialog-confirm
+- extendedWaitUntil:
+    visible:
+      id: login-username
+    timeout: 15000
+- tapOn:
+    id: login-username
+- inputText: waiter2
+- tapOn:
+    id: login-password
+- inputText: waiter123
+- hideKeyboard
+- tapOn:
+    id: login-submit
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- assertVisible: ".*waiter2.*|.*Mesero.*"
+- takeScreenshot: 02b-floor-waiter2
+- tapOn:
+    id: floor-card-T06
+- extendedWaitUntil:
+    visible:
+      id: ticket-lines
+    timeout: 15000
+- assertNotVisible:
+    id: ticket-draft-bar
+- takeScreenshot: 18-waiter2-no-draft

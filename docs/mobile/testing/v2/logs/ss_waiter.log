@@ -1,0 +1,30 @@
+Running on billar_mobile_api35
+ > Flow ss_waiter
+Run _login.yaml...
+  Launch app "com.bola8.staff" with clear state... COMPLETED
+  Run flow when id: server-input is visible...
+    Tap on id: server-input... COMPLETED
+    Input text ${SERVER}... COMPLETED
+    Hide Keyboard... COMPLETED
+    Tap on id: server-connect... COMPLETED
+    Assert that id: server-ok is visible... COMPLETED
+    Tap on id: server-continue... COMPLETED
+  Run flow when id: server-input is visible... COMPLETED
+  Assert that id: login-username is visible... COMPLETED
+  Tap on id: login-username... COMPLETED
+  Input text ${USER_NAME}... COMPLETED
+  Tap on id: login-password... COMPLETED
+  Input text ${PASS}... COMPLETED
+  Hide Keyboard... COMPLETED
+  Tap on id: login-submit... COMPLETED
+Run _login.yaml... COMPLETED
+Assert that id: screen-floor is visible... COMPLETED
+Wait for animation to end... COMPLETED
+Take screenshot floor-timer-names... COMPLETED
+Tap on id: floor-card-T05... COMPLETED
+Assert that id: ticket-pay is visible... COMPLETED
+Tap on id: ticket-pay... COMPLETED
+Assert that id: screen-pay is visible... COMPLETED
+Tap on id: pay-method-cash... COMPLETED
+Tap on id: pay-exact... COMPLETED
+Take screenshot pay-cash... COMPLETED

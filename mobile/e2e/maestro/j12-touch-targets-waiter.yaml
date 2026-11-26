@@ -1,0 +1,12 @@
+# J12 helper: waiter login and stop on floor (host runs uiautomator dump to check touch targets).
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000

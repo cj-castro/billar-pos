@@ -14,10 +14,9 @@ export PYTHONUNBUFFERED=1
 #                   them.
 #   4. migrations   versioned .sql files, 027 onward, in manifest order.
 #
-# apply-migrations deliberately exits 0 even when a migration fails. Each file
-# is a single transaction, so a failure leaves the schema consistent at the last
-# good migration and the POS keeps selling on it. Read the summary line it
-# prints, or run `flask migration-status`, to see where it stopped.
+# apply-migrations exits non-zero when a migration fails; set -e then stops the
+# container before gunicorn starts. Run `flask migration-status` to see where it
+# stopped.
 
 echo "Creating database tables..."
 flask init-db

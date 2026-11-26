@@ -1,0 +1,47 @@
+Running on billar_mobile_api35
+ > Flow j1-waiter-order
+Run _login.yaml...
+  Launch app "com.bola8.staff" with clear state... COMPLETED
+  Run flow when id: server-input is visible...
+    Tap on id: server-input... COMPLETED
+    Input text ${SERVER}... COMPLETED
+    Hide Keyboard... COMPLETED
+    Tap on id: server-connect... COMPLETED
+    Assert that id: server-ok is visible... COMPLETED
+    Tap on id: server-continue... COMPLETED
+  Run flow when id: server-input is visible... COMPLETED
+  Assert that id: login-username is visible... COMPLETED
+  Tap on id: login-username... COMPLETED
+  Input text ${USER_NAME}... COMPLETED
+  Tap on id: login-password... COMPLETED
+  Input text ${PASS}... COMPLETED
+  Hide Keyboard... COMPLETED
+  Tap on id: login-submit... COMPLETED
+Run _login.yaml... COMPLETED
+Assert that id: screen-floor is visible... COMPLETED
+Take screenshot 02-floor-waiter... COMPLETED
+Tap on id: floor-card-T05... COMPLETED
+Assert that id: open-table-only is visible... COMPLETED
+Take screenshot 03-open-table... COMPLETED
+Tap on id: open-table-only... COMPLETED
+Assert that id: ticket-add-products is visible... COMPLETED
+Take screenshot 04-ticket-empty... COMPLETED
+Tap on id: ticket-add-products... COMPLETED
+Assert that id: menu-search is visible... COMPLETED
+Take screenshot 05-menu... COMPLETED
+Tap on id: menu-item-b0a8d9ac-da84-4f45-9832-5b5b30996f59... COMPLETED
+Assert that id: configure-sheet is visible... COMPLETED
+Take screenshot 06-configurator-mandatory... COMPLETED
+Tap on id: configure-add... COMPLETED
+Take screenshot 06b-configurator-missing-choice... COMPLETED
+Tap on "Buffalo.*"... COMPLETED
+Take screenshot 06c-configurator-chosen... COMPLETED
+Tap on id: configure-add... COMPLETED
+Tap on id: menu-item-c3e595db-04a6-4767-b4a8-dca352325c30... COMPLETED
+Tap on id: menu-review-order... COMPLETED
+Assert that id: draft-send is visible... COMPLETED
+Take screenshot 07-draft-review... COMPLETED
+Tap on id: draft-send... COMPLETED
+Assert that "Pedido enviado a cocina y barra" is visible... COMPLETED
+Assert that id: ticket-lines is visible... COMPLETED
+Take screenshot 04b-ticket-sent... COMPLETED

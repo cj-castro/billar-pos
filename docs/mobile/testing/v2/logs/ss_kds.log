@@ -1,0 +1,24 @@
+Running on billar_mobile_api35
+ > Flow ss_kds
+Run _login.yaml...
+  Launch app "com.bola8.staff" with clear state... COMPLETED
+  Run flow when id: server-input is visible...
+    Tap on id: server-input... COMPLETED
+    Input text ${SERVER}... COMPLETED
+    Hide Keyboard... COMPLETED
+    Tap on id: server-connect... COMPLETED
+    Assert that id: server-ok is visible... COMPLETED
+    Tap on id: server-continue... COMPLETED
+  Run flow when id: server-input is visible... COMPLETED
+  Assert that id: login-username is visible... COMPLETED
+  Tap on id: login-username... COMPLETED
+  Input text ${USER_NAME}... COMPLETED
+  Tap on id: login-password... COMPLETED
+  Input text ${PASS}... COMPLETED
+  Hide Keyboard... COMPLETED
+  Tap on id: login-submit... COMPLETED
+Run _login.yaml... COMPLETED
+Assert that id: screen-kds is visible... COMPLETED
+Tap on "Loaded Nachos"... COMPLETED
+Tap on "Loaded Nachos"... COMPLETED
+Take screenshot kds-undo-snackbar... COMPLETED

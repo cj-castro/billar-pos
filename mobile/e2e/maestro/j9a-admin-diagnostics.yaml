@@ -1,0 +1,19 @@
+# J9a: admin login -> Sistema tab (diagnostics) screenshot.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: admin
+  PASS: admin123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-overview
+    timeout: 20000
+- tapOn: "Sistema"
+- extendedWaitUntil:
+    visible:
+      id: screen-system
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: 12-admin-diagnostics

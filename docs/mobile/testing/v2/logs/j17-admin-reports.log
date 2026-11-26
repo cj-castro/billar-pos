@@ -1,0 +1,34 @@
+Running on billar_mobile_api35
+ > Flow j17-admin-reports
+Run _login.yaml...
+  Launch app "com.bola8.staff" with clear state... COMPLETED
+  Run flow when id: server-input is visible...
+    Tap on id: server-input... COMPLETED
+    Input text ${SERVER}... COMPLETED
+    Hide Keyboard... COMPLETED
+    Tap on id: server-connect... COMPLETED
+    Assert that id: server-ok is visible... COMPLETED
+    Tap on id: server-continue... COMPLETED
+  Run flow when id: server-input is visible... COMPLETED
+  Assert that id: login-username is visible... COMPLETED
+  Tap on id: login-username... COMPLETED
+  Input text ${USER_NAME}... COMPLETED
+  Tap on id: login-password... COMPLETED
+  Input text ${PASS}... COMPLETED
+  Hide Keyboard... COMPLETED
+  Tap on id: login-submit... COMPLETED
+Run _login.yaml... COMPLETED
+Assert that id: screen-overview is visible... COMPLETED
+Tap on "Reportes"... COMPLETED
+Assert that id: screen-reportes is visible... COMPLETED
+Assert that id: card-sales is visible... COMPLETED
+Take screenshot 17-reportes-hoy... COMPLETED
+Tap on id: preset-week... COMPLETED
+Wait for animation to end... COMPLETED
+Take screenshot 17-reportes-semana... COMPLETED
+Tap on id: preset-month... COMPLETED
+Wait for animation to end... COMPLETED
+Scrolling DOWN until id: card-safe is visible with speed 40, visibility percentage 100%, timeout 20000 ms, with centering disabled... COMPLETED
+Tap on id: safe-add... COMPLETED
+Assert that id: safe-sheet is visible... COMPLETED
+Take screenshot 17-reportes-caja-fuerte... COMPLETED

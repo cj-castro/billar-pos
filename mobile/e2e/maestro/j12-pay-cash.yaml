@@ -1,0 +1,44 @@
+# J12 (v2): waiter opens an existing seeded ticket (T05 with items), Cobrar -> Efectivo -> Exacto -> Confirmar, sees "cerrada".
+# Not run in CI. Needs an OPEN cash session and the seed ticket on T05 (seed-order.mjs).
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- tapOn:
+    id: floor-card-T05
+- extendedWaitUntil:
+    visible:
+      id: ticket-lines
+    timeout: 15000
+- tapOn:
+    id: ticket-pay
+- extendedWaitUntil:
+    visible:
+      id: screen-pay
+    timeout: 10000
+- tapOn:
+    id: pay-method-cash
+- tapOn:
+    id: pay-exact
+- tapOn:
+    id: pay-submit
+- extendedWaitUntil:
+    visible:
+      id: pay-dialog-confirm
+    timeout: 5000
+- waitForAnimationToEnd
+- tapOn:
+    id: pay-dialog-confirm
+- extendedWaitUntil:
+    visible:
+      id: pay-success
+    timeout: 15000
+- assertVisible: ".*cerrada.*"
+- takeScreenshot: 12-pay-success

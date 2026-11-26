@@ -1,0 +1,20 @@
+# J2: kitchen login -> receive Chicken Wings (from J1) -> IN_PROGRESS -> READY.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: kitchen
+  PASS: kitchen123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-kds
+    timeout: 20000
+- assertVisible: Chicken Wings
+- takeScreenshot: 09-kds-portrait
+- tapOn: Chicken Wings
+- assertVisible: ".*En preparación.*"
+- takeScreenshot: 09b-kds-in-progress
+- tapOn: Chicken Wings
+- assertVisible: ".*Esperando mesero.*"
+- takeScreenshot: 09c-kds-ready

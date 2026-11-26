@@ -1,0 +1,13 @@
+# J6c: (airplane mode OFF) -> banner clears, Send enabled -> tap Send -> line sent exactly once.
+appId: com.bola8.staff
+---
+- extendedWaitUntil:
+    notVisible: ".*Sin conexión.*"
+    timeout: 60000
+- takeScreenshot: 13c-reconnected
+- tapOn:
+    id: draft-send
+- extendedWaitUntil:
+    visible: "Pedido enviado a cocina y barra"
+    timeout: 20000
+- takeScreenshot: 13d-sent-after-reconnect

@@ -1,0 +1,79 @@
+# Subflow: first-launch server setup (only if shown) + login. Env: SERVER (Android), IOS_SERVER (iOS, default localhost:8090), USER_NAME, PASS.
+appId: com.bola8.staff
+env:
+  IOS_SERVER: localhost:8090
+---
+- launchApp:
+    clearState: true
+# The app auto-discovers a server on the LAN (port 8080) after a clear: if it landed on the login or splash
+# screen with a discovered server, go back to server setup so we always test against the intended backend.
+- extendedWaitUntil:
+    visible:
+      id: "server-input|change-server|splash-change-server"
+    timeout: 20000
+- runFlow:
+    when:
+      visible:
+        id: "change-server|splash-change-server"
+    commands:
+      - tapOn:
+          id: "change-server|splash-change-server"
+- runFlow:
+    when:
+      visible:
+        id: server-input
+    commands:
+      - tapOn:
+          id: server-input
+      # Android emulator reaches the host via 10.0.2.2; the iOS simulator shares the host network (localhost).
+      - runFlow:
+          when:
+            platform: Android
+          commands:
+            - inputText: ${SERVER}
+      - runFlow:
+          when:
+            platform: iOS
+          commands:
+            # the setup field is pre-filled with the auto-discovered server: clear it first
+            - eraseText: 60
+            - inputText: ${IOS_SERVER}
+      - runFlow: _hide-keyboard.yaml
+      - tapOn:
+          id: server-connect
+      - extendedWaitUntil:
+          visible:
+            id: server-ok
+          timeout: 15000
+      - tapOn:
+          id: server-continue
+- extendedWaitUntil:
+    visible:
+      id: login-username
+    timeout: 15000
+- tapOn:
+    id: login-username
+- inputText: ${USER_NAME}
+- tapOn:
+    id: login-password
+- inputText: ${PASS}
+- runFlow: _hide-keyboard.yaml
+# iOS: the Return key in _hide-keyboard.yaml already submitted the login (returnKeyType="go").
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: login-submit
+# iOS: after a successful sign-in the system offers "Save Password?" and covers the app; dismiss it when it shows up.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - extendedWaitUntil:
+          visible: "Not Now"
+          timeout: 6000
+          optional: true
+      - tapOn:
+          text: "Not Now"
+          optional: true

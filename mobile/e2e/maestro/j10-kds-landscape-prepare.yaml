@@ -1,0 +1,13 @@
+# J10: kitchen login (portrait) -> host rotates the emulator to landscape and captures KDS with adb screencap.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: kitchen
+  PASS: kitchen123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-kds
+    timeout: 20000
+- takeScreenshot: 09-kds-portrait-empty

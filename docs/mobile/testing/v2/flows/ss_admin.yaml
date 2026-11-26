@@ -1,0 +1,15 @@
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: admin
+  PASS: admin123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-overview
+    timeout: 20000
+- tapOn: "Más"
+- tapOn: "Sistema"
+- waitForAnimationToEnd
+- takeScreenshot: admin-sistema

@@ -1,0 +1,45 @@
+# OPTIONAL: the primary path is scripts/mobile/publish-release.ps1 (local). This builds + publishes on tag `mobile-v<ver>+<build>`.
+# Secrets (source repo): BOLA8_KEYSTORE_B64 (base64 of the .jks), BOLA8_KEYSTORE_PASS, BOLA8_KEY_ALIAS, BOLA8_KEY_PASS,
+#   BOLA8_UPDATES_TOKEN (read-only fine-grained PAT baked into the APK), RELEASES_REPO_TOKEN (PAT with Contents: Read and write on the releases repo).
+# Variable: RELEASES_REPO = <owner>/bola8-staff-releases. Keep the tag equal to version.ts, otherwise the job fails.
+name: mobile-release
+on:
+  push:
+    tags: ['mobile-v*']
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      BOLA8_KEYSTORE_PASS: ${{ secrets.BOLA8_KEYSTORE_PASS }}
+      BOLA8_KEY_ALIAS: ${{ secrets.BOLA8_KEY_ALIAS }}
+      BOLA8_KEY_PASS: ${{ secrets.BOLA8_KEY_PASS }}
+      BOLA8_UPDATES_TOKEN: ${{ secrets.BOLA8_UPDATES_TOKEN }}
+      GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: mobile/package-lock.json }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - run: npm ci
+      - name: Check tag matches version.ts
+        run: |
+          v=$(sed -n "s/.*APP_VERSION = '\(.*\)';/\1/p" src/config/version.ts); b=$(sed -n 's/.*APP_BUILD = \([0-9]*\);/\1/p' src/config/version.ts)
+          [ "${GITHUB_REF_NAME}" = "mobile-v$v+$b" ] || { echo "tag ${GITHUB_REF_NAME} != mobile-v$v+$b"; exit 1; }
+          echo "V=$v" >> "$GITHUB_ENV"; echo "B=$b" >> "$GITHUB_ENV"
+      - name: Build signed APK
+        run: |
+          echo "${{ secrets.BOLA8_KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export BOLA8_KEYSTORE="$RUNNER_TEMP/release.jks"
+          npx expo prebuild --platform android --no-install --clean
+          (cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a --console=plain)
+      - name: Publish to releases repo
+        run: |
+          apk="bola8-staff-$V-$B.apk"; cp android/app/build/outputs/apk/release/app-release.apk "$apk"
+          notes=$(awk '/^## /{n++} n==1' ../docs/mobile/release/CHANGELOG.md | sed '1d')
+          jq -n --arg v "$V" --argjson b "$B" --arg apk "$apk" --arg n "$notes" --arg s "$(sha256sum "$apk" | cut -d' ' -f1)" --arg m "$(md5sum "$apk" | cut -d' ' -f1)" \
+            '{version:$v,build:$b,apk:$apk,notes:$n,sha256:$s,md5:$m}' > latest.json
+          gh release create "${GITHUB_REF_NAME}" "$apk" latest.json --repo "${{ vars.RELEASES_REPO }}" --title "Bola 8 Staff $V ($B)" --notes "$notes"

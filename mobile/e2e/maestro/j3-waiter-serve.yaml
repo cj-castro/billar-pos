@@ -1,0 +1,35 @@
+# J3: waiter sees READY chip ("Listo") on the ticket + Listos tab, then marks served.
+# LINE_ID = READY line id (host passes: maestro test -e LINE_ID=<uuid>).
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+  LINE_ID: e2d4ac29-fdfa-4311-ad22-dbfb56074ade
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- tapOn: "Listos.*"
+- extendedWaitUntil:
+    visible:
+      id: screen-ready
+    timeout: 10000
+- assertVisible:
+    id: ready-line-${LINE_ID}
+- takeScreenshot: 08-ready-list
+- tapOn: "Mesas.*"
+- tapOn:
+    id: floor-card-T05
+- extendedWaitUntil:
+    visible:
+      id: ticket-lines
+    timeout: 15000
+- assertVisible: ".*Listo.*"
+- takeScreenshot: 04c-ticket-ready-chip
+- tapOn:
+    id: ticket-serve-${LINE_ID}
+- takeScreenshot: 04d-ticket-served
+- assertVisible: ".*Servido.*"

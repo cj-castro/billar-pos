@@ -18,7 +18,7 @@ Write-Host   "╚═════════════════════
 
 # ── 1. Docker containers ────────────────────────────────────────────────────
 Section "Docker Containers"
-$containers = @("billiards-postgres-1", "billiards-backend-1", "billiards-frontend-1")
+$containers = @("billiards-postgres-1", "billiards-backend-1", "billiards-frontend-1", "billiards-backup-1")
 foreach ($c in $containers) {
     $status = docker inspect --format "{{.State.Status}}" $c 2>$null
     if ($status -eq "running") { Ok "$c is running" }

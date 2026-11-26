@@ -1,0 +1,64 @@
+# J13 (v2): waiter -> "Rapido" (EXPRESS ticket, no table) -> Soda -> send. 5 taps: Rapido, Abrir y pedir, item, Revisar, Enviar.
+# Not run in CI; needs an open cash session and the seeded Soda item.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- tapOn:
+    id: floor-express
+- extendedWaitUntil:
+    visible:
+      id: open-table-submit
+    timeout: 10000
+- takeScreenshot: j13-express-sheet
+- tapOn:
+    id: open-table-submit
+- extendedWaitUntil:
+    visible:
+      id: menu-search
+    timeout: 15000
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: menu-item-c3e595db-04a6-4767-b4a8-dca352325c30
+# iOS runs against a local DB whose menu ids differ: pick the card by its name
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Soda.*"
+- tapOn:
+    id: menu-review-order
+- extendedWaitUntil:
+    visible:
+      id: draft-send
+    timeout: 10000
+- tapOn:
+    id: draft-send
+- extendedWaitUntil:
+    visible: "Pedido enviado a cocina y barra"
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      id: ticket-lines
+    timeout: 15000
+- takeScreenshot: j13-express-ticket
+# back on the floor the open EXPRESS ticket shows up in the "Rapidos" row
+- tapOn:
+    id: header-back
+# back from the ticket lands on the menu (history stack); one more back reaches the floor
+- tapOn:
+    id: header-back
+- extendedWaitUntil:
+    visible:
+      id: floor-express
+    timeout: 10000

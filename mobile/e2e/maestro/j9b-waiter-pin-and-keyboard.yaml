@@ -1,0 +1,49 @@
+# J9b: waiter on T06 -> line actions -> void -> manager PIN sheet (screenshot); notes keyboard overlap in configurator.
+appId: com.bola8.staff
+env:
+  SERVER: 10.0.2.2:8090
+  USER_NAME: waiter1
+  PASS: waiter123
+---
+- runFlow: _login.yaml
+- extendedWaitUntil:
+    visible:
+      id: screen-floor
+    timeout: 20000
+- tapOn:
+    id: floor-card-T06
+- extendedWaitUntil:
+    visible:
+      id: ticket-lines
+    timeout: 15000
+- longPressOn: "Soda.*"
+- extendedWaitUntil:
+    visible:
+      id: line-actions
+    timeout: 8000
+- takeScreenshot: 19-line-actions
+- tapOn:
+    id: line-action-void
+- waitForAnimationToEnd
+- takeScreenshot: 15a-void-confirm-dialog
+- tapOn: "Anular"
+- extendedWaitUntil:
+    visible:
+      id: pin-sheet
+    timeout: 8000
+- takeScreenshot: 15-manager-pin
+- tapOn:
+    id: pin-cancel
+- tapOn:
+    id: ticket-add-products
+- tapOn:
+    id: menu-item-b0a8d9ac-da84-4f45-9832-5b5b30996f59
+- extendedWaitUntil:
+    visible:
+      id: configure-sheet
+    timeout: 8000
+- tapOn:
+    id: configure-notes
+- inputText: sin picante por favor
+- waitForAnimationToEnd
+- takeScreenshot: 20-notes-keyboard-open
