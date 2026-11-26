@@ -38,3 +38,4 @@
 054_comps_staff_consumption
 055_manual_free_pool_time
 056_portioning
+057_low_stock_threshold_not_null

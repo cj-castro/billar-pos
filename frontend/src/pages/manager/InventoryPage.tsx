@@ -712,11 +712,15 @@ export default function InventoryPage() {
 
   // ── Unit dropdown helper ───────────────────────────────────────────────────
 
-  const UnitSelect = ({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) => (
+  // emptyLabel: offer "no unit" as a real choice. Without it an empty value made
+  // the browser SHOW the first unit ("Barril") while nothing was selected, so the
+  // form looked bought-by-barrel but priced per kg and never asked the pack size.
+  const UnitSelect = ({ value, onChange, label, emptyLabel }: { value: string; onChange: (v: string) => void; label: string; emptyLabel?: string }) => (
     <div>
       <label className="text-xs text-slate-400 block mb-1">{label}</label>
-      <select value={value} onChange={e => onChange(e.target.value)}
+      <select value={value ?? ''} onChange={e => onChange(e.target.value)}
         className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+        {emptyLabel !== undefined && <option value="">{emptyLabel}</option>}
         {units.filter(u => u.active).map(u => (
           <option key={u.key} value={u.key}>{getUnitName(u.key)}</option>
         ))}
@@ -1312,6 +1316,7 @@ export default function InventoryPage() {
               </div>
               {/* How it is bought, then its price per purchase unit. */}
               <UnitSelect label={`${t('inventory.purchaseUnit')} (cómo lo compras)`} value={newItem.purchase_unit_key}
+                emptyLabel="— Igual que la unidad base —"
                 onChange={v => setNewItem({ ...newItem, purchase_unit_key: v,
                                             purchase_pack_size: packFor(newItem.base_unit_key, v, newItem.purchase_pack_size) })} />
               <CostEntry
@@ -1429,7 +1434,8 @@ export default function InventoryPage() {
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2" />
                 </div>
               </div>
-              <UnitSelect label={t('inventory.purchaseUnit')} value={editForm.purchase_unit_key}
+              <UnitSelect label={t('inventory.purchaseUnit')} value={editForm.purchase_unit_key ?? ''}
+                emptyLabel="— Igual que la unidad base —"
                 onChange={v => setEditForm({ ...editForm, purchase_unit_key: v })} />
               <div>
                 <label className="text-xs text-slate-400 block mb-1">

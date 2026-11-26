@@ -960,7 +960,9 @@ def stock_check():
                 servings = int(inv.stock_quantity // ing.quantity)
                 if max_servings is None or servings < max_servings:
                     max_servings = servings
-                if 0 < inv.stock_quantity <= inv.low_stock_threshold:
+                # `or 0`: an empty threshold (allowed by the column until 057)
+                # crashed the whole check and blanked the order picker.
+                if 0 < inv.stock_quantity <= (inv.low_stock_threshold or 0):
                     is_low = True
         if max_servings is not None:
             remaining_by_item[mi.id] = max_servings
@@ -977,7 +979,7 @@ def stock_check():
                 'id':        i.id,
                 'name':      i.name,
                 'quantity':  float(i.stock_quantity),
-                'threshold': float(i.low_stock_threshold),
+                'threshold': float(i.low_stock_threshold or 0),
             }
             for i in InventoryItem.query.filter(
                 InventoryItem.stock_quantity > 0,

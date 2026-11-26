@@ -92,10 +92,20 @@ Expect 17 `applied` lines and `Migrations: 17 applied, 1 already present, 0 fail
 
 ## Phase 1 — Bundle and copy (no git on the POS)
 
-Commit first (see "Commits" at the end), then build the bundle exactly as in
-`DEPLOY-WINDOWS.md` 1.1. It must include the updated **`docker-compose.yml`**
-(it passes `VENUE_NAME`, `DAY_CUTOFF`, `SCHEDULED_REPORTS`, `PURCHASE_FORECAST_HOUR`)
-and **`telegram-bot/bot.py`**.
+**Built 2026-11-26:** `~/Desktop/pos-bundle-20261126.zip`, 30 MB, 957 files,
+MD5 **`E90DB5C43407C66B058945702908D9FF`**. Made with `git archive` from the
+pushed commit `214b6a5b` (not `zip -r` of the folder), so it holds only
+committed files — no `.env`, `.claude/`, `telegram-bot.zip`, `deploy/`,
+`scripts/settings.json`. One file was left out: a planning note saved by mistake
+as `backend/app/# Billar POS → SaaS + AWS Migration: Tec.md` — the `:` in its
+name is illegal on Windows and breaks unzipping. It now lives at
+`docs/PLAN-SAAS-AWS-MIGRATION.md`. On the POS, check the zip first:
+
+```powershell
+Get-FileHash .\pos-bundle-20261126.zip -Algorithm MD5   # E90DB5C43407C66B058945702908D9FF
+```
+
+To rebuild it: `git archive --format=zip -o ~/Desktop/pos-bundle-20261126.zip 214b6a5b -- . ':(exclude)backend/app/#*'`
 
 Phase 1.2–1.3 unchanged (keep `.env`, zip the old folder, expand over it).
 
