@@ -41,6 +41,7 @@ _NUMERIC_KEYS = {
     'comps.owner_above_cents': (0, 10_000_000, 'Cortesías que autoriza el dueño (centavos)'),
     'staff.allowance_cents':   (0, 10_000_000, 'Consumo libre de personal por día (centavos)'),
     'purchasing.safety_pct':   (0, 200, 'Colchón del pronóstico de compras (%)'),
+    'cash.drawer_fund_cents':  (0, 10_000_000, 'Fondo de caja (centavos)'),
 }
 
 
@@ -79,6 +80,14 @@ def put_setting(key: str):
         if n < lo or n > hi:
             return jsonify({'error': 'VALIDATION', 'message': f'{what}: entre {lo} y {hi}'}), 422
         value = str(n)
+
+    # Counting by denomination needs a bill/coin table for the venue currency.
+    # Turning it OFF is always allowed.
+    if key == 'cash.count_by_denomination':
+        from ..services import cash_count_svc, settings_svc, venue_svc
+        if settings_svc.is_truthy(value) and not cash_count_svc.denominations(venue_svc.get_venue()['currency']):
+            return jsonify({'error': 'VALIDATION',
+                            'message': 'No hay tabla de billetes y monedas para esta moneda'}), 422
 
     s = Setting.query.get(key)
     if s:

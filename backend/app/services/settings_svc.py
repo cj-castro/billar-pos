@@ -23,7 +23,26 @@ def get_bool(key: str, default: bool = False) -> bool:
         return default
     if row is None or row.value is None or str(row.value).strip() == '':
         return default
-    return str(row.value).strip().lower() in _TRUTHY
+    return is_truthy(row.value)
+
+
+def is_truthy(value) -> bool:
+    """'1' / 'true' / 'on' / 'yes' ... (case and spaces ignored)."""
+    return str(value).strip().lower() in _TRUTHY
+
+
+def get_int(key: str, default: int = 0) -> int:
+    """Whole-number setting; a missing, blank or non-numeric row gives `default`."""
+    try:
+        row = Setting.query.get(key)
+    except Exception:
+        return default
+    if row is None or row.value is None:
+        return default
+    try:
+        return int(str(row.value).strip())
+    except ValueError:
+        return default
 
 
 def should_print(routing_dest: str) -> bool:

@@ -50,6 +50,13 @@ export interface CashSummary {
 export interface CashSummaryResponse {
   session: CashSession;
   summary: CashSummary;
+  /** Present when the close had a count by denomination. The phone only shows the number. */
+  envelope?: { number: number; declared_cents: number; lines: { key: string; qty: number }[] };
+}
+
+export interface CountLineBody {
+  key: string;
+  qty: number;
 }
 
 export interface SessionTicket {
@@ -77,14 +84,19 @@ export async function getCashSummary(): Promise<CashSummaryResponse | null> {
 }
 
 /** 409 SESSION_ALREADY_OPEN. */
-export async function openCash(openingFundCents: number): Promise<CashSession> {
-  const { data } = await client.post<CashSession>('/cash/open', { opening_fund_cents: openingFundCents });
+export async function openCash(arg: number | { count: CountLineBody[] }): Promise<CashSession> {
+  const body = typeof arg === 'number' ? { opening_fund_cents: arg } : { count: arg.count };
+  const { data } = await client.post<CashSession>('/cash/open', body);
   return data;
 }
 
 /** 409 OPEN_TICKETS (message carries the count), 404 NO_OPEN_SESSION. */
-export async function closeCash(countedCents: number, notes?: string): Promise<CashSummaryResponse> {
-  const { data } = await client.post<CashSummaryResponse>('/cash/close', { closing_cash_counted_cents: countedCents, notes: notes || null });
+export async function closeCash(arg: number | { count: CountLineBody[]; drawerLeft: CountLineBody[]; notes?: string }, notes?: string): Promise<CashSummaryResponse> {
+  const body =
+    typeof arg === 'number'
+      ? { closing_cash_counted_cents: arg, notes: notes || null }
+      : { count: arg.count, drawer_left: arg.drawerLeft, notes: arg.notes || null };
+  const { data } = await client.post<CashSummaryResponse>('/cash/close', body);
   return data;
 }
 

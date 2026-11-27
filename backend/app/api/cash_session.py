@@ -1,10 +1,13 @@
 from datetime import date, datetime, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
+from sqlalchemy import text
 from app.extensions import db
-from app.models.cash_session import CashSession, Expense, TipDistributionConfig
+from app.models.cash_session import CashEnvelope, CashSession, Expense, TipDistributionConfig
 from app.models.ticket import Ticket
 from app.models.resource import Resource
+from app.services import audit_svc, cash_count_svc, cash_handoff_svc
+from app.services.cash_count_svc import CountError
 
 cash_bp = Blueprint('cash', __name__)
 
@@ -20,6 +23,38 @@ def _current_session():
     return CashSession.query.filter_by(status='OPEN').order_by(CashSession.opened_at.desc()).first()
 
 
+def _lock_open_session(session_id):
+    """Lock the session row (SELECT ... FOR UPDATE) and re-read it. Returns the
+    session if it is still OPEN, else None. A second close that raced the first
+    waits here, then sees CLOSED and gets 404 instead of closing it again."""
+    s = (CashSession.query.filter_by(id=session_id)
+         .with_for_update().populate_existing().first())
+    return s if s is not None and s.status == 'OPEN' else None
+
+
+def _json_body():
+    """The JSON object sent, or None when the body is JSON but not an object
+    (null, a list...). That used to crash with a 500; now it is a 422, and it
+    never closes a drawer with no amount."""
+    data = request.get_json()
+    return data if isinstance(data, dict) else None
+
+
+def _bad_body():
+    return jsonify({'error': 'VALIDATION', 'message': 'Solicitud inválida'}), 422
+
+
+def _count_error(err: CountError, field: str):
+    body = {'error': err.code, 'message': cash_handoff_svc.message(err), 'field': field}
+    if err.key is not None:
+        body['key'] = err.key
+    return jsonify(body), 422
+
+
+def _count_required(message: str):
+    return jsonify({'error': 'COUNT_REQUIRED', 'message': message}), 422
+
+
 # ── Blind count (batch C) ──────────────────────────────────────────────────────
 # While a drawer is OPEN, a MANAGER does not see sales or expected cash: they
 # count, submit the close, and only then see the expected amount and the
@@ -33,6 +68,13 @@ def _current_session():
 # because reconciling the drawer is their job.
 _SALES_FIELDS = ('total_sales_cents', 'cash_sales_cents', 'card_sales_cents')
 _BLIND_FIELDS = ('expected_cash_cents', 'cash_over_short_cents')
+# Cash handoff (count by denomination): what stays in the drawer overnight is
+# owner-only, for open AND closed sessions. The next manager counts the drawer
+# blind at opening; knowing last night's "queda en caja" would let them count
+# TO it. The envelope amount is owner-only too: a manager sees the counted cash
+# of a closed session, and counted - envelope = what was left. A manager keeps
+# envelope_number (to find the envelope), nothing else.
+_OWNER_ONLY_FIELDS = ('opening_variance_cents', 'drawer_left_cents', 'envelope_declared_cents')
 
 
 def _is_owner() -> bool:
@@ -43,12 +85,80 @@ def _is_blind(session) -> bool:
     return session is not None and session.status == 'OPEN' and not _is_owner()
 
 
-def _for_viewer(session, summary: dict) -> dict:
+def _strip_for_viewer(session, data: dict, has_envelope: bool = False) -> dict:
+    """The single place that removes what this viewer may not see.
+
+    has_envelope: the session was closed with a count by denomination. Its
+    close note is then owner-only too. The server forces a note exactly when
+    what stays in the drawer is not the fund, so the note usually says the
+    amount ("solo dejé $1,800") -- the figure the next manager must not know.
+    The owner keeps the note (it is also on the DRAWER_LEFT count)."""
     if _is_owner():
-        return {**summary, 'conteo_ciego': False, 'ventas_ocultas': False}
-    drop = _SALES_FIELDS + (_BLIND_FIELDS if _is_blind(session) else ())
-    return {**{k: v for k, v in summary.items() if k not in drop},
-            'conteo_ciego': _is_blind(session), 'ventas_ocultas': True}
+        return dict(data)
+    drop = _SALES_FIELDS + _OWNER_ONLY_FIELDS + (_BLIND_FIELDS if _is_blind(session) else ())
+    if has_envelope:
+        drop += ('notes',)
+    return {k: v for k, v in data.items() if k not in drop}
+
+
+def _session_for_viewer(session) -> dict:
+    """session.to_dict() for this viewer: a manager does not get the close
+    note of a session that has an envelope (see _strip_for_viewer)."""
+    data = session.to_dict()
+    if _is_owner() or session.notes is None:
+        return data
+    has_envelope = db.session.query(
+        CashEnvelope.query.filter_by(session_id=session.id).exists()).scalar()
+    return _strip_for_viewer(session, data, has_envelope)
+
+
+def _for_viewer(session, summary: dict) -> dict:
+    return {**_strip_for_viewer(session, summary),
+            'conteo_ciego': _is_blind(session), 'ventas_ocultas': not _is_owner()}
+
+
+def _handoff_fields(sessions) -> dict:
+    """{session_id: {opening_variance_cents, drawer_left_cents, envelope_number,
+    envelope_declared_cents}} for each session. Values are null when unknown.
+
+    opening_variance_cents = this session's OPENING count - the DRAWER_LEFT of
+    the session right before it (by opened_at), if that one is CLOSED. Null
+    when either count is missing (legacy open/close, or the first opening
+    after the flag went on): null, never 0. Callers pass the result through
+    _strip_for_viewer: all but envelope_number are owner-only."""
+    sessions = [s for s in sessions if s is not None]
+    if not sessions:
+        return {}
+    ids = [s.id for s in sessions]
+    prev = {r.id: r.prev_id for r in db.session.execute(text("""
+        SELECT s.id, p.id AS prev_id
+        FROM cash_sessions s
+        LEFT JOIN LATERAL (
+            SELECT c.id, c.status FROM cash_sessions c
+            WHERE c.opened_at < s.opened_at ORDER BY c.opened_at DESC LIMIT 1
+        ) p ON p.status = 'CLOSED'
+        WHERE s.id = ANY(:ids)"""), {'ids': ids})}
+    opening = cash_handoff_svc.current_totals(ids, 'OPENING')
+    left = cash_handoff_svc.current_totals(set(ids) | {p for p in prev.values() if p}, 'DRAWER_LEFT')
+    envs = {e.session_id: e for e in CashEnvelope.query.filter(CashEnvelope.session_id.in_(ids)).all()}
+    out = {}
+    for sid in ids:
+        before = left.get(prev.get(sid))
+        env = envs.get(sid)
+        out[sid] = {
+            'opening_variance_cents': (opening[sid] - before
+                                       if sid in opening and before is not None else None),
+            'drawer_left_cents': left.get(sid),
+            'envelope_number': env.number if env else None,
+            'envelope_declared_cents': env.declared_cents if env else None,
+        }
+    return out
+
+
+def _summary_for_viewer(session, tip_cfg) -> dict:
+    """Session summary + the cash-handoff fields, stripped for this viewer."""
+    summary = {**_build_summary(session, tip_cfg), **_handoff_fields([session])[session.id]}
+    return _for_viewer(session, summary)
 
 
 @cash_bp.route('/status', methods=['GET'])
@@ -71,9 +181,13 @@ def get_status():
                          .count())
     return jsonify({
         'open': session is not None,
-        'session': session.to_dict() if session else None,
+        'session': _session_for_viewer(session) if session else None,
         'open_tickets_count': open_tickets,
         'ghost_tickets_count': ghost_tickets,
+        # Count-by-denomination screen (web + mobile) reads these.
+        'denominations': cash_count_svc.denominations(cash_handoff_svc.currency()),
+        'fund_target_cents': cash_handoff_svc.fund_target_cents(),
+        'count_by_denomination': cash_handoff_svc.count_required(),
     })
 
 
@@ -87,13 +201,32 @@ def open_session():
     if _current_session():
         return jsonify({'error': 'SESSION_ALREADY_OPEN'}), 409
 
-    data = request.get_json()
+    # Body: {count: [{key, qty}]} (count by denomination) or the legacy
+    # {opening_fund_cents}. With cash.count_by_denomination on, the legacy body
+    # is refused. With it off, a body that has a count is still accepted and
+    # the count is recorded (the count wins over opening_fund_cents).
+    data = _json_body()
+    if data is None:
+        return _bad_body()
+    has_count = data.get('count') is not None
+    if not has_count and cash_handoff_svc.count_required():
+        return _count_required(cash_handoff_svc.COUNT_REQUIRED_OPEN)
+    lines = None
+    if has_count:
+        try:
+            lines = cash_handoff_svc.parse(data['count'], cash_handoff_svc.currency())
+        except CountError as e:
+            return _count_error(e, 'count')
+
     session = CashSession(
         date=date.today(),
-        opening_fund_cents=data.get('opening_fund_cents', 0),
+        opening_fund_cents=0 if has_count else data.get('opening_fund_cents', 0),
         opened_by=user_id,
     )
     db.session.add(session)
+    if has_count:
+        db.session.flush()
+        cash_handoff_svc.record_open(session, lines, user_id)
     db.session.commit()
     return jsonify(session.to_dict()), 201
 
@@ -120,17 +253,122 @@ def close_session():
             'message': f'No se puede cerrar la caja: hay {open_tickets} cuenta{"s" if open_tickets != 1 else ""} abierta{"s" if open_tickets != 1 else ""} pendiente{"s" if open_tickets != 1 else ""}. Ciérralas primero.'
         }), 409
 
-    data = request.get_json()
-    session.closing_cash_counted_cents = data.get('closing_cash_counted_cents')
-    session.notes = data.get('notes')
+    # Body: {count, drawer_left, notes} (count by denomination) or the legacy
+    # {closing_cash_counted_cents, notes}. Same flag rules as open_session.
+    data = _json_body()
+    if data is None:
+        return _bad_body()
+    # Notes: text or nothing, stripped once. The same value goes on the
+    # session and on the DRAWER_LEFT count. Anything else used to be a 500.
+    notes = data.get('notes')
+    if notes is not None and not isinstance(notes, str):
+        return jsonify({'error': 'VALIDATION', 'message': 'La nota debe ser texto.', 'field': 'notes'}), 422
+    notes = (notes or '').strip() or None
+    has_count = data.get('count') is not None
+    if not has_count and cash_handoff_svc.count_required():
+        return _count_required(cash_handoff_svc.COUNT_REQUIRED_CLOSE)
+
+    counted = left = None
+    if has_count:
+        cur = cash_handoff_svc.currency()
+        try:
+            counted = cash_handoff_svc.parse(data['count'], cur)
+        except CountError as e:
+            return _count_error(e, 'count')
+        raw_left = data.get('drawer_left')
+        try:
+            left = cash_handoff_svc.parse([] if raw_left is None else raw_left, cur)
+            cash_count_svc.split(counted, left)
+        except CountError as e:
+            return _count_error(e, 'drawer_left')
+        left_total = cash_count_svc.total_cents(left, cur)
+        target = cash_handoff_svc.fund_target_cents()
+        if left_total != target and not notes:
+            return jsonify({
+                'error': 'NOTE_REQUIRED',
+                'message': (f'Lo que se queda en caja ({cash_handoff_svc.money(left_total)}) no es el '
+                            f'fondo de {cash_handoff_svc.money(target)}. Escribe una nota que explique por qué.'),
+                'field': 'notes',
+            }), 422
+
+    # Lock the row and re-check: the counts, the envelope and the session
+    # update are written in this one transaction, at most once per session.
+    session = _lock_open_session(session.id)
+    if session is None:
+        db.session.rollback()
+        return jsonify({'error': 'NO_OPEN_SESSION'}), 404
+
+    envelope = None
+    if has_count:
+        envelope = cash_handoff_svc.record_close(session, counted, left, user_id, notes)
+    else:
+        session.closing_cash_counted_cents = data.get('closing_cash_counted_cents')
+    session.notes = notes
     session.closed_by = user_id
     session.closed_at = datetime.now(timezone.utc)
     session.status = 'CLOSED'
     db.session.commit()
 
     tip_cfg = TipDistributionConfig.query.get(1)
-    return jsonify({'session': session.to_dict(),
-                    'summary': _for_viewer(session, _build_summary(session, tip_cfg))})
+    out = {'session': session.to_dict(),
+           'summary': _for_viewer(session, _build_summary(session, tip_cfg))}
+    if envelope is not None:
+        out['envelope'] = {
+            'number': envelope.number,
+            'declared_cents': envelope.declared_cents,
+            'lines': cash_handoff_svc.rows(cash_count_svc.split(counted, left), cur),
+        }
+        drawer_left = {'total_cents': left_total, 'lines': cash_handoff_svc.rows(left, cur)}
+        # The "queda en caja" figures are owner-only after the close. The
+        # closing manager gets them here, only to print the slip that goes INTO
+        # the envelope. GET /cash/sessions/<id>/slips returns them again to
+        # that same manager until the next opening; after that, owner only.
+        out['slip_drawer_left'] = drawer_left
+        if _is_owner():
+            out['drawer_left'] = drawer_left
+    return jsonify(out)
+
+
+@cash_bp.route('/sessions/<session_id>/recount', methods=['POST'])
+@jwt_required()
+def recount_session(session_id):
+    """Owner-only correction of a count. Body: {kind, count, reason}. Appends a
+    new count (the old one stays), rewrites the derived totals, audits it."""
+    if not _is_owner():
+        return jsonify({'error': 'FORBIDDEN', 'message': 'Solo el dueño puede corregir un conteo.'}), 403
+    data = _json_body()
+    if data is None:
+        return _bad_body()
+    kind = data.get('kind')
+    if kind not in cash_handoff_svc.RECOUNT_KINDS:
+        return jsonify({'error': 'VALIDATION', 'message': 'Tipo de conteo no válido.', 'field': 'kind'}), 422
+    reason = data.get('reason')
+    if not isinstance(reason, str) or not reason.strip():
+        return jsonify({'error': 'REASON_REQUIRED', 'message': 'Escribe el motivo de la corrección.',
+                        'field': 'reason'}), 422
+    try:
+        lines = cash_handoff_svc.parse(data.get('count'), cash_handoff_svc.currency())
+    except CountError as e:
+        return _count_error(e, 'count')
+    session = (CashSession.query.filter_by(id=session_id)
+               .with_for_update().populate_existing().first())
+    if session is None:
+        return jsonify({'error': 'NOT_FOUND'}), 404
+    try:
+        result = cash_handoff_svc.recount(session, kind, lines, reason, get_jwt_identity())
+    except CountError as e:
+        db.session.rollback()
+        return _count_error(e, 'count')
+    except cash_handoff_svc.RecountError as e:
+        db.session.rollback()
+        return jsonify({'error': e.code, 'message': e.message}), e.status
+    audit_svc.log(get_jwt_identity(), 'CASH_RECOUNT', 'cash_session', session.id,
+                  before={'kind': kind, **result['before']}, after={'kind': kind, **result['after']},
+                  reason=result['reason'], ip_address=request.remote_addr)
+    db.session.commit()
+    tip_cfg = TipDistributionConfig.query.get(1)
+    return jsonify({'session': _session_for_viewer(session),
+                    'summary': _summary_for_viewer(session, tip_cfg)})
 
 
 @cash_bp.route('/current/summary', methods=['GET'])
@@ -144,8 +382,8 @@ def current_summary():
     if not session:
         return jsonify({'error': 'NO_OPEN_SESSION'}), 404
     tip_cfg = TipDistributionConfig.query.get(1)
-    return jsonify({'session': session.to_dict(),
-                    'summary': _for_viewer(session, _build_summary(session, tip_cfg))})
+    return jsonify({'session': _session_for_viewer(session),
+                    'summary': _summary_for_viewer(session, tip_cfg)})
 
 
 @cash_bp.route('/<session_id>/summary', methods=['GET'])
@@ -155,8 +393,8 @@ def session_summary(session_id):
     if err: return err
     session = CashSession.query.get_or_404(session_id)
     tip_cfg = TipDistributionConfig.query.get(1)
-    return jsonify({'session': session.to_dict(),
-                    'summary': _for_viewer(session, _build_summary(session, tip_cfg))})
+    return jsonify({'session': _session_for_viewer(session),
+                    'summary': _summary_for_viewer(session, tip_cfg)})
 
 
 @cash_bp.route('/sessions', methods=['GET'])
@@ -168,9 +406,10 @@ def list_sessions():
     sessions = CashSession.query.order_by(CashSession.opened_at.desc()).limit(30).all()
     names = {u.id: u.name for u in User.query.filter(User.id.in_(
         {s.opened_by for s in sessions} | {s.closed_by for s in sessions if s.closed_by})).all()}
+    handoff = _handoff_fields(sessions)
     out = []
     for s in sessions:
-        d = s.to_dict()
+        d = {**s.to_dict(), **handoff[s.id]}
         d['opened_by_name'] = names.get(s.opened_by)
         d['closed_by_name'] = names.get(s.closed_by)
         # History shows each close's result (over/short) -- the record that
@@ -179,8 +418,54 @@ def list_sessions():
             summ = _build_summary(s)
             d['expected_cash_cents'] = summ['expected_cash_cents']
             d['cash_over_short_cents'] = summ['cash_over_short_cents']
-        out.append(d)
+        out.append(_strip_for_viewer(s, d, has_envelope=d['envelope_number'] is not None))
     return jsonify(out)
+
+
+_REPRINT_FORBIDDEN = 'Solo el dueño puede reimprimir estos comprobantes.'
+
+
+@cash_bp.route('/sessions/<session_id>/slips', methods=['GET'])
+@jwt_required()
+def session_slips(session_id):
+    """The two close slips (Sobre #N and Queda en caja), for a reprint.
+
+    ADMIN: always. MANAGER: only the manager who closed this session, and only
+    until the next session opens. After that the next manager has counted the
+    drawer and the "queda en caja" figures are owner-only."""
+    err = _require_manager()
+    if err: return err
+    session = CashSession.query.get(session_id)
+    if session is None:
+        return jsonify({'error': 'NOT_FOUND'}), 404
+    if not _is_owner():
+        reopened = session.closed_at is not None and db.session.query(
+            CashSession.query.filter(CashSession.opened_at > session.closed_at).exists()).scalar()
+        if session.closed_at is None or session.closed_by != get_jwt_identity() or reopened:
+            return jsonify({'error': 'FORBIDDEN', 'message': _REPRINT_FORBIDDEN}), 403
+    envelope = CashEnvelope.query.filter_by(session_id=session.id).first()
+    if envelope is None:
+        return jsonify({'error': 'NO_ENVELOPE', 'message': 'Esta caja no tiene sobre.'}), 404
+    cur = cash_handoff_svc.currency()
+    counted = cash_handoff_svc.count_lines(cash_handoff_svc.current_count(session.id, 'CLOSE'))
+    left_count = cash_handoff_svc.current_count(session.id, 'DRAWER_LEFT')
+    left = cash_handoff_svc.count_lines(left_count)
+    return jsonify({
+        'envelope': {
+            'number': envelope.number,
+            'declared_cents': envelope.declared_cents,
+            'lines': cash_handoff_svc.rows(cash_count_svc.split(counted, left), cur),
+        },
+        'drawer_left': {
+            'total_cents': left_count.total_cents if left_count else 0,
+            'lines': cash_handoff_svc.rows(left, cur),
+        },
+        'session': {
+            'date': session.date.isoformat() if session.date else None,
+            'closed_at': session.closed_at.isoformat() if session.closed_at else None,
+            'closed_by_name': session.closer.name if session.closer else None,
+        },
+    })
 
 
 # ── Tip Distribution Config ────────────────────────────────────────────────────

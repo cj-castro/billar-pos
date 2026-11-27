@@ -180,6 +180,16 @@ export default function ManagerDashboard() {
                       : Math.abs(al.ultimo_cierre.diferencia_cents) <= 5000 ? 'good'
                       : al.ultimo_cierre.diferencia_cents < 0 ? 'bad' : 'warn'}
                     sub={al.ultimo_cierre ? `${al.ultimo_cierre.por ?? ''} · ${formatLocal(al.ultimo_cierre.cerrada, { dateStyle: 'short' })}` : undefined} />
+                  {/* Overnight difference after that close (owner-only section):
+                      next opening count minus what the close left in the drawer.
+                      Null until the next opening, or with a legacy open/close. */}
+                  {al.ultimo_cierre?.diferencia_apertura_cents != null && (
+                    <Stat label={t('cash.count.ownerOpeningDiff')} to="/manager/cash"
+                      value={`${al.ultimo_cierre.diferencia_apertura_cents >= 0 ? '+' : ''}${formatMXN(al.ultimo_cierre.diferencia_apertura_cents)}`}
+                      tone={al.ultimo_cierre.diferencia_apertura_cents === 0 ? 'good'
+                        : al.ultimo_cierre.diferencia_apertura_cents < 0 ? 'bad' : 'warn'}
+                      sub={t('cash.count.openingDiffHelp')} />
+                  )}
                 </div>
               </Section>
             )}
