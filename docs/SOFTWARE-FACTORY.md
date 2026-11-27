@@ -15,8 +15,9 @@ trusted before the next is added.
 
 ## One-time setup (repo owner)
 
-1. **Secret**: Settings → Secrets and variables → Actions → `ANTHROPIC_API_KEY`
-   (or use a Claude subscription token, see `.github/workflows/factory.yml`).
+1. **Secret**: run `claude setup-token` on your computer (logged in to Claude
+   Max), then Settings → Secrets and variables → Actions → New repository
+   secret `CLAUDE_CODE_OAUTH_TOKEN`. Runs use the Max plan's usage limits.
 2. **Claude GitHub App**: install it on this repo: https://github.com/apps/claude
 3. **Label**: create an issue label named `factory`.
 4. **Branch protection on `main`**: require a pull request; require the
