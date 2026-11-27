@@ -20,8 +20,10 @@ trusted before the next is added.
    secret `CLAUDE_CODE_OAUTH_TOKEN`. Runs use the Max plan's usage limits.
 2. **Claude GitHub App**: install it on this repo: https://github.com/apps/claude
 3. **Label**: create an issue label named `factory`.
-4. **Branch protection on `main`**: require a pull request; require the
-   `backend`, `frontend` and `mobile` checks; require review from Code Owners.
+4. **Branch protection on `main`**: require a pull request (0 approvals);
+   require review from Code Owners; required status checks `backend` and
+   `frontend` (not `mobile`: it only runs when `mobile/` changes); leave
+   "Do not allow bypassing" OFF so the sole owner can merge their own PRs.
 
 ## How to use it
 

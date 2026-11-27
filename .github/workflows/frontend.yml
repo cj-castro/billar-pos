@@ -1,12 +1,13 @@
 name: frontend
+# Runs on EVERY pull request (no path filter): it is a required check on main,
+# and a required check that never starts blocks the PR forever.
 on:
   push:
     branches: [main]
     paths: ['frontend/**', '.github/workflows/frontend.yml']
   pull_request:
-    paths: ['frontend/**', '.github/workflows/frontend.yml']
 jobs:
-  build:
+  frontend:
     runs-on: ubuntu-latest
     defaults:
       run:

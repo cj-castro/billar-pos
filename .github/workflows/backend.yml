@@ -1,12 +1,13 @@
 name: backend
+# Runs on EVERY pull request (no path filter): it is a required check on main,
+# and a required check that never starts blocks the PR forever.
 on:
   push:
     branches: [main]
     paths: ['backend/**', 'scripts/ci/**', '.github/workflows/backend.yml']
   pull_request:
-    paths: ['backend/**', 'scripts/ci/**', '.github/workflows/backend.yml']
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
     services:
       postgres:
