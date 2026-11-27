@@ -6,6 +6,7 @@
 # When you make a test self-contained, add it here.
 test_apply_migrations_exit
 test_close_required_total
+test_inventory_retire
 test_manifest_baseline
 test_modifier_promotions
 test_money_columns

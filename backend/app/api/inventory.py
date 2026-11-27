@@ -230,10 +230,17 @@ def update_unit(key):
 @inventory_bp.route('', methods=['GET'])
 @jwt_required()
 def list_inventory():
-    """Return all inventory items sorted by category then name."""
-    items = (InventoryItem.query
-             .order_by(InventoryItem.category, InventoryItem.name)
-             .all())
+    """Return inventory items sorted by category then name.
+
+    Retired (soft-deleted, is_active=False) items are left out unless
+    ?include_inactive=true: DELETE keeps an item with history as inactive, and
+    returning it here kept it in the inventory list and the ingredient pickers
+    as if the delete had failed (Bola 8, 2026-11-27).
+    """
+    q = InventoryItem.query
+    if request.args.get('include_inactive', '').lower() not in ('1', 'true', 'yes'):
+        q = q.filter(InventoryItem.is_active.is_(True))
+    items = q.order_by(InventoryItem.category, InventoryItem.name).all()
     return jsonify([i.to_dict() for i in items])
 
 

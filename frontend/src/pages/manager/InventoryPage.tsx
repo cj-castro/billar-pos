@@ -365,6 +365,16 @@ export default function InventoryPage() {
     queryFn: () => client.get('/inventory').then(r => r.data),
   })
 
+  // Retired items (soft-deleted because they have history). GET /inventory
+  // leaves them out; the owner can list and reactivate them here.
+  const [showInactive, setShowInactive] = useState(false)
+  const { data: inactiveItems = [] } = useQuery<InventoryItem[]>({
+    queryKey: ['inventory', 'inactive'],
+    queryFn: () => client.get('/inventory', { params: { include_inactive: true } })
+      .then(r => (r.data as InventoryItem[]).filter(i => !i.is_active)),
+    enabled: isAdmin,
+  })
+
   const { data: menuCategories = [] } = useQuery({
     queryKey: ['categories'],
     queryFn: () => client.get('/menu/categories').then(r => r.data),
@@ -640,13 +650,22 @@ export default function InventoryPage() {
   }
 
   const handleDelete = async (item: InventoryItem) => {
-    if (!window.confirm(`⚠️ ¿Eliminar permanentemente "${item.name}"?\n\nSe eliminarán todos los movimientos históricos.\n\nEsta acción no se puede deshacer.`)) return
+    if (!window.confirm(t('inventory.deleteConfirm', { name: item.name }))) return
     try {
       const res = await client.delete(`/inventory/${item.id}`)
-      const moved = res.data?.movements_deleted ?? 0
-      toast.success(`"${item.name}" eliminado${moved > 0 ? ` · ${moved} movimientos eliminados` : ''}`)
+      toast.success(res.data?.soft_deleted
+        ? t('inventory.deactivated', { name: item.name })
+        : t('inventory.deleted', { name: item.name }))
       qc.invalidateQueries({ queryKey: ['inventory'] })
-    } catch (err: any) { toast.error(err.response?.data?.message || 'Error al eliminar') }
+    } catch (err: any) { toast.error(err.response?.data?.message || t('inventory.deleteFailed')) }
+  }
+
+  const handleReactivate = async (item: InventoryItem) => {
+    try {
+      await client.patch(`/inventory/${item.id}`, { is_active: true })
+      toast.success(t('inventory.reactivated', { name: item.name }))
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+    } catch (err: any) { toast.error(err.response?.data?.message || t('inventory.reactivateFailed')) }
   }
 
   const handleAddToMenu = async () => {
@@ -777,7 +796,30 @@ export default function InventoryPage() {
             }`}>
             ⚠ {t('inventory.lowStockOnly')}
           </button>
+          {isAdmin && inactiveItems.length > 0 && (
+            <button onClick={() => setShowInactive(v => !v)}
+              className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap ${
+                showInactive ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'
+              }`}>
+              🗃 {t('inventory.showInactive', { count: inactiveItems.length })}
+            </button>
+          )}
         </div>
+
+        {isAdmin && showInactive && inactiveItems.length > 0 && (
+          <div className="mb-4 rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+            <div className="text-xs text-slate-400 mb-2">{t('inventory.inactiveHelp')}</div>
+            {inactiveItems.map(item => (
+              <div key={item.id} className="flex items-center justify-between py-1.5 border-t border-slate-700/60 first:border-t-0">
+                <span className="text-sm text-slate-400">{item.name}</span>
+                <button onClick={() => handleReactivate(item)}
+                  className="bg-slate-700 hover:bg-emerald-800 px-2.5 py-1 rounded text-xs font-semibold text-emerald-200">
+                  ↩ {t('inventory.reactivate')}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Category tabs */}
         <div className="flex gap-1.5 flex-wrap mb-4">
