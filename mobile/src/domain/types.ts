@@ -173,6 +173,10 @@ export interface CashStatus {
   session: CashSession | null;
   open_tickets_count: number;
   ghost_tickets_count: number;
+  /** Count by denomination (flag cash.count_by_denomination); absent on older servers. */
+  denominations?: { key: string; cents: number; kind: string }[];
+  fund_target_cents?: number;
+  count_by_denomination?: boolean;
 }
 
 export interface StockCheck {

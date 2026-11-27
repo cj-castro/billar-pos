@@ -1,22 +1,43 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import CashCountGrid, { type CashCountGridHandle } from '../../components/CashCountGrid'
+import {
+  clampTo, denomLabel, splitEnvelope, toApi, totalCents,
+  type CloseEnvelope, type CloseResponse, type CountLines, type Denom, type DrawerLeftSlip,
+} from '../../utils/cashCount'
 import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
 import client from '../../api/client'
 import toast from 'react-hot-toast'
-import { printCashReconciliation, printTipDistribution, type ReconSummary } from '../../utils/printCashReconciliation'
+import { printCashReconciliation, printEnvelopeSlips, printTipDistribution, type ReconSummary } from '../../utils/printCashReconciliation'
 import EditPaymentModal from '../../components/EditPaymentModal'
 import { formatMXN } from '../../utils/money'
 import { formatLocalTime } from '../../utils/venue'
+import { useAuthStore } from '../../stores/authStore'
 
 const cents = formatMXN
 function diff(n: number) {
   return n >= 0 ? `+${formatMXN(n)}` : `-${formatMXN(Math.abs(n))}`
 }
 
+/** What a close with a count returned, kept for the slips (Task 7 prints them). */
+interface ClosedHandoff {
+  envelope: CloseEnvelope
+  /** "Queda en caja" slip, goes INTO the envelope. Print only: never render it. */
+  slipDrawerLeft?: DrawerLeftSlip
+  /** ADMIN only. */
+  drawerLeft?: DrawerLeftSlip
+  sessionDate: string
+  closedAt: string
+}
+
 export default function CashSessionPage() {
   const qc = useQueryClient()
+  const { t } = useTranslation()
+  const user = useAuthStore(st => st.user)
+  const isAdmin = user?.role === 'ADMIN'
   const [openingFund, setOpeningFund] = useState('')
   const [closingCash, setClosingCash] = useState('')
   // Result of the close, shown AFTER submitting (blind count): expected, counted, difference.
@@ -28,6 +49,29 @@ export default function CashSessionPage() {
   const [viewingSummary, setViewingSummary] = useState<any>(null)
   const [loadingSession, setLoadingSession] = useState(false)
   const [editingPaymentTicket, setEditingPaymentTicket] = useState<any>(null)
+
+  // Count by denomination (setting cash.count_by_denomination). Blind: these
+  // grids only know what was typed, never the expected cash.
+  const [openLines, setOpenLines] = useState<CountLines>({})
+  const [countLines, setCountLines] = useState<CountLines>({})
+  const [leftLines, setLeftLines] = useState<CountLines>({})
+  // Which grid / row the server refused (422 `field` + `key`).
+  const [countErr, setCountErr] = useState<{ field?: string; key?: string } | null>(null)
+  // Envelope + slips from the close response. Cleared with the close result, so
+  // the next manager on this screen never sees last night's figures.
+  const [closedHandoff, setClosedHandoff] = useState<ClosedHandoff | null>(null)
+  const leftGridRef = useRef<CashCountGridHandle>(null)
+  const noteRef = useRef<HTMLTextAreaElement>(null)
+  const openBtnRef = useRef<HTMLButtonElement>(null)
+
+  // Session view (owner tools): slips reprint + recount.
+  const [reprinting, setReprinting] = useState(false)
+  const [recountOpen, setRecountOpen] = useState(false)
+  const [recountKind, setRecountKind] = useState<'OPENING' | 'CLOSE' | 'DRAWER_LEFT'>('CLOSE')
+  const [recountLines, setRecountLines] = useState<CountLines>({})
+  const [recountReason, setRecountReason] = useState('')
+  const [recountErr, setRecountErr] = useState<{ field?: string; key?: string } | null>(null)
+  const [recounting, setRecounting] = useState(false)
 
   // Expense form
   const [expAmount, setExpAmount] = useState('')
@@ -56,6 +100,19 @@ export default function CashSessionPage() {
   const openCount = (status as any)?.open_tickets_count ?? 0
   const ghostCount = (status as any)?.ghost_tickets_count ?? 0
   const realCount = openCount - ghostCount
+
+  // Count by denomination is on only when the server says so AND sent a table.
+  const denoms: Denom[] = (status as any)?.denominations ?? []
+  const countMode = (status as any)?.count_by_denomination === true && denoms.length > 0
+  const fundTarget: number = (status as any)?.fund_target_cents ?? 0
+  const openTotal = totalCents(openLines, denoms)
+  const countedTotal = totalCents(countLines, denoms)
+  const leftTotal = totalCents(leftLines, denoms)
+  const envelopeLines = splitEnvelope(countLines, leftLines)
+  const envelopeTotal = countedTotal - leftTotal
+  // faltan / sobran: drawer-left vs the configured fund only (never vs expected cash).
+  const leftDiff = leftTotal - fundTarget
+  const noteRequired = leftDiff !== 0
 
   const { data: openTickets = [], refetch: refetchOpenTickets } = useQuery({
     queryKey: ['open-tickets-all'],
@@ -134,7 +191,147 @@ export default function CashSessionPage() {
       setOpeningFund('')
       refetchAll()
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'No se pudo abrir la sesión')
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'No se pudo abrir la sesión')
+    } finally { setSaving(false) }
+  }
+
+  /** A refused count: mark the grid / row the server named, show its message. */
+  const showCountError = (err: any, fallback: string) => {
+    const d = err?.response?.data
+    setCountErr(d?.field ? { field: d.field, key: d.key } : null)
+    if (d?.field === 'notes') noteRef.current?.focus()
+    // The setting changed while this screen was open: reload it.
+    if (d?.error === 'COUNT_REQUIRED') refetchStatus()
+    toast.error(d?.message || d?.error || fallback)
+  }
+
+  const handleOpenCount = async () => {
+    if (openTotal === 0 && !confirm(t('cash.count.confirmOpenZero'))) return
+    setSaving(true)
+    try {
+      await client.post('/cash/open', { count: toApi(openLines) })
+      toast.success('¡Bar abierto! Sesión de caja iniciada.')
+      setOpenLines({})
+      setCountErr(null)
+      setClosedHandoff(null)
+      refetchAll()
+    } catch (err: any) {
+      showCountError(err, 'No se pudo abrir la sesión')
+    } finally { setSaving(false) }
+  }
+
+  /** Same auto-print as always after a close: reconciliation + tip slips. */
+  const autoPrintAfterClose = (summary: any, delayMs = 0) => {
+    const sess = status?.session
+    const dateStr = sess?.date || new Date().toLocaleDateString()
+    const run = (fn: () => void, ms: number) => {
+      const go = () => { try { fn() } catch { toast.error(t('cash.count.printFailedClosed')) } }
+      if (ms > 0) setTimeout(go, ms); else go()
+    }
+    run(() => printCashReconciliation(summary as ReconSummary, dateStr, new Date().toLocaleTimeString()), delayMs)
+    if (summary.total_tips_cents > 0) {
+      run(() => printTipDistribution(summary as ReconSummary, dateStr), delayMs + 800)
+    }
+  }
+
+  /**
+   * Called once after a close that had a count, with the server response
+   * (envelope + slip_drawer_left, and drawer_left for ADMIN). Keeps them in
+   * state for the close result and prints both slips right now (they go INSIDE
+   * the envelope). Best-effort: a print failure only shows a toast. Returns
+   * true when it printed, so the caller can delay the other slips.
+   */
+  const onClosedWithEnvelope = (res: CloseResponse, sessionDate: string, closedAt: string): boolean => {
+    if (!res.envelope) return false
+    setClosedHandoff({
+      envelope: res.envelope,
+      slipDrawerLeft: res.slip_drawer_left,
+      drawerLeft: res.drawer_left,
+      sessionDate,
+      closedAt,
+    })
+    try {
+      printEnvelopeSlips(res.envelope, res.slip_drawer_left ?? res.drawer_left, {
+        date: sessionDate, closedAt, manager: user?.name,
+      })
+      return true
+    } catch {
+      toast.error(t('cash.count.slipsPrintFailed'))
+      return false
+    }
+  }
+
+  /** Reprint both slips of a closed session (server decides who may). */
+  const handleReprintSlips = async (sess: any) => {
+    setReprinting(true)
+    try {
+      const res = await client.get(`/cash/sessions/${sess.id}/slips`)
+      const d = res.data
+      printEnvelopeSlips(d.envelope, d.drawer_left, {
+        date: d.session?.date ?? sess.date,
+        closedAt: d.session?.closed_at ? formatLocalTime(d.session.closed_at) : undefined,
+        manager: d.session?.closed_by_name,
+      })
+    } catch (err: any) {
+      const m = err?.response?.data
+      toast.error(m?.message || m?.error || t('cash.count.reprintFailed'))
+    } finally { setReprinting(false) }
+  }
+
+  /** Owner-only correction of a count. The server keeps the old count and audits it. */
+  const handleRecount = async () => {
+    if (!viewingSession) return
+    if (!recountReason.trim()) {
+      setRecountErr({ field: 'reason' })
+      return toast.error(t('cash.count.recountReasonMissing'))
+    }
+    setRecounting(true)
+    try {
+      const res = await client.post(`/cash/sessions/${viewingSession.id}/recount`, {
+        kind: recountKind, count: toApi(recountLines), reason: recountReason.trim(),
+      })
+      toast.success(t('cash.count.recountDone'))
+      setViewingSession(res.data.session)
+      setViewingSummary(res.data.summary)
+      setRecountOpen(false)
+      qc.invalidateQueries({ queryKey: ['cash-sessions'] })
+    } catch (err: any) {
+      const d = err?.response?.data
+      setRecountErr(d?.field ? { field: d.field, key: d.key } : null)
+      toast.error(d?.message || d?.error || t('cash.count.recountFailed'))
+    } finally { setRecounting(false) }
+  }
+
+  const handleCloseCount = async () => {
+    if (openCount > 0) return toast.error(`No se puede cerrar: hay ${openCount} cuenta${openCount !== 1 ? 's' : ''} abierta${openCount !== 1 ? 's' : ''} pendiente${openCount !== 1 ? 's' : ''}. Ciérralas primero.`)
+    if (noteRequired && !closeNotes.trim()) {
+      setCountErr({ field: 'notes' })
+      noteRef.current?.focus()
+      return toast.error(t('cash.count.noteMissing'))
+    }
+    if (countedTotal === 0 && !confirm(t('cash.count.confirmCloseZero'))) return
+    if (!confirm(t('cash.count.confirmClose', {
+      counted: cents(countedTotal), left: cents(leftTotal), envelope: cents(envelopeTotal),
+    }))) return
+    setSaving(true)
+    try {
+      const res = await client.post<CloseResponse>('/cash/close', {
+        count: toApi(countLines),
+        drawer_left: toApi(leftLines),
+        notes: closeNotes.trim() || undefined,
+      })
+      toast.success('Bar cerrado. Sesión finalizada.')
+      const sessionDate = status?.session?.date || new Date().toLocaleDateString()
+      if (res.data?.summary) setCloseResult(res.data.summary)
+      const printedSlips = onClosedWithEnvelope(res.data, sessionDate, new Date().toLocaleTimeString())
+      setCountLines({})
+      setLeftLines({})
+      setCloseNotes('')
+      setCountErr(null)
+      refetchAll()
+      if (res.data?.summary) autoPrintAfterClose(res.data.summary, printedSlips ? 800 : 0)
+    } catch (err: any) {
+      showCountError(err, 'No se pudo cerrar la sesión')
     } finally { setSaving(false) }
   }
 
@@ -285,6 +482,25 @@ export default function CashSessionPage() {
         {!status?.open && (
           <div className="bg-slate-800 rounded-2xl p-6 mb-6 border border-slate-700">
             <h2 className="text-lg font-bold mb-1">Abrir Bar / Iniciar Sesión de Caja</h2>
+            {countMode ? (
+              <>
+                {/* Blind opening count: no target, no last-night figures on screen. */}
+                <p className="text-slate-400 text-sm mb-4">{t('cash.count.openHelp')}</p>
+                <CashCountGrid
+                  denoms={denoms}
+                  value={openLines}
+                  onChange={v => { setOpenLines(v); setCountErr(null) }}
+                  autoFocus={!closeResult}
+                  onDone={() => openBtnRef.current?.focus()}
+                  invalid={countErr?.field === 'count'}
+                  errorKey={countErr?.field === 'count' ? countErr.key : null}
+                />
+                <button ref={openBtnRef} onClick={handleOpenCount} disabled={saving}
+                  className="w-full mt-4 bg-green-600 hover:bg-green-500 px-6 py-3 rounded-xl font-bold text-lg disabled:opacity-50">
+                  {saving ? 'Abriendo…' : t('cash.count.openButton', { amount: cents(openTotal) })}
+                </button>
+              </>
+            ) : (<>
             <p className="text-slate-400 text-sm mb-4">Count the starting fund in the register before opening.</p>
             <label className="text-xs text-slate-400 block mb-1">Opening Fund (starting cash in register)</label>
             <div className="flex gap-3">
@@ -296,6 +512,7 @@ export default function CashSessionPage() {
                 {saving ? 'Abriendo…' : 'Abrir Bar'}
               </button>
             </div>
+            </>)}
           </div>
         )}
 
@@ -387,6 +604,17 @@ export default function CashSessionPage() {
                         <span className="text-slate-400">💰 Fondo inicial</span>
                         <span className="font-mono">{cents(s.opening_fund_cents)}</span>
                       </div>
+                      {/* Owner-only: opening count minus what last night's close left
+                          in the drawer. The server sends it to ADMIN only; null when
+                          either count is missing (legacy open/close). */}
+                      {isAdmin && s.opening_variance_cents != null && (
+                        <div className="flex justify-between" data-testid="opening-variance">
+                          <span className="text-slate-400">✉️ {t('cash.count.ownerOpeningDiff')}</span>
+                          <span className={`font-mono ${s.opening_variance_cents < 0 ? 'text-red-400' : s.opening_variance_cents > 0 ? 'text-amber-300' : 'text-green-400'}`}>
+                            {diff(s.opening_variance_cents)}
+                          </span>
+                        </div>
+                      )}
                       {!blind && (<>
                       <div className="flex justify-between">
                         <span className="text-slate-400">🧾 Ventas en efectivo</span>
@@ -437,6 +665,91 @@ export default function CashSessionPage() {
                     </div>
                   )}
 
+                  {countMode ? (
+                    <div className="space-y-4 mb-4">
+                      <div className="bg-amber-900/30 border border-amber-700 rounded-lg px-4 py-2 text-sm text-amber-200 font-semibold">
+                        ⚠️ {t('cash.count.reminder')}
+                      </div>
+
+                      {/* 1. Count the drawer (blind: no expected cash anywhere here) */}
+                      <div>
+                        <h3 className="font-bold mb-1">{t('cash.count.countTitle')}</h3>
+                        <p className="text-xs text-slate-400 mb-2">{t('cash.count.countHelp')}</p>
+                        <CashCountGrid
+                          denoms={denoms}
+                          value={countLines}
+                          onChange={v => {
+                            setCountLines(v)
+                            // A row that stays can never be more than was counted.
+                            setLeftLines(prev => clampTo(prev, v))
+                            setCountErr(null)
+                          }}
+                          onDone={() => { if (!leftGridRef.current?.focusFirst()) noteRef.current?.focus() }}
+                          invalid={countErr?.field === 'count'}
+                          errorKey={countErr?.field === 'count' ? countErr.key : null}
+                        />
+                      </div>
+
+                      {/* 2. What stays in the drawer: capped per row by the count */}
+                      <div>
+                        <h3 className="font-bold mb-1">{t('cash.count.leftTitle')}</h3>
+                        <p className="text-xs text-slate-400 mb-2">{t('cash.count.leftHelp', { target: cents(fundTarget) })}</p>
+                        <CashCountGrid
+                          ref={leftGridRef}
+                          denoms={denoms}
+                          value={leftLines}
+                          max={countLines}
+                          onChange={v => { setLeftLines(v); setCountErr(null) }}
+                          onDone={() => noteRef.current?.focus()}
+                          invalid={countErr?.field === 'drawer_left'}
+                          errorKey={countErr?.field === 'drawer_left' ? countErr.key : null}
+                        />
+                        <div className={`mt-2 rounded-lg px-4 py-2 text-sm font-bold ${
+                          leftDiff === 0 ? 'bg-green-900/40 text-green-300' : 'bg-amber-900/40 text-amber-300'}`}>
+                          {leftDiff === 0 ? t('cash.count.leftExact')
+                            : leftDiff < 0 ? t('cash.count.leftShort', { amount: cents(-leftDiff) })
+                            : t('cash.count.leftOver', { amount: cents(leftDiff) })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label htmlFor="close-notes"
+                          className={`text-xs block mb-1 ${noteRequired ? 'text-amber-300 font-semibold' : 'text-slate-400'}`}>
+                          {noteRequired ? t('cash.count.noteRequired', { target: cents(fundTarget) }) : t('cash.count.noteOptional')}
+                        </label>
+                        <textarea id="close-notes" ref={noteRef} value={closeNotes}
+                          onChange={e => { setCloseNotes(e.target.value); if (countErr?.field === 'notes') setCountErr(null) }}
+                          className={`w-full bg-slate-700 border rounded-lg px-3 py-2 text-sm ${
+                            countErr?.field === 'notes' ? 'border-red-500' : 'border-slate-600'}`} rows={2}
+                          placeholder={t('cash.count.notePlaceholder')} />
+                      </div>
+
+                      {/* 3. The envelope: counted − stays, read-only */}
+                      <div>
+                        <h3 className="font-bold mb-2">{t('cash.count.envelopeTitle')}</h3>
+                        <div className="bg-slate-900 rounded-xl border border-slate-700 overflow-hidden text-sm">
+                          {denoms.filter(d => (envelopeLines[d.key] || 0) > 0).map(d => (
+                            <div key={d.key} className="flex justify-between px-3 py-1.5 border-b border-slate-800">
+                              <span>
+                                <span className="font-mono font-bold">{denomLabel(d.cents)}</span>
+                                <span className="text-xs text-slate-400 ml-2">
+                                  {d.kind === 'COIN' ? t('cash.count.coin') : t('cash.count.bill')} × {envelopeLines[d.key]}
+                                </span>
+                              </span>
+                              <span className="font-mono text-slate-300">{cents(envelopeLines[d.key] * d.cents)}</span>
+                            </div>
+                          ))}
+                          {envelopeTotal === 0 && (
+                            <div className="px-3 py-2 text-slate-500">{t('cash.count.envelopeEmpty')}</div>
+                          )}
+                          <div className="flex justify-between px-3 py-2 bg-slate-800 font-bold">
+                            <span>{t('cash.count.total')}</span>
+                            <span className="font-mono text-lg">{cents(envelopeTotal)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (<>
                   <label className="text-xs text-slate-400 block mb-1">Efectivo contado en caja</label>
                   <input type="number" value={closingCash} onChange={e => setClosingCash(e.target.value)}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-lg font-mono mb-3"
@@ -453,6 +766,7 @@ export default function CashSessionPage() {
                   <textarea value={closeNotes} onChange={e => setCloseNotes(e.target.value)}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm mb-3" rows={2}
                     placeholder="Notas de cierre..." />
+                  </>)}
                   {/* ── Ghost tickets blocker ── */}
                   {openCount > 0 && (
                     <div className="mb-4 border border-amber-700 rounded-xl overflow-hidden">
@@ -520,10 +834,17 @@ export default function CashSessionPage() {
                     className="block w-full mb-2 py-2 text-center rounded-xl border border-amber-700 text-amber-200 hover:bg-amber-900/30 text-sm font-semibold">
                     🍾 Hacer el conteo de barra antes de cerrar
                   </Link>
+                  {countMode ? (
+                    <button onClick={handleCloseCount} disabled={saving || openCount > 0}
+                      className="w-full py-3 bg-red-700 hover:bg-red-600 rounded-xl font-bold text-lg disabled:opacity-50">
+                      {saving ? 'Cerrando…' : openCount > 0 ? `🔒 Cierra las ${openCount} cuentas primero` : t('cash.count.closeButton')}
+                    </button>
+                  ) : (
                   <button onClick={handleClose} disabled={saving || !closingCash || openCount > 0}
                     className="w-full py-3 bg-red-700 hover:bg-red-600 rounded-xl font-bold text-lg disabled:opacity-50">
                     {saving ? 'Cerrando…' : openCount > 0 ? `🔒 Cierra las ${openCount} cuentas primero` : '🔒 Cerrar Bar'}
                   </button>
+                  )}
                   <p className="text-xs text-slate-500 mt-2 text-center">
                     Reconciliación + distribución de propinas se imprimirán al cerrar
                   </p>
@@ -744,6 +1065,15 @@ export default function CashSessionPage() {
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
             <div className="bg-slate-800 rounded-2xl w-full max-w-sm border border-slate-600 p-6 space-y-3">
               <h2 className="font-bold text-lg">Resultado del cierre</h2>
+              {closedHandoff && (
+                <div className="bg-amber-900/30 border border-amber-600 rounded-xl p-4 text-center">
+                  <div className="text-3xl font-black tracking-wide text-amber-200">
+                    {t('cash.count.envelopeResult', { number: closedHandoff.envelope.number })}
+                  </div>
+                  <div className="text-2xl font-mono font-bold mt-1">{cents(closedHandoff.envelope.declared_cents)}</div>
+                  <div className="text-xs text-amber-100/80 mt-2">{t('cash.count.envelopeResultHelp')}</div>
+                </div>
+              )}
               <div className="flex justify-between text-sm"><span className="text-slate-400">Efectivo esperado</span>
                 <span className="font-mono">{cents(closeResult.expected_cash_cents)}</span></div>
               <div className="flex justify-between text-sm"><span className="text-slate-400">Efectivo contado</span>
@@ -755,7 +1085,7 @@ export default function CashSessionPage() {
                   <span className="font-mono">{diff(closeResult.cash_over_short_cents)}</span>
                 </div>
               )}
-              <button onClick={() => setCloseResult(null)}
+              <button onClick={() => { setCloseResult(null); setClosedHandoff(null) }}
                 className="w-full py-2 bg-sky-700 hover:bg-sky-600 rounded-lg font-semibold">Entendido</button>
             </div>
           </div>
@@ -791,6 +1121,7 @@ export default function CashSessionPage() {
                         const res = await client.get(`/cash/${sess.id}/summary`)
                         setViewingSession(res.data.session)
                         setViewingSummary(res.data.summary)
+                        setRecountOpen(false)
                       } catch { toast.error('No se pudo cargar la sesión') }
                       finally { setLoadingSession(false) }
                     }}
@@ -816,7 +1147,7 @@ export default function CashSessionPage() {
                     &nbsp;·&nbsp; {viewingSummary.ticket_count} tickets
                   </div>
                 </div>
-                <button onClick={() => { setViewingSession(null); setViewingSummary(null) }}
+                <button onClick={() => { setViewingSession(null); setViewingSummary(null); setRecountOpen(false) }}
                   className="text-slate-400 hover:text-white text-2xl font-bold">✕</button>
               </div>
               <div className="p-5 space-y-3 text-sm">
@@ -856,12 +1187,72 @@ export default function CashSessionPage() {
                     </>
                   )}
                 </div>
+                {/* Owner-only handoff figures (the server sends them to ADMIN only).
+                    Hidden for a session without any of them (legacy close, or the
+                    feature off), so the owner does not see a block of dashes. */}
+                {isAdmin && (viewingSummary.envelope_number != null || viewingSummary.drawer_left_cents != null
+                  || viewingSummary.opening_variance_cents != null) && (
+                  <div className="bg-slate-900 rounded-xl p-4 space-y-2">
+                    <div className="font-semibold text-slate-300 mb-2">✉️ {t('cash.count.ownerTitle')}</div>
+                    <div className="flex justify-between"><span className="text-slate-400">{t('cash.count.ownerEnvelope')}</span>
+                      <span className="font-mono">{viewingSummary.envelope_number != null
+                        ? `#${viewingSummary.envelope_number} · ${viewingSummary.envelope_declared_cents != null ? cents(viewingSummary.envelope_declared_cents) : '—'}` : '—'}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">{t('cash.count.ownerLeft')}</span>
+                      <span className="font-mono">{viewingSummary.drawer_left_cents != null ? cents(viewingSummary.drawer_left_cents) : '—'}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">{t('cash.count.ownerOpeningDiff')}</span>
+                      <span className="font-mono">{viewingSummary.opening_variance_cents != null ? diff(viewingSummary.opening_variance_cents) : '—'}</span></div>
+                  </div>
+                )}
+                {isAdmin && viewingSession.status === 'CLOSED' && countMode && (
+                  <div className="bg-slate-900 rounded-xl p-4">
+                    {!recountOpen ? (
+                      <button onClick={() => { setRecountOpen(true); setRecountLines({}); setRecountReason(''); setRecountErr(null) }}
+                        className="w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold text-sm">
+                        ✏️ {t('cash.count.recountButton')}
+                      </button>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="font-semibold text-slate-300">{t('cash.count.recountTitle')}</div>
+                        <p className="text-xs text-slate-400">{t('cash.count.recountHelp')}</p>
+                        <select value={recountKind}
+                          onChange={e => { setRecountKind(e.target.value as any); setRecountErr(null) }}
+                          className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm">
+                          <option value="OPENING">{t('cash.count.recountOpening')}</option>
+                          <option value="CLOSE">{t('cash.count.recountClose')}</option>
+                          <option value="DRAWER_LEFT">{t('cash.count.recountLeft')}</option>
+                        </select>
+                        <CashCountGrid denoms={denoms} value={recountLines}
+                          onChange={v => { setRecountLines(v); setRecountErr(null) }}
+                          invalid={recountErr?.field === 'count'}
+                          errorKey={recountErr?.field === 'count' ? recountErr.key : null} />
+                        <textarea value={recountReason} onChange={e => { setRecountReason(e.target.value); setRecountErr(null) }}
+                          rows={2} placeholder={t('cash.count.recountReason')}
+                          className={`w-full bg-slate-800 border rounded-lg px-3 py-2 text-sm ${recountErr?.field === 'reason' ? 'border-red-500' : 'border-slate-600'}`} />
+                        <div className="flex gap-2">
+                          <button onClick={handleRecount} disabled={recounting}
+                            className="flex-1 py-2 bg-amber-700 hover:bg-amber-600 rounded-lg font-semibold text-sm disabled:opacity-50">
+                            {recounting ? '…' : t('cash.count.recountSubmit', { amount: cents(totalCents(recountLines, denoms)) })}
+                          </button>
+                          <button onClick={() => setRecountOpen(false)}
+                            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm">{t('cash.count.recountCancel')}</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex gap-3 p-5 border-t border-slate-700">
                 <button
                   onClick={() => printCashReconciliation(viewingSummary as ReconSummary, viewingSession.date, viewingSession.closed_at?.slice(11,16))}
                   className="flex-1 py-2.5 bg-sky-700 hover:bg-sky-600 rounded-xl font-semibold text-sm"
                 >🖨️ Reimprimir Reconciliación</button>
+                {/* Only a session closed with an envelope has slips to reprint
+                    (ADMIN and MANAGER both receive envelope_number). */}
+                {viewingSession.status === 'CLOSED' && viewingSummary.envelope_number != null && (
+                  <button onClick={() => handleReprintSlips(viewingSession)} disabled={reprinting}
+                    className="flex-1 py-2.5 bg-emerald-700 hover:bg-emerald-600 rounded-xl font-semibold text-sm disabled:opacity-50"
+                  >🖨️ {t('cash.count.reprintSlips')}</button>
+                )}
                 {viewingSummary.tip_distribution && (
                   <button
                     onClick={() => printTipDistribution(viewingSummary as ReconSummary, viewingSession.date)}

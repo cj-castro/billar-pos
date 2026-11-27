@@ -5,6 +5,9 @@
 # need a live server on :8090, so they need a sanitized fixture dataset first.
 # When you make a test self-contained, add it here.
 test_apply_migrations_exit
+test_cash_count_svc
+test_cash_counts_schema
+test_cash_handoff
 test_close_required_total
 test_manifest_baseline
 test_modifier_promotions

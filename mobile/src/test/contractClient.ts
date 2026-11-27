@@ -111,7 +111,9 @@ export interface SeededOrder {
 export async function ensureCashOpen(): Promise<void> {
   const st = await call('manager', 'GET', '/cash/status');
   if (st.status === 200 && st.body.open) return;
-  const r = await call('manager', 'POST', '/cash/open', { opening_fund_cents: 0 });
+  // Flag on: the server wants a count by denomination (legacy opening_fund_cents is refused), so count one bill.
+  const denoms = st.status === 200 && st.body.count_by_denomination ? (st.body.denominations as { key: string }[]) : [];
+  const r = await call('manager', 'POST', '/cash/open', denoms.length ? { count: [{ key: denoms[denoms.length - 1].key, qty: 1 }] } : { opening_fund_cents: 0 });
   if (r.status !== 201 && r.status !== 409) throw new Error(`cash/open -> ${r.status}`);
 }
 

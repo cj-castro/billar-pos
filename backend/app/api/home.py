@@ -182,17 +182,25 @@ def _alertas(start, now) -> dict:
           AND tipo IN ('TICKET_CANCELADO', 'CIERRE_FORZADO', 'TICKET_REABIERTO')
         GROUP BY tipo""", s=start, e=now)}
     last = _one("""
-        SELECT cs.id, cs.closed_at, u.name AS closed_by_name
+        SELECT cs.id, cs.opened_at, cs.closed_at, u.name AS closed_by_name
         FROM cash_sessions cs LEFT JOIN users u ON u.id = cs.closed_by
         WHERE cs.status = 'CLOSED' AND cs.closing_cash_counted_cents IS NOT NULL
         ORDER BY cs.closed_at DESC LIMIT 1""")
     ultimo = None
     if last:
-        from app.api.cash_session import _build_summary
+        from app.api.cash_session import _build_summary, _handoff_fields
         from app.models.cash_session import CashSession
         s = _build_summary(CashSession.query.get(last['id']))
+        # The overnight difference after that close (owner-only; this whole
+        # section is ADMIN only): the next session's opening count minus what
+        # the close left in the drawer. Null until the next opening, or when
+        # either count is missing (legacy open/close).
+        nxt = CashSession.query.filter(CashSession.opened_at > last['opened_at']) \
+            .order_by(CashSession.opened_at.asc()).first()
+        apertura = _handoff_fields([nxt]).get(nxt.id, {}) if nxt else {}
         ultimo = {'cerrada': last['closed_at'].isoformat(), 'por': last['closed_by_name'],
-                  'diferencia_cents': s['cash_over_short_cents']}
+                  'diferencia_cents': s['cash_over_short_cents'],
+                  'diferencia_apertura_cents': apertura.get('opening_variance_cents')}
     has_view = _one("SELECT to_regclass('public.v_consumo_sin_venta') IS NOT NULL AS ok")['ok']
     regalo = {'nc': 0, 'cc': 0, 'np': 0, 'cp': 0} if not has_view else _one("""
         SELECT COUNT(*) FILTER (WHERE tipo = 'CORTESIA') AS nc,

@@ -129,4 +129,163 @@ describe('CashScreen', () => {
     await waitFor(() => expect(api.of('DELETE', /expenses\/e1/)).toHaveLength(1));
     await waitFor(() => expect(screen.queryByTestId('delete-expense-dialog')).toBeNull());
   });
+
+  describe('count by denomination (flag on)', () => {
+    const denominations = [
+      { key: 'B500', cents: 50000, kind: 'BILL' },
+      { key: 'B20', cents: 2000, kind: 'BILL' },
+      { key: 'C10', cents: 1000, kind: 'COIN' },
+    ];
+    const status = (open: boolean) => ({ open, session: open ? session : null, open_tickets_count: 0, ghost_tickets_count: 0, denominations, fund_target_cents: 200000, count_by_denomination: true });
+
+    it('open: grid sends {count} (no legacy fund) and shows the live total', async () => {
+      let opened = false;
+      const api = mockApi({
+        'GET /cash/status': () => ({ data: status(opened) }),
+        'GET /cash/current/summary': () => (opened ? { data: { session, summary: summary() } } : httpError(404, 'NO_OPEN_SESSION')),
+        'POST /cash/open': () => {
+          opened = true;
+          return { status: 201, data: session };
+        },
+      });
+      await renderScreen(<CashScreen />);
+      await press('cash-open-btn');
+      await fireEvent.changeText(await screen.findByTestId('open-count-B500'), '4');
+      await fireEvent.changeText(screen.getByTestId('open-count-C10'), '3');
+      expect(screen.getByTestId('open-count-total').props.accessibilityLabel).toContain('$2,030.00');
+      await press('open-cash-confirm');
+      await waitFor(() => expect(api.of('POST', /\/cash\/open/)).toHaveLength(1));
+      expect(api.of('POST', /\/cash\/open/)[0].data).toEqual({ count: [{ key: 'B500', qty: 4 }, { key: 'C10', qty: 3 }] });
+    });
+
+    it('close is blind, then count -> what stays -> note rule -> sends {count, drawer_left, notes} and shows the envelope number', async () => {
+      let closed = false;
+      const api = mockApi({
+        'GET /cash/status': () => ({ data: status(!closed) }),
+        'GET /cash/current/summary': () => (closed ? httpError(404, 'NO_OPEN_SESSION') : { data: { session, summary: summary() } }),
+        'POST /cash/close': () => {
+          closed = true;
+          return { data: { session: { ...session, status: 'CLOSED' }, summary: summary({ closing_cash_counted_cents: 250000, cash_over_short_cents: 0 }), envelope: { number: 17, declared_cents: 50000, lines: [{ key: 'B500', qty: 1 }] }, slip_drawer_left: { total_cents: 200000, lines: [{ key: 'B500', qty: 4 }] } } };
+        },
+      });
+      await renderScreen(<CashScreen />);
+      // blind: the summary card does not show the expected cash either
+      expect(screen.queryByTestId('line-expected')).toBeNull();
+      await press('cash-close-btn');
+      expect(screen.getByText('Paga las propinas y registra todos los gastos antes de contar')).toBeTruthy();
+      expect(screen.queryByTestId('close-expected')).toBeNull();
+      await press('close-reminder-ok');
+      await fireEvent.changeText(await screen.findByTestId('close-count-B500'), '5');
+      expect(screen.queryByTestId('close-diff')).toBeNull();
+      await press('close-count-next');
+      expect(screen.getByText('¿Qué se queda en caja?')).toBeTruthy();
+      await fireEvent.changeText(screen.getByTestId('left-count-B500'), '9'); // row max = counted qty (5)
+      expect(screen.getByTestId('left-count-B500').props.value).toBe('5');
+      await fireEvent.changeText(screen.getByTestId('left-count-B500'), '3');
+      expect(screen.getByTestId('left-gap').props.accessibilityLabel).toContain('Faltan');
+      expect(screen.getByTestId('left-gap').props.accessibilityLabel).toContain('$500.00');
+      expect(screen.getByTestId('close-cash-confirm').props.accessibilityState.disabled).toBe(true); // note required
+      await fireEvent.changeText(screen.getByTestId('close-notes'), 'Falta fondo, gasto pendiente');
+      expect(screen.getByTestId('close-cash-confirm').props.accessibilityState.disabled).toBe(false);
+      expect(screen.getByTestId('envelope-total').props.accessibilityLabel).toContain('$1,000.00');
+      await press('close-cash-confirm');
+      await waitFor(() => expect(api.of('POST', /\/cash\/close/)).toHaveLength(1));
+      expect(api.of('POST', /\/cash\/close/)[0].data).toEqual({ count: [{ key: 'B500', qty: 5 }], drawer_left: [{ key: 'B500', qty: 3 }], notes: 'Falta fondo, gasto pendiente' });
+      expect(await screen.findByTestId('cash-closed-envelope')).toBeTruthy();
+      expect(screen.getByText('Sobre n.º 17')).toBeTruthy();
+      expect(screen.getByText('Imprime los comprobantes del sobre desde el POS (Caja) antes de abrir.')).toBeTruthy();
+      // After the close is submitted the manager sees the close result too
+      // (expected / counted / difference), next to the envelope card. Before the
+      // final review this line asserted the opposite; spec 5.1 step 5 requires it.
+      expect(screen.getByTestId('cash-closed-summary')).toBeTruthy();
+      expect(screen.getByTestId('cash-closed-diff').props.accessibilityLabel).toBe('Diferencia: $0.00');
+    });
+
+    it('left equal to the fund target needs no note', async () => {
+      mockApi({
+        'GET /cash/status': { data: status(true) },
+        'GET /cash/current/summary': { data: { session, summary: summary() } },
+      });
+      await renderScreen(<CashScreen />);
+      await press('cash-close-btn');
+      await press('close-reminder-ok');
+      await fireEvent.changeText(await screen.findByTestId('close-count-B500'), '5');
+      await press('close-count-next');
+      await fireEvent.changeText(screen.getByTestId('left-count-B500'), '4');
+      expect(screen.getByTestId('close-cash-confirm').props.accessibilityState.disabled).toBe(false);
+    });
+
+    it('zero open count asks for confirmation, sends nothing until confirmed, then sends {count: []}', async () => {
+      const api = mockApi({
+        'GET /cash/status': { data: status(false) },
+        'GET /cash/current/summary': httpError(404, 'NO_OPEN_SESSION'),
+        'POST /cash/open': { status: 201, data: session },
+      });
+      await renderScreen(<CashScreen />);
+      await press('cash-open-btn');
+      await press('open-cash-confirm');
+      expect(await screen.findByText('¿Abrir con la caja vacía ($0)?')).toBeTruthy();
+      expect(api.of('POST', /\/cash\/open/)).toHaveLength(0);
+      await press('zero-count-dialog-confirm');
+      await waitFor(() => expect(api.of('POST', /\/cash\/open/)).toHaveLength(1));
+      expect(api.of('POST', /\/cash\/open/)[0].data).toEqual({ count: [] });
+    });
+
+    it('zero open count: cancel sends nothing', async () => {
+      const api = mockApi({
+        'GET /cash/status': { data: status(false) },
+        'GET /cash/current/summary': httpError(404, 'NO_OPEN_SESSION'),
+        'POST /cash/open': { status: 201, data: session },
+      });
+      await renderScreen(<CashScreen />);
+      await press('cash-open-btn');
+      await press('open-cash-confirm');
+      await press('zero-count-dialog-cancel');
+      expect(api.of('POST', /\/cash\/open/)).toHaveLength(0);
+    });
+
+    it('non-zero open count sends without confirmation', async () => {
+      const api = mockApi({
+        'GET /cash/status': { data: status(false) },
+        'GET /cash/current/summary': httpError(404, 'NO_OPEN_SESSION'),
+        'POST /cash/open': { status: 201, data: session },
+      });
+      await renderScreen(<CashScreen />);
+      await press('cash-open-btn');
+      await fireEvent.changeText(await screen.findByTestId('open-count-B20'), '2');
+      await press('open-cash-confirm');
+      await waitFor(() => expect(api.of('POST', /\/cash\/open/)).toHaveLength(1));
+      expect(screen.queryByText('¿Abrir con la caja vacía ($0)?')).toBeNull();
+    });
+
+    it('zero close count asks before going to the what-stays step', async () => {
+      mockApi({
+        'GET /cash/status': { data: status(true) },
+        'GET /cash/current/summary': { data: { session, summary: summary() } },
+      });
+      await renderScreen(<CashScreen />);
+      await press('cash-close-btn');
+      await press('close-reminder-ok');
+      await press('close-count-next');
+      expect(await screen.findByText('¿Cerrar con $0 contado?')).toBeTruthy();
+      expect(screen.queryByText('¿Qué se queda en caja?')).toBeNull();
+      await press('zero-count-dialog-confirm');
+      expect(await screen.findByText('¿Qué se queda en caja?')).toBeTruthy();
+    });
+  });
+
+  it('flag off (status says count_by_denomination false) keeps the legacy bodies', async () => {
+    const api = mockApi({
+      'GET /cash/status': { data: { open: true, session, open_tickets_count: 0, ghost_tickets_count: 0, denominations: [], fund_target_cents: 200000, count_by_denomination: false } },
+      'GET /cash/current/summary': { data: { session, summary: summary() } },
+      'POST /cash/close': { data: { session, summary: summary() } },
+    });
+    await renderScreen(<CashScreen />);
+    await press('cash-close-btn');
+    expect(screen.getByTestId('close-expected')).toBeTruthy();
+    await fireEvent.changeText(screen.getByTestId('count-pad'), '910');
+    await press('close-cash-confirm');
+    await waitFor(() => expect(api.of('POST', /\/cash\/close/)).toHaveLength(1));
+    expect(api.of('POST', /\/cash\/close/)[0].data).toEqual({ closing_cash_counted_cents: 91000, notes: null });
+  });
 });

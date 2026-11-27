@@ -56,13 +56,14 @@ const SHARED_STYLE = `
   .footer { text-align: center; font-size: 10px; font-weight: bold; color: #000; margin-top: 3mm; }
 `
 
-function openPrint(html: string) {
+function openPrint(html: string): boolean {
   const win = window.open('', '_blank', 'width=360,height=720')
-  if (!win) return
+  if (!win) return false
   win.document.write(html)
   win.document.close()
   win.focus()
   win.onload = () => { win.print(); win.close() }
+  return true
 }
 
 export function printCashReconciliation(summary: ReconSummary, sessionDate: string, closingTime?: string) {
@@ -185,4 +186,92 @@ export function printTipDistribution(summary: ReconSummary, sessionDate: string)
 </body></html>`
 
   openPrint(html)
+}
+
+// ── Envelope slips (cash handoff count) ────────────────────────────────────
+// Both slips go INSIDE the envelope that is dropped in the safe, so the next
+// manager's opening count stays blind.
+
+export interface SlipLine { key: string; qty: number }
+export interface SlipMeta {
+  /** Business date of the session, as shown on the other slips. */
+  date: string
+  /** Closing time, if known. */
+  closedAt?: string
+  /** Manager who closed. */
+  manager?: string
+}
+
+const esc = (v: string) => v.replace(/[&<>"]/g, ch =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch] as string))
+
+/** Face value in cents from a denomination key: 'B500' -> 50000, 'C0.50' -> 50. */
+function keyCents(key: string): number {
+  const v = parseFloat(key.slice(1))
+  return Number.isFinite(v) ? Math.round(v * 100) : 0
+}
+
+function slipLabel(cents: number): string {
+  return cents % 100 === 0 ? c(cents).replace(/[.,]00(?=\D*$)/, '') : c(cents)
+}
+
+function slipBody(lines: SlipLine[], totalCents: number): string {
+  const rows = [...lines]
+    .filter(l => l.qty > 0)
+    .sort((a, b) => keyCents(b.key) - keyCents(a.key))
+    .map(l => {
+      const cents = keyCents(l.key)
+      const kind = l.key.startsWith('B') ? 'Billete' : 'Moneda'
+      return `<div class="row"><span>${l.qty} × ${slipLabel(cents)} <small>${kind}</small></span><span>${c(l.qty * cents)}</span></div>`
+    }).join('')
+  return `${rows || '<div class="row indent"><span>Sin efectivo</span><span></span></div>'}
+  <div class="total-row"><span>TOTAL</span><span>${c(totalCents)}</span></div>`
+}
+
+function slipMetaBlock(meta: SlipMeta): string {
+  return `<div class="sub">${esc(meta.date)}${meta.closedAt ? ' · ' + esc(meta.closedAt) : ''}</div>
+    ${meta.manager ? `<div class="sub">Gerente: ${esc(meta.manager)}</div>` : ''}`
+}
+
+/**
+ * One print window with two slips separated by a cut line:
+ * "SOBRE #N" (what goes to the safe) and "QUEDA EN CAJA" (what stays in the
+ * drawer; also goes inside the envelope). Throws if the browser blocks the
+ * window: the caller shows a toast and the close stays done.
+ */
+export function printEnvelopeSlips(
+  envelope: { number: number; declared_cents: number; lines: SlipLine[] },
+  drawerLeft: { total_cents: number; lines: SlipLine[] } | null | undefined,
+  meta: SlipMeta,
+) {
+  const left = drawerLeft ? `
+  <div class="cut">✂ - - - - - - - - - - - - - -</div>
+  <div style="text-align:center">
+    <h1>QUEDA EN CAJA</h1>
+    <div class="sub">va dentro del sobre #${envelope.number}</div>
+    ${slipMetaBlock(meta)}
+  </div>
+  <div class="divider-solid"></div>
+  ${slipBody(drawerLeft.lines, drawerLeft.total_cents)}
+  <div class="divider-solid"></div>` : ''
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Sobre #${envelope.number}</title>
+<style>${SHARED_STYLE}
+  .big { font-size: 26px; font-weight: 900; text-align: center; margin: 1mm 0; }
+  .cut { text-align: center; font-size: 10px; margin: 5mm 0; letter-spacing: 1px; }
+  small { font-size: 8px; font-weight: normal; }
+</style></head><body>
+  <div style="text-align:center">
+    <h1>SOBRE</h1>
+    <div class="big">#${envelope.number}</div>
+    ${slipMetaBlock(meta)}
+  </div>
+  <div class="divider-solid"></div>
+  ${slipBody(envelope.lines, envelope.declared_cents)}
+  <div class="divider-solid"></div>
+  ${left}
+  <div class="footer">Impreso ${formatLocal(new Date())}</div>
+</body></html>`
+
+  if (!openPrint(html)) throw new Error('POPUP_BLOCKED')
 }

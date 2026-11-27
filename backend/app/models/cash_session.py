@@ -80,3 +80,54 @@ class Expense(db.Model):
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class CashCount(db.Model):
+    """One counted amount of the drawer, by denomination. Append-only: a
+    correction is a new row whose supersedes_id points at the one it replaces."""
+    __tablename__ = 'cash_counts'
+    __table_args__ = (
+        db.CheckConstraint("kind IN ('OPENING','CLOSE','DRAWER_LEFT')", name='cash_counts_kind_check'),
+        db.Index('ix_cash_counts_session_kind_counted', 'session_id', 'kind', 'counted_at'),
+    )
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id = db.Column(db.String(36), db.ForeignKey('cash_sessions.id'), nullable=False)
+    kind = db.Column(db.String(12), nullable=False)   # OPENING, CLOSE, DRAWER_LEFT
+    total_cents = db.Column(db.Integer, nullable=False)
+    counted_by = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
+    counted_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now())
+    note = db.Column(db.Text)
+    supersedes_id = db.Column(db.String(36), db.ForeignKey('cash_counts.id'))
+    reason = db.Column(db.Text)
+
+    lines = db.relationship('CashCountLine', backref='count', lazy='select')
+
+
+class CashCountLine(db.Model):
+    __tablename__ = 'cash_count_lines'
+    __table_args__ = (
+        db.CheckConstraint('quantity >= 0', name='cash_count_lines_quantity_check'),
+    )
+
+    count_id = db.Column(db.String(36), db.ForeignKey('cash_counts.id', ondelete='RESTRICT'), primary_key=True)
+    denom_key = db.Column(db.String(8), primary_key=True)
+    denom_cents = db.Column(db.Integer, nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+
+
+class CashEnvelope(db.Model):
+    """The envelope a closed session's cash goes into, then into the safe."""
+    __tablename__ = 'cash_envelopes'
+    __table_args__ = (
+        db.UniqueConstraint('number', name='uq_cash_envelopes_number'),
+        db.UniqueConstraint('session_id', name='uq_cash_envelopes_session'),
+    )
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    number = db.Column(db.Integer, db.Sequence('cash_envelope_number_seq'), nullable=False)
+    session_id = db.Column(db.String(36), db.ForeignKey('cash_sessions.id'), nullable=False)
+    declared_cents = db.Column(db.Integer, nullable=False)
+    created_by = db.Column(db.String(36), db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now())
+    status = db.Column(db.String(12), server_default='IN_SAFE')
