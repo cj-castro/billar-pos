@@ -13,6 +13,7 @@ DATABASE_URL names a database containing "scratch". Run:
         billar-pos-backend -m tests.test_cash_handoff
 """
 import os
+import secrets
 import sys
 import threading
 from pathlib import Path
@@ -442,7 +443,7 @@ with app.app_context():
     mgr2 = User.query.filter_by(username='handoff_test_manager2').first()
     if mgr2 is None:
         mgr2 = User(username='handoff_test_manager2', name='Segundo Gerente', role='MANAGER', is_active=True)
-        mgr2.set_password('not-used-handoff-test')
+        mgr2.set_password(secrets.token_urlsafe(16))  # throwaway scratch-DB user
         db.session.add(mgr2)
         db.session.commit()
     tok['MANAGER2'] = {'Authorization': 'Bearer ' + create_access_token(
