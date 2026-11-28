@@ -8,6 +8,15 @@ Replace `xx` in the file name and in the zip name with the deploy date.
 
 **Bar closed. No open tickets. Internet available** (the frontend build runs `npm ci`).
 
+This deploy also carries two web/server fixes merged to main with it: deleted
+inventory items leave the list (owner sees them under "Desactivados" and can
+reactivate), and the close-screen tips + fund suggestion above. Neither needs a
+migration beyond 058.
+
+**Phone app:** the phone's close still uses the old order (pay tips first, then
+count, and it asks for a note whenever what stays is not $2,000). Until Girish
+updates it, **managers close from the POS screen (web)**, not from the phone.
+
 ---
 
 ## What changes
@@ -15,7 +24,8 @@ Replace `xx` in the file name and in the zip name with the deploy date.
 | | |
 |---|---|
 | **Count by bill and coin** | At open and at close the manager counts the drawer by denomination ($1,000 down to $0.50). The total is computed. |
-| **Drawer fund** | At close the manager also counts what stays in the drawer. The fund is $2,000 by default. If it is not the fund, a note is required. |
+| **Tips taken out by the POS** (web) | At close the manager counts the WHOLE drawer before paying tips. The POS shows the tips to pay (floor · bar · kitchen), says which bills and coins to take out (fewest pieces, coins stay for change), and shows what is left. If the drawer cannot cover the tips, it says how much is missing. |
+| **Drawer fund** | The POS suggests what stays: $2,000 (coins and small bills first), or everything when there is less than $2,000 after tips (empty envelope). No note is needed when the manager leaves what the POS suggests; a note is required otherwise. The fund amount is set in Configuración. |
 | **Envelope** | The rest goes into one numbered envelope for the safe. |
 | **Two slips** | The close prints two slips: the envelope slip and the "queda en caja" slip. **Both go inside the envelope.** Printing never blocks a close. |
 | **Reprint** | Owner can reprint both slips from the Caja history (closes that have an envelope). The manager who closed can reprint them until the next opening. |
@@ -33,9 +43,11 @@ Schema (058): tables `cash_counts`, `cash_count_lines`, `cash_envelopes`; sequen
 ## What to tell the managers (read this aloud)
 
 > Desde hoy la caja se cuenta billete por billete y moneda por moneda, al abrir y al cerrar.
-> Antes de contar, paga las propinas y registra en Gastos cada compra hecha con efectivo de la caja.
-> Al cerrar, cuenta todo el efectivo, y luego cuenta lo que deja en la caja como fondo
-> (normalmente $2,000). El resto va al sobre. El sistema imprime dos comprobantes:
+> Antes de contar, registra en Gastos cada compra hecha con efectivo de la caja.
+> Al cerrar, cuenta TODO el efectivo **antes de pagar propinas**. El sistema te dice cuánto
+> pagar de propinas y con qué billetes y monedas; sácalas de la caja.
+> Luego el sistema sugiere qué se queda en la caja como fondo ($2,000, o todo si no alcanza)
+> y el resto va al sobre. El sistema imprime dos comprobantes:
 > el del sobre y el de lo que queda en caja. Los dos van dentro del sobre, y el sobre va a la caja fuerte.
 > Si cuentas $0, el sistema pide confirmación: revisa que de verdad no haya efectivo.
 > Antes de cerrar no verás cuánto debería haber ni la diferencia. Cuenta lo que realmente hay.

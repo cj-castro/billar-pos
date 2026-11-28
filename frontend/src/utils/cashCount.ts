@@ -98,3 +98,85 @@ export function denomLabel(cents: number): string {
   const s = formatMXN(cents)
   return cents % 100 === 0 ? s.replace(/[.,]00(?=\D*$)/, '') : s
 }
+
+/** What should stay in the drawer: the fund, or everything when the drawer
+ *  holds less than the fund. Card tips are paid in cash from the drawer, so a
+ *  slow or card-heavy night can leave less than the fund; then everything
+ *  stays and the envelope is empty. The server applies the same rule to
+ *  decide when a note is required. */
+export function shouldStayCents(countedTotal: number, fundTarget: number): number {
+  return Math.min(fundTarget, countedTotal)
+}
+
+function gcd(a: number, b: number): number { return b ? gcd(b, a % b) : a }
+
+/** Best combination of the counted pieces that adds up to `target` exactly,
+ *  or as close BELOW it as the pieces allow, never more pieces of a row than
+ *  were counted. `prefer` breaks ties between combinations of the same amount:
+ *  'most' pieces keeps coins and small bills (good for the drawer fund, which
+ *  needs change), 'fewest' uses big bills first (good for paying tips, so the
+ *  coins stay in the drawer). Bounded knapsack over the target in units of the
+ *  smallest common step (50 cents for MXN): about 12 x 4,000 cells for $2,000. */
+export function pickPieces(counted: CountLines, denoms: Denom[], target: number,
+                           prefer: 'most' | 'fewest'): CountLines {
+  const items = denoms.filter(d => (counted[d.key] || 0) > 0 && d.cents > 0)
+  if (target <= 0 || items.length === 0) return {}
+  const unit = items.reduce((g, d) => gcd(g, d.cents), 0)
+  const T = Math.floor(target / unit)
+  const NONE = -1
+  const better = (a: number, b: number) => b === NONE || (prefer === 'most' ? a > b : a < b)
+  let best = new Int32Array(T + 1).fill(NONE)   // pieces used to make exactly s units
+  best[0] = 0
+  const takes: Int32Array[] = []
+  for (const d of items) {
+    const v = d.cents / unit
+    const c = counted[d.key]
+    const next = new Int32Array(T + 1).fill(NONE)
+    const take = new Int32Array(T + 1)
+    for (let s = 0; s <= T; s++) {
+      const maxQ = Math.min(c, Math.floor(s / v))
+      for (let q = 0; q <= maxQ; q++) {
+        const prev = best[s - q * v]
+        if (prev !== NONE && better(prev + q, next[s])) { next[s] = prev + q; take[s] = q }
+      }
+    }
+    best = next
+    takes.push(take)
+  }
+  let s = T
+  while (s > 0 && best[s] === NONE) s--
+  const out: CountLines = {}
+  for (let i = items.length - 1; i >= 0; i--) {
+    const q = takes[i][s]
+    if (q > 0) out[items[i].key] = q
+    s -= q * (items[i].cents / unit)
+  }
+  return out
+}
+
+function allOf(counted: CountLines, denoms: Denom[]): CountLines {
+  const all: CountLines = {}
+  for (const d of denoms) if ((counted[d.key] || 0) > 0) all[d.key] = counted[d.key]
+  return all
+}
+
+/** Suggest what stays in the drawer: everything when the count is at or below
+ *  the fund, else the fund made with as many pieces as possible (coins and
+ *  small bills stay for change; big bills go to the envelope). */
+export function suggestLeft(counted: CountLines, denoms: Denom[], fundTarget: number): CountLines {
+  if (totalCents(counted, denoms) <= fundTarget) return allOf(counted, denoms)
+  return pickPieces(counted, denoms, fundTarget, 'most')
+}
+
+/** Tips are paid in cash from the drawer (card tips too). The manager counts
+ *  the whole drawer BEFORE paying them; the POS picks the pieces to pay them
+ *  with (fewest pieces, big bills first) and what is left is the close count.
+ *  `paid` can be below `tips` when the drawer cannot cover them, or by the few
+ *  centavos the coins cannot make (tips are not always a multiple of 50 cents). */
+export function payTips(counted: CountLines, denoms: Denom[], tipCents: number):
+    { tipLines: CountLines; paid: number; after: CountLines } {
+  const tipLines = totalCents(counted, denoms) <= tipCents
+    ? allOf(counted, denoms)
+    : pickPieces(counted, denoms, tipCents, 'fewest')
+  return { tipLines, paid: totalCents(tipLines, denoms), after: splitEnvelope(counted, tipLines) }
+}

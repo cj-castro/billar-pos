@@ -283,11 +283,17 @@ def close_session():
             return _count_error(e, 'drawer_left')
         left_total = cash_count_svc.total_cents(left, cur)
         target = cash_handoff_svc.fund_target_cents()
-        if left_total != target and not notes:
+        # What should stay: the fund, or everything when the drawer holds less
+        # than the fund (card tips are paid in cash from the drawer, so a slow
+        # or card-heavy night can leave less). Leaving exactly that needs no note.
+        should_stay = min(target, cash_count_svc.total_cents(counted, cur))
+        if left_total != should_stay and not notes:
             return jsonify({
                 'error': 'NOTE_REQUIRED',
-                'message': (f'Lo que se queda en caja ({cash_handoff_svc.money(left_total)}) no es el '
-                            f'fondo de {cash_handoff_svc.money(target)}. Escribe una nota que explique por qué.'),
+                'message': (f'Lo que se queda en caja ({cash_handoff_svc.money(left_total)}) no es '
+                            f'{cash_handoff_svc.money(should_stay)}'
+                            + (f' (el fondo)' if should_stay == target else ' (todo lo que hay; no alcanza para el fondo)')
+                            + '. Escribe una nota que explique por qué.'),
                 'field': 'notes',
             }), 422
 
