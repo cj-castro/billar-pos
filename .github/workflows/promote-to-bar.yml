@@ -1,0 +1,184 @@
+name: promote-to-bar
+# CJ only. Marks a built version "listo para el bar": moves the bar-stable tag
+# (and bar-previous, the version it replaces) on all six images. The bar PC's
+# updater installs whatever billar-pos-release:bar-stable points to, so the
+# release image is retagged LAST.
+# Start it with scripts/promote-to-bar.sh (or the Actions tab).
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit to approve (7-40 hex chars). Empty = latest commit of main."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: promote-to-bar
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io/cj-castro
+
+jobs:
+  promote:
+    name: promote
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only cj-castro may promote
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          # A re-run keeps github.actor but changes triggering_actor: check both.
+          if [ "$ACTOR" != "cj-castro" ] || [ "$TRIGGERING_ACTOR" != "cj-castro" ]; then
+            echo "::error::Solo cj-castro puede aprobar versiones para el bar."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve the commit
+        id: sha
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$INPUT_SHA" ]; then
+            full=$(git rev-parse HEAD)
+          else
+            if ! printf '%s' "$INPUT_SHA" | grep -Eq '^[0-9a-fA-F]{7,40}$'; then
+              echo "::error::sha must be 7 to 40 hex characters."
+              exit 1
+            fi
+            full=$(git rev-parse --verify --quiet "${INPUT_SHA}^{commit}") || {
+              echo "::error::Commit not found in main's history: $INPUT_SHA"
+              exit 1
+            }
+          fi
+          if ! printf '%s' "$full" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::Could not resolve a full 40-char SHA."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$full" origin/main; then
+            echo "::error::Commit $full is not on main. Only commits of main can go to the bar."
+            exit 1
+          fi
+          echo "sha=$full" >> "$GITHUB_OUTPUT"
+          echo "Promoting $full"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify all six images exist
+        env:
+          SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for p in backend frontend telegram-bot backup updater release; do
+            if ! docker manifest inspect "$REGISTRY/billar-pos-$p:$SHA" > /dev/null 2>&1; then
+              echo "::error::Missing image billar-pos-$p:$SHA (is release-images finished for this commit?)"
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ]
+
+      - name: Read the current release.json and the previous version
+        id: old
+        env:
+          SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # All checks here run before any retag.
+          : > "$RUNNER_TEMP/old-release.json"
+          old_sha=""
+          if err=$(docker manifest inspect "$REGISTRY/billar-pos-release:bar-stable" 2>&1 > /dev/null); then
+            docker run --rm "$REGISTRY/billar-pos-release:bar-stable" cat /release.json > "$RUNNER_TEMP/old-release.json" || {
+              echo "::error::Cannot read release.json of the current bar-stable. Nothing was changed."
+              exit 1
+            }
+            old_sha=$(jq -er '.sha' "$RUNNER_TEMP/old-release.json" 2> /dev/null) || old_sha=""
+            if ! printf '%s' "$old_sha" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "::error::The current bar-stable release.json has no valid sha. Nothing was changed."
+              exit 1
+            fi
+          elif printf '%s' "$err" | grep -Eiq 'no such manifest|manifest unknown|name unknown'; then
+            echo "No bar-stable yet (first promotion)."
+          else
+            echo "::error::Cannot tell if bar-stable exists (registry error). Nothing was changed."
+            exit 1
+          fi
+          docker run --rm "$REGISTRY/billar-pos-release:$SHA" cat /release.json > "$RUNNER_TEMP/new-release.json"
+          new_sha=$(jq -er '.sha' "$RUNNER_TEMP/new-release.json")
+          if [ "$new_sha" != "$SHA" ]; then
+            echo "::error::release.json of the new image says $new_sha, not $SHA."
+            exit 1
+          fi
+          if [ -n "$old_sha" ] && [ "$old_sha" != "$SHA" ]; then
+            missing=0
+            for p in backend frontend telegram-bot backup updater release; do
+              if ! docker manifest inspect "$REGISTRY/billar-pos-$p:$old_sha" > /dev/null 2>&1; then
+                echo "::error::Missing previous image billar-pos-$p:$old_sha"
+                missing=1
+              fi
+            done
+            [ "$missing" = 0 ]
+          fi
+          echo "old_sha=$old_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Retag bar-previous and bar-stable (release last)
+        env:
+          SHA: ${{ steps.sha.outputs.sha }}
+          OLD_SHA: ${{ steps.old.outputs.old_sha }}
+        run: |
+          set -euo pipefail
+          retag() {  # retag <src> <dst>; no index wrap, the version keeps its SHA tag
+            docker buildx imagetools create --prefer-index=false -t "$2" "$1"
+          }
+          for p in backend frontend telegram-bot backup updater release; do
+            img="$REGISTRY/billar-pos-$p"
+            # bar-previous = the version that was bar-stable (OLD_SHA); no move when re-promoting the same SHA.
+            if [ -n "$OLD_SHA" ] && [ "$OLD_SHA" != "$SHA" ]; then
+              retag "$img:$OLD_SHA" "$img:bar-previous"
+            fi
+            retag "$img:$SHA" "$img:bar-stable"
+          done
+
+      - name: Tell Slack
+        env:
+          SHA: ${{ steps.sha.outputs.sha }}
+          SLACK_RELEASES_WEBHOOK_URL: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
+        run: |
+          set +e
+          if [ -z "$SLACK_RELEASES_WEBHOOK_URL" ]; then
+            echo "::warning::SLACK_RELEASES_WEBHOOK_URL is empty; no Slack message sent."
+            exit 0
+          fi
+          subject=$(git log -1 --format=%s "$SHA" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+          new=$(jq -r '.migrations[]?' "$RUNNER_TEMP/new-release.json" | sort -u)
+          if [ -s "$RUNNER_TEMP/old-release.json" ]; then
+            old=$(jq -r '.migrations[]?' "$RUNNER_TEMP/old-release.json" | sort -u)
+          else
+            old=""
+          fi
+          added=$(comm -23 <(printf '%s\n' "$new" | sed '/^$/d') <(printf '%s\n' "$old" | sed '/^$/d') | paste -sd, - | sed 's/,/, /g')
+          [ -n "$added" ] || added="ninguna"
+          text="Aprobado para el bar: \`${SHA:0:7}\` · ${subject} · migraciones nuevas: ${added}"
+          body=$(jq -n --arg t "$text" '{text:$t}')
+          if ! curl -sS -f -o /dev/null --max-time 20 -H 'Content-Type: application/json' \
+               --data "$body" "$SLACK_RELEASES_WEBHOOK_URL" 2> /dev/null; then
+            echo "::warning::Slack post failed (webhook URL not shown)."
+          fi
+          exit 0

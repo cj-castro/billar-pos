@@ -1,0 +1,223 @@
+name: billiards
+# Bar PC compose file (Bola 8). TEMPLATE: release/make_release.py fills in
+# {{SHA}} (the commit) and {{REGISTRY}}, and the result ships inside the
+# billar-pos-release image. On the PC it lives in the billiards folder as
+# docker-compose.bar.yml and is replaced only by the updater.
+#
+# `name: billiards` keeps the containers, the network and the data volume
+# (billiards_pg_data) exactly as the old build-based compose made them. Never
+# change it.
+#
+# Same services, environment, healthchecks, ports and restart policy as the
+# repo's docker-compose.yml (release/test_make_release.py checks this), but
+# every app service runs a pre-built image instead of `build:`. Settings come
+# from the .env next to this file. Optional variables are ${VAR:-} so compose
+# never warns about them; only BAR_HOST_DIR is required (see `updater`): when it
+# is missing, compose stops with a message that says to set it.
+
+services:
+
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-billiardbar}
+      POSTGRES_USER: ${POSTGRES_USER:-billiard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-billiard_secret}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-billiard} -d ${POSTGRES_DB:-billiardbar}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - billiardbar_net
+
+  backend:
+    image: {{REGISTRY}}/billar-pos-backend:{{SHA}}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-billiard}:${POSTGRES_PASSWORD:-billiard_secret}@postgres:5432/${POSTGRES_DB:-billiardbar}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-in-production}
+      BILLING_MODE: ${BILLING_MODE:-PER_MINUTE}
+      POOL_RATE_CENTS: ${POOL_RATE_CENTS:-150}
+      HAPPY_HOUR_START: ${HAPPY_HOUR_START:-17:00}
+      HAPPY_HOUR_END: ${HAPPY_HOUR_END:-20:00}
+      HAPPY_HOUR_DISCOUNT_PCT: ${HAPPY_HOUR_DISCOUNT_PCT:-20}
+      CURRENCY: ${CURRENCY:-MXN}
+      TZ: ${TZ:-America/Mexico_City}
+      # Venue identity (batch D1). Copied into settings on first start; the owner
+      # can change it later in Ajustes -> Negocio.
+      VENUE_NAME: ${VENUE_NAME:-Mi Billar}
+      # Closing hour for business days (Ajustes -> Negocio overrides it).
+      DAY_CUTOFF: ${DAY_CUTOFF:-00:00}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FLASK_ENV: ${FLASK_ENV:-production}
+      FLASK_APP: wsgi.py
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      ADMIN_PIN: ${ADMIN_PIN:-1234}
+      MANAGER_PASSWORD: ${MANAGER_PASSWORD:-manager123}
+      MANAGER_PIN: ${MANAGER_PIN:-5678}
+      WAITER1_PASSWORD: ${WAITER1_PASSWORD:-waiter123}
+      WAITER2_PASSWORD: ${WAITER2_PASSWORD:-waiter123}
+      KITCHEN_PASSWORD: ${KITCHEN_PASSWORD:-kitchen123}
+      BARSTAFF_PASSWORD: ${BARSTAFF_PASSWORD:-bar123}
+      PRINT_AGENT_URL: ${PRINT_AGENT_URL:-http://host.docker.internal:9191}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      REPORT_FROM: ${REPORT_FROM:-bola.8gdl@gmail.com}
+      REPORT_TO: ${REPORT_TO:-bola.8gdl@gmail.com,isc.castro@gmail.com}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5000/api/v1/auth/me | grep -q msg"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    networks:
+      - billiardbar_net
+
+  frontend:
+    # Built with VITE_API_URL=/api/v1 and VITE_SOCKET_URL=/ (release-images.yml).
+    image: {{REGISTRY}}/billar-pos-frontend:{{SHA}}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - billiardbar_net
+
+  scheduler:
+    # Same image as the backend, different entrypoint.
+    image: {{REGISTRY}}/billar-pos-backend:{{SHA}}
+    entrypoint: ["python", "scheduler.py"]
+    restart: unless-stopped
+    # The image's HEALTHCHECK probes the web API on :5000, which this service
+    # doesn't serve -- it always read "unhealthy" while working fine.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-billiard}:${POSTGRES_PASSWORD:-billiard_secret}@postgres:5432/${POSTGRES_DB:-billiardbar}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      TZ: ${TZ:-America/Mexico_City}
+      FLASK_APP: wsgi.py
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      REPORT_FROM: ${REPORT_FROM:-bola.8gdl@gmail.com}
+      REPORT_TO: ${REPORT_TO:-bola.8gdl@gmail.com,isc.castro@gmail.com}
+      # off = send nothing from this install (copies / test machines)
+      SCHEDULED_REPORTS: ${SCHEDULED_REPORTS:-on}
+      PURCHASE_FORECAST_HOUR: ${PURCHASE_FORECAST_HOUR:-10}
+    networks:
+      - billiardbar_net
+
+  telegram-bot:
+    image: {{REGISTRY}}/billar-pos-telegram-bot:{{SHA}}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      ADMIN_CHAT_ID: ${ADMIN_CHAT_ID:-}
+      PURCHASE_FORECAST_HOUR: ${PURCHASE_FORECAST_HOUR:-10}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-billiard}:${POSTGRES_PASSWORD:-billiard_secret}@postgres:5432/${POSTGRES_DB:-billiardbar}
+    networks:
+      - billiardbar_net
+
+  # Nightly pg_dump -Fc -> S3 at 02:00 (see README "Offsite backup").
+  # The vars below are ${VAR:-} on purpose: compose must always parse so a backup
+  # misconfiguration can never stop the POS. entrypoint.sh validates them and
+  # only THIS container fails (logs FATAL, restarts every ~60s).
+  backup:
+    image: {{REGISTRY}}/billar-pos-backup:{{SHA}}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-billiardbar}
+      POSTGRES_USER: ${POSTGRES_USER:-billiard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PREFIX: ${S3_PREFIX:-billiardbar}
+      TZ: America/Mexico_City
+    # The postgres base image declares a data VOLUME; mount tmpfs over it so
+    # docker does not create an unused anonymous volume on every recreate.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      # healthy = a successful backup within the last 26h (1560 min)
+      test: ["CMD-SHELL", "test -n \"$$(find /var/lib/backup/last_success -mmin -1560 2>/dev/null)\""]
+      interval: 5m
+      timeout: 10s
+      retries: 1
+      start_period: 10m
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    networks:
+      - billiardbar_net
+
+  # Installs the version CJ approved (tag bar-stable) at 03:00 America/Mexico_City:
+  # backup, rehearsal on a scratch copy, switch, health check, automatic
+  # rollback, Slack message. Code: updater/ in the repo.
+  # The ONLY service with the Docker socket. BAR_HOST_DIR (required, in .env) is
+  # the Windows path of the billiards folder, e.g. C:\Users\<user>\billiards:
+  # compose runs inside this container, so a relative path would resolve inside
+  # the container instead of on the PC. /bar holds this file, .env, backups/
+  # and updater/ (state and log).
+  updater:
+    image: {{REGISTRY}}/billar-pos-updater:{{SHA}}
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${BAR_HOST_DIR:?set BAR_HOST_DIR in .env (Windows path of the billiards folder)}:/bar
+    environment:
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-billiards}
+      UPDATER_REGISTRY: ${UPDATER_REGISTRY:-{{REGISTRY}}}
+      BAR_HOST_DIR: ${BAR_HOST_DIR:?set BAR_HOST_DIR in .env (Windows path of the billiards folder)}
+      GHCR_USER: ${GHCR_USER:-}
+      GHCR_TOKEN: ${GHCR_TOKEN:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      ADMIN_CHAT_ID: ${ADMIN_CHAT_ID:-}
+      # e.g. "[PRUEBA Mac]" on test machines; empty at the bar.
+      UPDATER_MESSAGE_PREFIX: ${UPDATER_MESSAGE_PREFIX:-}
+      TZ: ${TZ:-America/Mexico_City}
+      POSTGRES_USER: ${POSTGRES_USER:-billiard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-billiard_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-billiardbar}
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    networks:
+      - billiardbar_net
+
+volumes:
+  pg_data:
+    driver: local
+
+networks:
+  billiardbar_net:
+    driver: bridge

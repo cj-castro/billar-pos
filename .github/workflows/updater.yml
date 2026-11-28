@@ -1,0 +1,48 @@
+name: updater
+
+on:
+  pull_request:
+    paths:
+      - "updater/**"
+      - "release/**"
+      - "docker-compose.yml"
+      - "backend/migrations/sql/manifest.txt"
+      - ".github/workflows/updater.yml"
+  push:
+    branches: [main]
+    paths:
+      - "updater/**"
+      - "release/**"
+      - "docker-compose.yml"
+      - "backend/migrations/sql/manifest.txt"
+      - ".github/workflows/updater.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  updater:
+    name: updater
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: updater
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run updater tests
+        run: |
+          set -e
+          for f in tests/test_*.py; do
+            m=$(basename "$f" .py)
+            echo "== $m"
+            python -m "tests.$m"
+          done
+      - name: Run release tests (bar compose file, release.json, image cleanup)
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -e
+          python release/test_make_release.py
+          python release/test_cleanup_packages.py

@@ -16,6 +16,13 @@
 /frontend/src/pages/manager/CashSessionPage.tsx @cj-castro
 /frontend/src/pages/manager/SafeCollectionsPage.tsx @cj-castro
 /scripts/deploy/                        @cj-castro
+# Bar auto-update: the updater runs on the bar PC with the Docker socket, the
+# release image decides what gets installed, and the runbooks drive the PC.
+/updater/                               @cj-castro
+/release/                               @cj-castro
+/scripts/promote-to-bar.sh              @cj-castro
+/scripts/updater/                       @cj-castro
+/docs/DEPLOY-*                          @cj-castro
 /docker-compose.yml                     @cj-castro
 /.github/                               @cj-castro
 /CLAUDE.md                              @cj-castro
