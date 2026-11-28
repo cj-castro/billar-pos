@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -6,6 +6,7 @@ import CashCountGrid, { type CashCountGridHandle } from '../../components/CashCo
 import {
   clampTo, denomLabel, splitEnvelope, toApi, totalCents,
   type CloseEnvelope, type CloseResponse, type CountLines, type Denom, type DrawerLeftSlip,
+  suggestLeft, shouldStayCents, payTips,
 } from '../../utils/cashCount'
 import NavBar from '../../components/NavBar'
 import ManagerBackButton from '../../components/ManagerBackButton'
@@ -55,6 +56,8 @@ export default function CashSessionPage() {
   const [openLines, setOpenLines] = useState<CountLines>({})
   const [countLines, setCountLines] = useState<CountLines>({})
   const [leftLines, setLeftLines] = useState<CountLines>({})
+  // Until the manager edits "what stays", it follows the POS suggestion.
+  const [leftTouched, setLeftTouched] = useState(false)
   // Which grid / row the server refused (422 `field` + `key`).
   const [countErr, setCountErr] = useState<{ field?: string; key?: string } | null>(null)
   // Envelope + slips from the close response. Cleared with the close result, so
@@ -101,17 +104,47 @@ export default function CashSessionPage() {
   const ghostCount = (status as any)?.ghost_tickets_count ?? 0
   const realCount = openCount - ghostCount
 
+  const { data: summary, refetch: refetchSummary } = useQuery({
+    queryKey: ['cash-summary'],
+    queryFn: () => client.get('/cash/current/summary').then(r => r.data),
+    enabled: status?.open === true,
+    retry: false,
+    refetchInterval: 30000,
+  })
+
   // Count by denomination is on only when the server says so AND sent a table.
   const denoms: Denom[] = (status as any)?.denominations ?? []
   const countMode = (status as any)?.count_by_denomination === true && denoms.length > 0
   const fundTarget: number = (status as any)?.fund_target_cents ?? 0
   const openTotal = totalCents(openLines, denoms)
-  const countedTotal = totalCents(countLines, denoms)
-  const leftTotal = totalCents(leftLines, denoms)
-  const envelopeLines = splitEnvelope(countLines, leftLines)
+  // The manager counts the WHOLE drawer before paying tips; the POS takes the
+  // tips out (all tips, card ones too, are paid in cash from the drawer) and
+  // what is left is the close count the server stores.
+  const tipPayout: number = (summary as any)?.summary?.tip_payout_cents ?? 0
+  const tipDist = (summary as any)?.summary?.tip_distribution
+  const fullTotal = totalCents(countLines, denoms)
+  const countKey = JSON.stringify(countLines)
+  const { tipLines, paid: tipsPaid, after: afterTips } = useMemo(
+    () => payTips(countLines, denoms, tipPayout),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [countKey, tipPayout, denoms.length])
+  const tipsNotCovered = fullTotal > 0 && fullTotal < tipPayout
+  const tipsCentavos = !tipsNotCovered && tipPayout - tipsPaid
+  const countedTotal = totalCents(afterTips, denoms)
+  // "What stays" follows the POS suggestion until the manager edits it.
+  const suggestedLeft = useMemo(
+    () => suggestLeft(afterTips, denoms, fundTarget),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [countKey, tipPayout, fundTarget, denoms.length])
+  const effectiveLeft = leftTouched ? clampTo(leftLines, afterTips) : suggestedLeft
+  const leftTotal = totalCents(effectiveLeft, denoms)
+  const envelopeLines = splitEnvelope(afterTips, effectiveLeft)
   const envelopeTotal = countedTotal - leftTotal
-  // faltan / sobran: drawer-left vs the configured fund only (never vs expected cash).
-  const leftDiff = leftTotal - fundTarget
+  // faltan / sobran: drawer-left vs what should stay (the configured fund, or
+  // everything when the drawer holds less) — never vs expected cash.
+  const shouldStay = shouldStayCents(countedTotal, fundTarget)
+  const shortOfFund = countedTotal > 0 && countedTotal < fundTarget
+  const leftDiff = leftTotal - shouldStay
   const noteRequired = leftDiff !== 0
 
   const { data: openTickets = [], refetch: refetchOpenTickets } = useQuery({
@@ -132,14 +165,6 @@ export default function CashSessionPage() {
       toast.error(err.response?.data?.error || 'Error al limpiar')
     } finally { setCleaningGhosts(false) }
   }
-
-  const { data: summary, refetch: refetchSummary } = useQuery({
-    queryKey: ['cash-summary'],
-    queryFn: () => client.get('/cash/current/summary').then(r => r.data),
-    enabled: status?.open === true,
-    retry: false,
-    refetchInterval: 30000,
-  })
 
   const { data: expenses = [], refetch: refetchExpenses } = useQuery({
     queryKey: ['cash-expenses'],
@@ -309,6 +334,10 @@ export default function CashSessionPage() {
       noteRef.current?.focus()
       return toast.error(t('cash.count.noteMissing'))
     }
+    // Tips can change until the last ticket closes: never pay out a stale amount.
+    const fresh = await refetchSummary()
+    const nowTips = (fresh.data as any)?.summary?.tip_payout_cents ?? 0
+    if (nowTips !== tipPayout) return toast.error(t('cash.count.tipsChanged', { amount: cents(nowTips) }))
     if (countedTotal === 0 && !confirm(t('cash.count.confirmCloseZero'))) return
     if (!confirm(t('cash.count.confirmClose', {
       counted: cents(countedTotal), left: cents(leftTotal), envelope: cents(envelopeTotal),
@@ -316,8 +345,8 @@ export default function CashSessionPage() {
     setSaving(true)
     try {
       const res = await client.post<CloseResponse>('/cash/close', {
-        count: toApi(countLines),
-        drawer_left: toApi(leftLines),
+        count: toApi(afterTips),
+        drawer_left: toApi(effectiveLeft),
         notes: closeNotes.trim() || undefined,
       })
       toast.success('Bar cerrado. Sesión finalizada.')
@@ -326,6 +355,7 @@ export default function CashSessionPage() {
       const printedSlips = onClosedWithEnvelope(res.data, sessionDate, new Date().toLocaleTimeString())
       setCountLines({})
       setLeftLines({})
+      setLeftTouched(false)
       setCloseNotes('')
       setCountErr(null)
       refetchAll()
@@ -680,8 +710,6 @@ export default function CashSessionPage() {
                           value={countLines}
                           onChange={v => {
                             setCountLines(v)
-                            // A row that stays can never be more than was counted.
-                            setLeftLines(prev => clampTo(prev, v))
                             setCountErr(null)
                           }}
                           onDone={() => { if (!leftGridRef.current?.focusFirst()) noteRef.current?.focus() }}
@@ -690,32 +718,80 @@ export default function CashSessionPage() {
                         />
                       </div>
 
-                      {/* 2. What stays in the drawer: capped per row by the count */}
+                      {/* 1b. Tips: the POS takes them out of the count */}
+                      <div className="rounded-lg border border-slate-700 bg-slate-800/60 px-4 py-3 text-sm">
+                        <div className="flex justify-between font-bold">
+                          <span>{t('cash.count.tipsTitle')}</span>
+                          <span className="font-mono text-red-300">-{cents(tipsPaid)}</span>
+                        </div>
+                        {tipPayout === 0 ? (
+                          <div className="text-xs text-slate-400 mt-1">{t('cash.count.noTips')}</div>
+                        ) : (<>
+                          <div className="text-xs text-slate-400 mt-1">
+                            {t('cash.count.tipsToPay', { amount: cents(tipPayout) })}
+                            {tipDist && ` · ${t('cash.count.tipsSplit', { floor: cents(tipDist.floor_cents || 0), bar: cents(tipDist.bar_cents || 0), kitchen: cents(tipDist.kitchen_cents || 0) })}`}
+                          </div>
+                          {fullTotal > 0 && Object.keys(tipLines).length > 0 && (
+                            <div className="text-xs text-slate-300 mt-1">
+                              {t('cash.count.tipsTakeOut')}{' '}
+                              {denoms.filter(d => tipLines[d.key]).map(d => `${tipLines[d.key]} × ${denomLabel(d.cents)}`).join(' · ')}
+                            </div>
+                          )}
+                          {tipsNotCovered && (
+                            <div className="mt-2 rounded bg-red-900/40 border border-red-700 px-3 py-1.5 text-xs font-bold text-red-200">
+                              {t('cash.count.tipsNotCovered', { missing: cents(tipPayout - fullTotal) })}
+                            </div>
+                          )}
+                          {!!tipsCentavos && tipsCentavos > 0 && (
+                            <div className="text-xs text-slate-400 mt-1">{t('cash.count.tipsCentavos', { amount: cents(tipsCentavos) })}</div>
+                          )}
+                        </>)}
+                        <div className="flex justify-between font-bold mt-2 pt-2 border-t border-slate-700">
+                          <span>{t('cash.count.afterTips')}</span>
+                          <span className="font-mono">{cents(countedTotal)}</span>
+                        </div>
+                      </div>
+
+                      {/* 2. What stays in the drawer: capped per row by what is left after tips */}
                       <div>
                         <h3 className="font-bold mb-1">{t('cash.count.leftTitle')}</h3>
                         <p className="text-xs text-slate-400 mb-2">{t('cash.count.leftHelp', { target: cents(fundTarget) })}</p>
+                        {shortOfFund && (
+                          <div className="mb-2 rounded-lg bg-sky-900/40 border border-sky-700 px-4 py-2 text-sm text-sky-200">
+                            <div className="font-bold">{t('cash.count.shortOfFund', { target: cents(fundTarget), total: cents(countedTotal) })}</div>
+                            <div className="text-xs text-sky-300 mt-0.5">{t('cash.count.shortOfFundWhy')}</div>
+                          </div>
+                        )}
                         <CashCountGrid
                           ref={leftGridRef}
                           denoms={denoms}
-                          value={leftLines}
-                          max={countLines}
-                          onChange={v => { setLeftLines(v); setCountErr(null) }}
+                          value={effectiveLeft}
+                          max={afterTips}
+                          onChange={v => { setLeftLines(v); setLeftTouched(true); setCountErr(null) }}
                           onDone={() => noteRef.current?.focus()}
                           invalid={countErr?.field === 'drawer_left'}
                           errorKey={countErr?.field === 'drawer_left' ? countErr.key : null}
                         />
                         <div className={`mt-2 rounded-lg px-4 py-2 text-sm font-bold ${
                           leftDiff === 0 ? 'bg-green-900/40 text-green-300' : 'bg-amber-900/40 text-amber-300'}`}>
-                          {leftDiff === 0 ? t('cash.count.leftExact')
+                          {leftDiff === 0
+                            ? (shouldStay < fundTarget ? t('cash.count.leftAll', { amount: cents(shouldStay) }) : t('cash.count.leftExact'))
                             : leftDiff < 0 ? t('cash.count.leftShort', { amount: cents(-leftDiff) })
                             : t('cash.count.leftOver', { amount: cents(leftDiff) })}
                         </div>
+                        {leftTouched && (
+                          <button type="button"
+                            onClick={() => { setLeftLines({}); setLeftTouched(false); setCountErr(null) }}
+                            className="mt-2 text-xs text-sky-300 underline">
+                            {t('cash.count.useSuggestion')}
+                          </button>
+                        )}
                       </div>
 
                       <div>
                         <label htmlFor="close-notes"
                           className={`text-xs block mb-1 ${noteRequired ? 'text-amber-300 font-semibold' : 'text-slate-400'}`}>
-                          {noteRequired ? t('cash.count.noteRequired', { target: cents(fundTarget) }) : t('cash.count.noteOptional')}
+                          {noteRequired ? t('cash.count.noteRequired', { target: cents(shouldStay) }) : t('cash.count.noteOptional')}
                         </label>
                         <textarea id="close-notes" ref={noteRef} value={closeNotes}
                           onChange={e => { setCloseNotes(e.target.value); if (countErr?.field === 'notes') setCountErr(null) }}

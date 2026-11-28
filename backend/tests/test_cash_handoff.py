@@ -729,6 +729,31 @@ with app.app_context():
         r = put_setting('venue.currency', 'MXN')
         check('15f. (cleanup) venue currency back to MXN', r.status_code == 200, f'{r.status_code}')
     check('15g. with MXN again, count_required() is True', cash_handoff_svc.count_required() is True)
+
+    print('\n== 16. slow night: less than the fund in the drawer ==')
+    # Card tips are paid in cash from the drawer, so on a card-heavy or slow
+    # night the drawer can hold less than the fund. Leaving ALL of it is the
+    # right move and needs no note; leaving less than that still does.
+    # counted 193000 = 1x1000 + 1x500 + 2x200 + 3x10  (< the 200000 fund)
+    slow = lines(B1000=1, B500=1, B200=2, C10=3)
+    r = client.post(f'{API}/cash/open', headers=tok['MANAGER'], json={'count': lines(B1000=1, B500=2)})
+    check('16a. (setup) open with a count', r.status_code == 201, f'{r.status_code} {r.get_json()}')
+    slow_sid = (r.get_json() or {}).get('id')
+    r = client.post(f'{API}/cash/close', headers=tok['MANAGER'],
+                    json={'count': slow, 'drawer_left': lines(B1000=1, B500=1), 'notes': ''})
+    j = r.get_json() or {}
+    check('16b. leaving 150000 of 193000 (could leave all) with no note -> 422 NOTE_REQUIRED',
+          r.status_code == 422 and j.get('error') == 'NOTE_REQUIRED', f'{r.status_code} {j}')
+    r = client.post(f'{API}/cash/close', headers=tok['MANAGER'],
+                    json={'count': slow, 'drawer_left': slow, 'notes': ''})
+    j = r.get_json() or {}
+    check('16c. leaving everything (193000 < fund) with no note -> 200',
+          r.status_code == 200, f'{r.status_code} {j}')
+    check('16d. the envelope is empty (declared 0)',
+          scalar('SELECT declared_cents FROM cash_envelopes WHERE session_id = :s', s=slow_sid) == 0)
+    check('16e. the DRAWER_LEFT count is the whole 193000',
+          scalar("SELECT total_cents FROM cash_counts WHERE session_id = :s AND kind = 'DRAWER_LEFT'", s=slow_sid) == 193000)
+
     put_setting('cash.count_by_denomination', 'off')
 
     db.session.commit()
