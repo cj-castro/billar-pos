@@ -1,0 +1,6 @@
+# Only the updater package and the build helper go into the image.
+*
+!fetch_binary.py
+!updater/
+**/__pycache__
+**/*.pyc

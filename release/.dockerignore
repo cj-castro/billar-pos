@@ -1,0 +1,4 @@
+# Build context = the two rendered files only.
+*
+!release.json
+!docker-compose.bar.yml

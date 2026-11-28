@@ -1,0 +1,4 @@
+# Written by make_release.py; built into the release image, never committed.
+/release.json
+/docker-compose.bar.yml
+*.tmp
